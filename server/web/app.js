@@ -171,7 +171,12 @@ function renderShell() {
           { label: T('TV mode'), action: () => { location.hash = '#/tv'; } },
           { label: T('Sign out'), action: async () => { await POST('/api/logout'); location.reload(); } },
         ]) }, '⋯'))),
+    h('div', { class: 'navscrim', onclick: () => document.body.classList.remove('nav-open') }),
     h('div', { class: 'mainwrap' },
+      h('header', { class: 'mtop' },
+        h('button', { class: 'icon-btn mburger', title: T('Menu'), 'aria-label': T('Menu'), onclick: () => document.body.classList.toggle('nav-open') }, '☰'),
+        h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
+        h('span', { class: 'mtop-st', id: 'mtopSt' })),
       h('div', { class: 'page', id: 'page' }),
       h('section', { id: 'drawer', class: 'drawer hidden' })));
   renderNav();
@@ -197,7 +202,13 @@ function renderNav() {
   if (isAdmin()) { items.push(link('#/users', T('Users'))); items.push(link('#/audit', T('Audit log'))); items.push(link('#/settings', T('Settings'))); }
   items.push(link('#/tv', T('TV mode')));
   $('#nav').replaceChildren(...items);
+  const all = counts(S.targets);
+  const ms = $('#mtopSt');
+  if (ms) ms.replaceChildren(...[all.down ? h('span', { class: 'chip st-down' }, h('span', { class: 'dot' }), String(all.down)) : null,
+    all.warn ? h('span', { class: 'chip st-warn' }, h('span', { class: 'dot' }), String(all.warn)) : null,
+    !all.down && !all.warn && all.total ? h('span', { class: 'chip st-up' }, h('span', { class: 'dot' }), String(all.up)) : null].filter(Boolean));
 }
+window.addEventListener('hashchange', () => document.body.classList.remove('nav-open'));
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
