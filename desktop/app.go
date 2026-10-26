@@ -25,7 +25,7 @@ import (
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.2.0"
+var Version = "0.3.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.

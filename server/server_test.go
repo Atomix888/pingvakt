@@ -7,6 +7,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
+	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 )
 
@@ -80,5 +81,34 @@ func TestIngestAndHistory(t *testing.T) {
 	}
 	if n != 5 || lost != 3 {
 		t.Fatalf("aggregat räknade fel: n=%d lost=%d", n, lost)
+	}
+}
+
+func TestEvalHost(t *testing.T) {
+	r := alert.Alert{Condition: alert.CondCPU, Threshold: 80, Samples: 5}
+	r.Normalize()
+	base := int64(10_000_000)
+	var pts []hostPoint
+	for i := 0; i <= 10; i++ {
+		pts = append(pts, hostPoint{t: base + int64(i)*30000, cpu: 95, mem: 40})
+	}
+	end := base + 10*30000
+	if met, _ := evalHost(r, pts, hostinfo.Metrics{}, end); !met {
+		t.Fatal("CPU 95 % i 5 min ska utlösa")
+	}
+	pts[9].cpu = 50
+	if met, _ := evalHost(r, pts, hostinfo.Metrics{}, end); met {
+		t.Fatal("en mätning under gränsen ska inte utlösa")
+	}
+	// för kort historik
+	if met, _ := evalHost(r, pts[8:], hostinfo.Metrics{}, end); met {
+		t.Fatal("1 minut data räcker inte för 5 minuters villkor")
+	}
+	d := alert.Alert{Condition: alert.CondDisk, Threshold: 90}
+	d.Normalize()
+	m := hostinfo.Metrics{Disks: []hostinfo.Disk{{Mount: "/", Used: 95, Total: 100}, {Mount: "/data", Used: 10, Total: 100}}}
+	met, detail := evalHost(d, pts, m, end)
+	if !met || detail == "" {
+		t.Fatalf("disk 95 %% ska utlösa: %q", detail)
 	}
 }

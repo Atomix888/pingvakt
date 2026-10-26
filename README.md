@@ -49,6 +49,13 @@ Första gången du öppnar webbgränssnittet skapar du administratörskontot. Se
 3. Klicka **Lägg till mål** och välj agenten som ska mäta. Agenten hämtar sina mål från servern inom några sekunder.
 4. Skapa **larmregler**, antingen per kund eller för alla kunder. Larmen kan skicka e-post och webhook (Teams, Slack m.fl.) och visa popup och ljud i webbläsaren. *Agent offline* larmar när en agent slutar rapportera.
 
+**CPU, minne och disk:** agenterna rapporterar datorns CPU-belastning, minnesanvändning och hur fulla diskarna är. Värdena visas på agenten under kunden och i agentlistan. Klickar du på en agent får du grafer från 1 timme upp till 30 dagar. Servern visar också sina egna värden på översikten. Det finns tre larmtyper för detta:
+- *CPU hög:* över X % i N minuter i sträck.
+- *Minne högt:* över X % i N minuter i sträck.
+- *Disk full:* någon volym är mer än X % full.
+
+Regler som gäller alla kunder kontrollerar även själva servern. Värdena sparas som minutvärden lika länge som ping-historiken (400 dagar som standard).
+
 Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adress och en agent-token. Appens egna mål syns då under kunden. Larmen väljs på servern.
 
 **Roller:** *Administratör* kan göra allt. *Kund* har bara läsbehörighet och ser bara sin egen kund.

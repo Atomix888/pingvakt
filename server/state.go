@@ -15,6 +15,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
+	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 )
 
@@ -39,6 +40,7 @@ type Server struct {
 
 	eng    *alert.Engine
 	mailer *alert.Mailer
+	host   *hostState
 
 	subMu sync.Mutex
 	subs  map[*subscriber]struct{}
@@ -52,7 +54,7 @@ func NewServer(db *DB, version, agentsDir string) (*Server, error) {
 		customers: map[string]Customer{}, sites: map[string]Site{}, agents: map[string]*Agent{},
 		tokens: map[string]string{}, targets: map[string]*Target{}, trackers: map[string]*monitor.Tracker{},
 		pending: map[string][]monitor.Sample{}, rules: map[string]Rule{}, offline: map[string]bool{},
-		subs: map[*subscriber]struct{}{}, limiter: newLoginLimiter()}
+		subs: map[*subscriber]struct{}{}, limiter: newLoginLimiter(), host: newHostState()}
 	s.settings = db.LoadSettings()
 	s.mailer = alert.NewMailer(s.settings.SMTP)
 	s.mailer.OnError = func(err error) { log.Printf("e-post: %v", err) }
@@ -60,6 +62,7 @@ func NewServer(db *DB, version, agentsDir string) (*Server, error) {
 	if err := s.reload(); err != nil {
 		return nil, err
 	}
+	s.loadHostLatest()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
 		tr := monitor.NewTracker(s.settings.Monitor.HistorySize)
@@ -325,6 +328,9 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	for _, u := range touched {
 		s.eng.Handle(u)
 	}
+	if rep.Host != nil {
+		s.ingestHost(agentID, *rep.Host)
+	}
 
 	// konfiguration till agenter som styrs från servern
 	if kind == agentproto.KindAgent && rep.ConfigVersion != agentCopy.ConfigVersion {
@@ -416,6 +422,7 @@ func (s *Server) defaultAlertIDs(agentID string) []string {
 // Run startar sändning till webbläsare, offline-kontroll och gallring.
 func (s *Server) Run(ctx context.Context) {
 	go s.broadcastLoop(ctx)
+	go s.selfLoop(ctx)
 	go func() {
 		tk := time.NewTicker(10 * time.Second)
 		defer tk.Stop()
@@ -425,6 +432,7 @@ func (s *Server) Run(ctx context.Context) {
 				return
 			case <-tk.C:
 				s.checkOffline()
+				s.flushHost(false)
 			}
 		}
 	}()
@@ -433,6 +441,7 @@ func (s *Server) Run(ctx context.Context) {
 			s.mu.RLock()
 			raw, agg := s.settings.RawDays, s.settings.AggDays
 			s.mu.RUnlock()
+			s.pruneHost(agg)
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
 			} else if n > 0 {
@@ -535,8 +544,9 @@ func (s *Server) broadcastRaw(customer string, b []byte) {
 
 // LiveStats är statistik med hänsyn till om agenten är offline.
 type liveAgent struct {
-	LastSeen int64 `json:"lastSeen"`
-	Online   bool  `json:"online"`
+	LastSeen int64             `json:"lastSeen"`
+	Online   bool              `json:"online"`
+	Host     *hostinfo.Metrics `json:"host,omitempty"`
 }
 
 func (s *Server) broadcastLoop(ctx context.Context) {
@@ -563,7 +573,8 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 			continue
 		}
 		snap := s.snapshot(nil)
-		active := s.eng.Active()
+		active := s.activeAlerts()
+		self := s.hostLatest(ServerHostID)
 		for _, sub := range subs {
 			msg := map[string]any{"type": "tick"}
 			stats := map[string]monitor.Stats{}
@@ -594,6 +605,9 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 				}
 			}
 			msg["stats"], msg["samples"], msg["agents"], msg["active"] = stats, samples, agents, act
+			if sub.customers == nil {
+				msg["server"] = self
+			}
 			b, _ := json.Marshal(msg)
 			select {
 			case sub.ch <- b:
@@ -622,7 +636,7 @@ func (s *Server) snapshot(customers map[string]bool) snapshot {
 			continue
 		}
 		out.agentCustomer[id] = c
-		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a)}
+		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a), Host: s.hostLatest(id)}
 	}
 	for id, t := range s.targets {
 		c := s.customerOfTarget(t)
@@ -636,5 +650,16 @@ func (s *Server) snapshot(customers map[string]bool) snapshot {
 		out.Stats[id] = st
 		out.targetCustomer[id] = c
 	}
+	return out
+}
+
+// activeAlerts slår ihop aktiva larm för mål och för datorer (CPU/minne/disk).
+func (s *Server) activeAlerts() map[string]int64 {
+	out := s.eng.Active()
+	s.host.mu.Lock()
+	for k, v := range s.host.alerts {
+		out[k] = v
+	}
+	s.host.mu.Unlock()
 	return out
 }

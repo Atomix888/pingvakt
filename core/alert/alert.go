@@ -23,7 +23,15 @@ const (
 	CondLatency Condition = "latency" // latens över gränsvärde (förlorat paket räknas också)
 	CondLoss    Condition = "loss"    // paketförlust i procent över fönstret
 	CondOffline Condition = "offline" // agenten har slutat rapportera (bara på servern)
+	CondCPU     Condition = "cpu"     // agentens CPU över gränsvärde (procent) i N minuter
+	CondMem     Condition = "mem"     // agentens minne över gränsvärde (procent) i N minuter
+	CondDisk    Condition = "disk"    // någon av agentens diskar fylld över gränsvärde (procent)
 )
+
+// ForTargets anger om villkoret gäller mätmål (annars agenten/datorn).
+func (c Condition) ForTargets() bool {
+	return c == CondDown || c == CondLatency || c == CondLoss
+}
 
 // Alert är en larmdefinition som kan kopplas till ett eller flera mål.
 type Alert struct {
@@ -55,9 +63,22 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk:
 	default:
 		a.Condition = CondDown
+	}
+	switch a.Condition {
+	case CondCPU, CondMem, CondDisk:
+		if a.Threshold <= 0 || a.Threshold > 100 {
+			a.Threshold = 90
+		}
+		if a.Samples < 1 {
+			a.Samples = map[Condition]int{CondCPU: 5, CondMem: 5, CondDisk: 1}[a.Condition]
+		}
+		if a.Samples > 1440 {
+			a.Samples = 1440
+		}
+		a.Count = a.Samples
 	}
 	a.HookURL = strings.TrimSpace(a.HookURL)
 	if a.Samples < 1 {
@@ -98,6 +119,12 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf("Förlust > %g %% (senaste %d)", a.Threshold, a.Samples)
 	case CondOffline:
 		return "Agent offline"
+	case CondCPU:
+		return fmt.Sprintf("CPU > %g %% i %d min", a.Threshold, a.Samples)
+	case CondMem:
+		return fmt.Sprintf("Minne > %g %% i %d min", a.Threshold, a.Samples)
+	case CondDisk:
+		return fmt.Sprintf("Disk > %g %% full", a.Threshold)
 	}
 	return fmt.Sprintf("Nere (%d av %d förlorade)", a.Count, a.Samples)
 }
@@ -107,7 +134,7 @@ func (a Alert) Evaluate(samples []monitor.Sample) (bool, string) {
 	if len(samples) > a.Samples {
 		samples = samples[len(samples)-a.Samples:]
 	}
-	if len(samples) == 0 || a.Condition == CondOffline {
+	if len(samples) == 0 || !a.Condition.ForTargets() {
 		return false, ""
 	}
 	switch a.Condition {
@@ -293,7 +320,7 @@ func (e *Engine) Handle(u monitor.Update) {
 	e.mu.Lock()
 	for _, aid := range t.AlertIDs {
 		a, ok := e.alerts[aid]
-		if !ok || a.Condition == CondOffline {
+		if !ok || !a.Condition.ForTargets() {
 			continue
 		}
 		met, detail := a.Evaluate(e.mon.Recent(t.ID, a.Samples))

@@ -16,6 +16,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
+	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 	"pingvakt/core/probe"
 )
@@ -60,6 +61,7 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/history", need(false, s.handleHistory))
 	mux.HandleFunc("GET /api/targets/{id}/export.csv", need(false, s.handleExport))
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
+	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
 	// administration
 	mux.HandleFunc("POST /api/customers", need(true, s.handleSaveCustomer))
 	mux.HandleFunc("PUT /api/customers/{id}", need(true, s.handleSaveCustomer))
@@ -123,6 +125,7 @@ type stateOut struct {
 	Monitor   monitor.Settings         `json:"monitor"`
 	ReportSec int                      `json:"reportSec"`
 	ServerURL string                   `json:"serverUrl"`
+	Server    *hostinfo.Metrics        `json:"server,omitempty"`
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
@@ -174,14 +177,19 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		}
 		return out.Targets[i].ID < out.Targets[j].ID
 	})
-	act := s.eng.Active()
+	act := s.activeAlerts()
 	out.Active = map[string]int64{}
 	for k, v := range act {
 		if i := strings.IndexByte(k, '|'); i >= 0 {
-			if _, ok := snap.Stats[k[i+1:]]; ok {
+			_, isT := snap.Stats[k[i+1:]]
+			_, isA := snap.Agents[k[i+1:]]
+			if isT || isA {
 				out.Active[k] = v
 			}
 		}
+	}
+	if u.Role == "admin" {
+		out.Server = s.hostLatest(ServerHostID)
 	}
 	writeJSON(w, out)
 }

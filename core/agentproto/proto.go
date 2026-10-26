@@ -6,7 +6,10 @@
 // innehåller ny konfiguration (mål och inställningar) om den har ändrats.
 package agentproto
 
-import "pingvakt/core/monitor"
+import (
+	"pingvakt/core/hostinfo"
+	"pingvakt/core/monitor"
+)
 
 // ReportPath är serverns endpoint för rapporter.
 const ReportPath = "/api/agent/v1/report"
@@ -36,11 +39,12 @@ type Sample struct {
 
 // Report skickas från klienten.
 type Report struct {
-	Agent            AgentInfo        `json:"agent"`
-	ConfigVersion    int64            `json:"configVersion"`
-	LocalTargetsHash string           `json:"localTargetsHash,omitempty"`
-	LocalTargets     []monitor.Target `json:"localTargets,omitempty"`
-	Samples          []Sample         `json:"samples"`
+	Agent            AgentInfo         `json:"agent"`
+	ConfigVersion    int64             `json:"configVersion"`
+	LocalTargetsHash string            `json:"localTargetsHash,omitempty"`
+	LocalTargets     []monitor.Target  `json:"localTargets,omitempty"`
+	Samples          []Sample          `json:"samples"`
+	Host             *hostinfo.Metrics `json:"host,omitempty"` // CPU, minne och disk (agenter)
 }
 
 // Config är det servern bestämmer för en agent.

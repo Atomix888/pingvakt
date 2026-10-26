@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 )
 
@@ -48,6 +49,8 @@ type Uploader struct {
 	OnConfig func(Config)
 	// LocalTargets returnerar klientens egna mål (skrivbordsappen).
 	LocalTargets func() []monitor.Target
+	// Host returnerar datorns CPU, minne och disk (agenter).
+	Host func() *hostinfo.Metrics
 
 	mu            sync.Mutex
 	buf           []Sample
@@ -160,6 +163,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	needTargets := u.needTargets
 	u.mu.Unlock()
 
+	if u.Host != nil {
+		rep.Host = u.Host()
+	}
 	var hash string
 	if u.LocalTargets != nil {
 		ts := u.LocalTargets()

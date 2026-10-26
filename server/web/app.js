@@ -59,7 +59,7 @@ async function loadState() {
   Object.assign(S, {
     me: st.me, customers: st.customers, sites: st.sites, agents: st.agents, targets: st.targets, rules: st.rules,
     stats: st.stats || {}, live: st.live || {}, active: st.active || {}, monitor: st.monitor, reportSec: st.reportSec,
-    serverUrl: st.serverUrl, version: st.version,
+    serverUrl: st.serverUrl, version: st.version, serverHost: st.server || null,
   });
 }
 
@@ -231,6 +231,14 @@ function renderOverview(page) {
   } else {
     content.push(cards, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Just nu')), plist));
   }
+  if (isAdmin() && S.serverHost) {
+    const sh = S.serverHost;
+    content.push(h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Servern')),
+      h('div', { class: 'card server-card', onclick: () => hostView('_server') },
+        h('div', { class: 'meters' }, meter('CPU', sh.cpu, `${fmtPct(sh.cpu)} av ${sh.cpus} kärnor`), meter('Minne', memPct(sh), `${gb(sh.memUsed)} av ${gb(sh.memTotal)}`),
+          ...(sh.disks || []).slice(0, 3).map(d => meter('Disk ' + d.m, pct(d), `${gb(d.t - d.u)} ledigt av ${gb(d.t)}`))),
+        h('div', { class: 'meta' }, `PingVakt-server ${S.version} · upptid ${dur(sh.uptime * 1000)}`))));
+  }
   page.replaceChildren(...content);
 }
 
@@ -293,12 +301,17 @@ function agentChip(a) {
   const el = h('span', { class: 'agent-chip st-' + st, 'data-agent': a.id, title: `${a.hostname || ''} ${a.os || ''} ${a.version ? 'v' + a.version : ''} ${a.ip || ''}`.trim() },
     h('span', { class: 'dot' }), h('b', null, a.name),
     h('small', null, st === 'pending' ? 'väntar på första kontakt' : st === 'up' ? `${kind} · online` : `offline ${dur(Date.now() - seen)}`),
-    isAdmin() ? h('button', { class: 'icon-btn', title: 'Agent', onclick: e => agentMenu(a, e.currentTarget) }, '⋯') : null);
+    lv.host && st === 'up' ? hostMini(lv.host) : null,
+    isAdmin() ? h('button', { class: 'icon-btn', title: 'Agent', onclick: e => { e.stopPropagation(); agentMenu(a, e.currentTarget); } }, '⋯') : null);
+  if (Object.keys(S.active).some(k => k.endsWith('|' + a.id))) el.classList.add('alerting');
+  if (lv.host || a.kind === 'agent') { el.classList.add('clickable'); el.addEventListener('click', () => hostView(a.id)); }
+  el.dataset.sig = st + '|' + (lv.host ? [Math.round(lv.host.cpu), Math.round(memPct(lv.host)), Math.round(diskPct(lv.host))].join(',') : '');
   return el;
 }
 
 function agentMenu(a, anchor) {
   showMenu(anchor, [
+    { label: 'CPU, minne och disk…', action: () => hostView(a.id) },
     { label: 'Installera / visa kommandon…', action: () => installDialog(a, null) },
     { label: 'Ny token…', action: async () => {
       if (!await confirmDialog('Ny token', `Den gamla token för "${a.name}" slutar fungera direkt. Agenten måste registreras om med den nya.`, 'Skapa ny token')) return;
@@ -480,6 +493,8 @@ let structTimer = null;
 function onTick(m) {
   Object.assign(S.stats, m.stats || {});
   Object.assign(S.live, m.agents || {});
+  if (m.server) S.serverHost = m.server;
+  if (S.hostView) refreshHostView();
   S.active = m.active || {};
   for (const [id, arr] of Object.entries(m.samples || {})) {
     const sp = S.spark[id] || (S.spark[id] = []);
@@ -493,8 +508,8 @@ function onTick(m) {
   if (S.view && S.view.name === 'overview' && !document.querySelector('.backdrop')) renderOverview($('#page'));
   else for (const t of S.targets) if (tiles.has(t.id)) updateTile(t);
   document.querySelectorAll('.agent-chip').forEach(ch => {
-    const a = agentOf(ch.dataset.agent); const was = ch.className;
-    if (a) { const n = agentChip(a); if (n.className !== was) ch.replaceWith(n); }
+    const a = agentOf(ch.dataset.agent);
+    if (a) { const n = agentChip(a); if (n.dataset.sig !== ch.dataset.sig) ch.replaceWith(n); }
   });
   if (S.selected) updateDrawerHead();
   renderNavThrottled();
@@ -700,6 +715,105 @@ function rebuildChart() {
 function resizeChart() { if (chart) { const box = $('#dChart'); chart.setSize({ width: box.clientWidth - 14, height: Math.max(120, box.clientHeight - 40) }); } }
 window.addEventListener('resize', () => { resizeChart(); for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
 
+
+/* ---------------- CPU, minne och disk ---------------- */
+const pct = d => d && d.t ? d.u * 100 / d.t : 0;
+const memPct = m => m && m.memTotal ? m.memUsed * 100 / m.memTotal : 0;
+const diskPct = m => Math.max(0, ...((m && m.disks) || []).map(pct));
+const fmtPct = v => v == null || isNaN(v) ? '–' : (v < 10 ? v.toFixed(1) : Math.round(v)) + ' %';
+function gb(b) { const v = (b || 0) / 1073741824; return v >= 100 ? Math.round(v) + ' GB' : v >= 10 ? v.toFixed(1) + ' GB' : v.toFixed(2) + ' GB'; }
+const level = v => v >= 90 ? 'bad' : v >= 75 ? 'high' : '';
+function hostMini(m) {
+  const it = (label, v) => h('span', { class: 'hm ' + level(v), title: label }, h('i', null, label), fmtPct(v));
+  return h('span', { class: 'hostmini' }, it('CPU', m.cpu), it('RAM', memPct(m)), it('Disk', diskPct(m)));
+}
+function hostCells(m, online) {
+  if (!m) return [h('td', null, '–'), h('td', null, '–'), h('td', null, '–')];
+  const c = v => h('td', { class: 'mono ' + (online ? 'lvl-' + (level(v) || 'ok') : 'muted') }, fmtPct(v));
+  return [c(m.cpu), c(memPct(m)), c(diskPct(m))];
+}
+function meter(label, v, sub) {
+  return h('div', { class: 'meter ' + level(v) },
+    h('div', { class: 'meter-head' }, h('span', null, label), h('b', null, fmtPct(v))),
+    h('div', { class: 'bar' }, h('span', { style: `width:${Math.max(0, Math.min(100, v || 0))}%` })),
+    sub ? h('small', null, sub) : null);
+}
+
+const HOST_RANGES = [[3600, '1 h'], [21600, '6 h'], [86400, '24 h'], [604800, '7 d'], [2592000, '30 d']];
+let hostCharts = [];
+function hostView(id) {
+  const isSrv = id === '_server';
+  const a = isSrv ? null : agentOf(id);
+  if (!isSrv && !a) return;
+  S.hostView = { id, range: S.hostRange || 3600 };
+  const now = h('div', { class: 'meters', id: 'hvNow' });
+  const facts = h('div', { class: 'facts', id: 'hvFacts' });
+  const ranges = h('div', { class: 'ranges' }, ...HOST_RANGES.map(([sec, label]) => h('button', { 'data-r': sec, onclick: () => { S.hostView.range = S.hostRange = sec; loadHostCharts(); } }, label)));
+  const charts = h('div', { class: 'hostcharts' },
+    h('div', null, h('h4', null, 'CPU'), h('div', { class: 'hchart', id: 'hcCpu' })),
+    h('div', null, h('h4', null, 'Minne'), h('div', { class: 'hchart', id: 'hcMem' })),
+    h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })));
+  const title = isSrv ? 'PingVakt-servern' : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
+  modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, 'Historik'), h('div', { class: 'tools' }, ranges)), charts),
+    onClose: () => { S.hostView = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
+  refreshHostView();
+  loadHostCharts();
+}
+
+function refreshHostView() {
+  const hv = S.hostView;
+  if (!hv || !$('#hvNow')) return;
+  const isSrv = hv.id === '_server';
+  const a = isSrv ? null : agentOf(hv.id);
+  const lv = isSrv ? { host: S.serverHost, online: true } : (S.live[hv.id] || {});
+  const m = lv.host;
+  const fact = (k, v) => h('div', null, h('small', null, k), h('b', null, v || '–'));
+  $('#hvFacts').replaceChildren(...[
+    isSrv ? fact('Version', S.version) : fact('Status', lv.online ? 'Online' : (lv.lastSeen || a.lastSeen) ? 'Offline' : 'Ej ansluten'),
+    isSrv ? null : fact('Värd', a.hostname), isSrv ? null : fact('System', a.os), isSrv ? null : fact('IP', a.ip), isSrv ? null : fact('Agentversion', a.version),
+    m ? fact('CPU-kärnor', String(m.cpus)) : null, m ? fact('Minne', gb(m.memTotal)) : null, m ? fact('Upptid', dur(m.uptime * 1000)) : null,
+    m && m.load1 ? fact('Last (1 min)', String(m.load1)) : null,
+    isSrv ? null : fact('Senast sedd', (lv.lastSeen || a.lastSeen) ? dateTime(lv.lastSeen || a.lastSeen) : 'aldrig')].filter(Boolean));
+  $('#hvNow').replaceChildren(...(m ? [meter('CPU', m.cpu, `${m.cpus} kärnor`), meter('Minne', memPct(m), `${gb(m.memUsed)} av ${gb(m.memTotal)}`),
+    ...(m.disks || []).map(d => meter('Disk ' + d.m, pct(d), `${gb(d.t - d.u)} ledigt av ${gb(d.t)}`))]
+    : [h('p', { class: 'muted' }, a && a.kind === 'desktop' ? 'Skrivbordsappen rapporterar inte CPU, minne och disk.' : 'Inga värden ännu – agenten rapporterar CPU, minne och disk från version 0.3.')]));
+  document.querySelectorAll('.modal .ranges button').forEach(b => b.classList.toggle('on', +b.dataset.r === hv.range));
+}
+
+async function loadHostCharts() {
+  const hv = S.hostView;
+  if (!hv) return;
+  refreshHostView();
+  const to = Date.now(), from = to - hv.range * 1000;
+  const res = await GET(`/api/agents/${hv.id}/metrics?from=${from}&to=${to}`);
+  if (!S.hostView || S.hostView.id !== hv.id) return;
+  const hs = res.history;
+  hostCharts.forEach(c => c.destroy()); hostCharts = [];
+  const c = css();
+  const x = hs.t.map(t => t / 1000);
+  const axis = { stroke: c.muted, grid: { stroke: c.border, width: 1 }, ticks: { stroke: c.border, width: 1 }, font: '11px ' + getComputedStyle(document.body).fontFamily };
+  const pv = (u, v) => v == null ? '–' : fmtPct(v);
+  const pts = { show: x.length < 90, size: 4 };
+  const mk = (box, series, data) => {
+    const el = $(box); if (!el) return;
+    el.replaceChildren();
+    if (!x.length) { el.append(h('p', { class: 'muted' }, 'Ingen historik för perioden.')); return; }
+    const u = new uPlot({
+      width: el.clientWidth || 400, height: 170,
+      scales: { x: { time: true, range: () => [from / 1000, to / 1000] }, y: { range: [0, 100] } },
+      axes: [Object.assign({}, axis, { values: (u, sp) => sp.map(v => timeLabel(v, hv.range)) }), Object.assign({}, axis, { size: 44, values: (u, sp) => sp.map(v => v + '%') })],
+      series: [{ label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') }, ...series],
+      legend: { live: true }, cursor: { drag: { x: false, y: false } },
+    }, [x, ...data], el);
+    hostCharts.push(u);
+  };
+  const pal = [c.accent, '#8b7cf6', '#f2b33d', '#5b9cf5', '#e46aa8', '#3ccf7a', '#ef8a50', '#9aa5b1'];
+  mk('#hcCpu', [{ label: 'Snitt', stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: pv, points: pts },
+    { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
+  mk('#hcMem', [{ label: `Använt${hs.memTotal ? ' av ' + gb(hs.memTotal) : ''}`, stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
+  mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
+}
+
 /* ---------------- agenter ---------------- */
 function renderAgents(page) {
   const head = h('div', { class: 'page-head' }, h('h1', null, 'Agenter'), h('span', { class: 'sub' }, `${S.agents.length} st`), connBadge());
@@ -708,18 +822,19 @@ function renderAgents(page) {
     const lv = S.live[a.id] || {}, seen = lv.lastSeen || a.lastSeen;
     const st = !seen ? 'pending' : lv.online ? 'up' : 'offline';
     const site = siteOf(a.siteId);
-    return h('tr', null,
+    return h('tr', { class: 'clickable', onclick: e => { if (!e.target.closest('button,a')) hostView(a.id); } },
       h('td', null, h('span', { class: 'pill st-' + st }, h('span', { class: 'dot' }), st === 'up' ? 'Online' : st === 'offline' ? 'Offline' : 'Ej ansluten')),
       h('td', null, h('b', null, a.name), h('div', { class: 'muted' }, a.kind === 'desktop' ? 'Skrivbordsapp' : a.kind === 'agent' ? 'Agent' : '–')),
       h('td', null, h('a', { href: '#/c/' + (site ? site.customerId : '') }, customerName(a)), h('div', { class: 'muted' }, site ? site.name : '')),
       h('td', { class: 'mono' }, a.hostname || '–', h('div', { class: 'muted' }, a.os || '')),
       h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' }, a.version || '–'),
       h('td', null, seen ? dateTime(seen) : 'aldrig'),
+      ...hostCells(lv.host, st === 'up'),
       h('td', null, String(S.targets.filter(t => t.agentId === a.id).length)),
       h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'icon-btn', onclick: e => agentMenu(a, e.currentTarget) }, '⋯') : null));
   });
   page.replaceChildren(head, h('table', { class: 'tbl' },
-    h('thead', null, h('tr', null, ...['Status', 'Namn', 'Kund / site', 'Värd', 'IP', 'Version', 'Senast sedd', 'Mål', ''].map(x => h('th', null, x)))),
+    h('thead', null, h('tr', null, ...['Status', 'Namn', 'Kund / site', 'Värd', 'IP', 'Version', 'Senast sedd', 'CPU', 'Minne', 'Disk', 'Mål', ''].map(x => h('th', null, x)))),
     h('tbody', null, ...rows)));
 }
 function customerName(a) { const s = siteOf(a.siteId); const c = s && byId(S.customers, s.customerId); return c ? c.name : ''; }
@@ -735,7 +850,7 @@ async function renderAlerts(page) {
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
       rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'Villkor', 'Åtgärder', 'Mål', ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, r.condition === 'offline' ? 'alla agenter' : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', null, actionsText(r)), h('td', null, !['down', 'latency', 'loss'].includes(r.condition) ? 'alla agenter' : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
           h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, 'Redigera') : null)))))
         : h('p', { class: 'muted' }, 'Inga regler.'));
   }).filter(Boolean);
@@ -755,6 +870,9 @@ function describe(a) {
   if (a.condition === 'latency') return `Latens > ${a.threshold} ms, ${a.count} av ${a.samples}`;
   if (a.condition === 'loss') return `Förlust > ${a.threshold} % (senaste ${a.samples})`;
   if (a.condition === 'offline') return 'Agent offline';
+  if (a.condition === 'cpu') return `CPU > ${a.threshold} % i ${a.samples} min`;
+  if (a.condition === 'mem') return `Minne > ${a.threshold} % i ${a.samples} min`;
+  if (a.condition === 'disk') return `Disk > ${a.threshold} % full`;
   return `Nere: ${a.count} av ${a.samples} förlorade`;
 }
 function actionsText(r) {
@@ -953,7 +1071,7 @@ function editTargetDialog(id) {
   const ags = S.agents.filter(a => customerOfAgent(a) === cust && a.kind !== 'desktop');
   const agent = select(ags.map(a => [a.id, a.name]), t.agentId); agent.disabled = fromApp;
   const sel = new Set(t.alertIds || []);
-  const rules = S.rules.filter(r => r.condition !== 'offline' && (!r.customerId || r.customerId === cust));
+  const rules = S.rules.filter(r => ['down', 'latency', 'loss'].includes(r.condition) && (!r.customerId || r.customerId === cust));
   const pf = field('Port', port); const syncKind = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; }; kind.onchange = syncKind; syncKind();
   formDialog({ title: 'Redigera mål', fields: [
     fromApp ? h('div', { class: 'notice field full' }, 'Målet kommer från en skrivbordsapp. Värd och mätinställningar ändras i appen – här väljer du larm och varningsgräns.') : null,
@@ -974,7 +1092,8 @@ function ruleDialog(rule) {
   const r = rule ? JSON.parse(JSON.stringify(rule)) : { id: '', name: '', condition: 'down', threshold: 0, count: 3, samples: 3, popup: true, sound: false, soundName: 'alarm', email: false, emailTo: '', webhook: false, hookUrl: '', repeatMin: 0, onClear: true, customerId: S.view.name === 'customer' ? S.view.id : '' };
   const name = h('input', { type: 'text', value: r.name, placeholder: 'Namn på regeln' });
   const cust = select([['', 'Alla kunder'], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
-  const cond = select([['down', 'Nere – förlorade paket'], ['latency', 'Hög latens'], ['loss', 'Paketförlust i procent'], ['offline', 'Agent offline']], r.condition);
+  const cond = select([['down', 'Nere – förlorade paket'], ['latency', 'Hög latens'], ['loss', 'Paketförlust i procent'], ['offline', 'Agent offline'],
+    ['cpu', 'Agentens CPU hög'], ['mem', 'Agentens minne högt'], ['disk', 'Agentens disk full']], r.condition);
   const thr = num(r.threshold, 0, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
   const condRow = h('div', { class: 'field full' });
   const syncCond = () => {
@@ -982,9 +1101,21 @@ function ruleDialog(rule) {
     if (c === 'down') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'förlorade av de senaste'), smp, h('span', null, 'paketen')));
     if (c === 'latency') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'av de senaste'), smp, h('span', null, 'över'), thr, h('span', null, 'ms')));
     if (c === 'loss') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Förlust över'), thr, h('span', null, '% av de senaste'), smp, h('span', null, 'paketen')));
+    if (c === 'cpu' || c === 'mem') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, c === 'cpu' ? 'CPU över' : 'Minne över'), thr, h('span', null, '% i'), smp, h('span', null, 'minuter i sträck')),
+      h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
+    if (c === 'disk') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Någon disk mer än'), thr, h('span', null, '% full')),
+      h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
     if (c === 'offline') condRow.replaceChildren(h('small', null, `Utlöses när en agent inte har rapporterat på ${Math.max(30, S.reportSec * 3)} sekunder. Gäller alla agenter hos kunden.`));
   };
-  cond.onchange = () => { if (cond.value === 'latency' && !(+thr.value > 0)) thr.value = 150; if (cond.value === 'loss' && !(+thr.value > 0)) thr.value = 5; syncCond(); };
+  cond.onchange = () => {
+    const c = cond.value;
+    if (c === 'latency') thr.value = +thr.value > 0 ? thr.value : 150;
+    if (c === 'loss') thr.value = +thr.value > 0 && +thr.value <= 100 ? thr.value : 5;
+    if (c === 'cpu' || c === 'mem' || c === 'disk') { thr.value = +thr.value >= 50 && +thr.value <= 100 ? thr.value : 90; smp.value = c === 'disk' ? 1 : 5; }
+    if (c === 'down') { cnt.value = 3; smp.value = 3; }
+    syncCond();
+  };
+  cust.addEventListener('change', syncCond);
   syncCond();
   const emailTo = h('input', { type: 'text', value: r.emailTo, placeholder: 'en@exempel.se, två@exempel.se' });
   const hook = h('input', { type: 'text', value: r.hookUrl, placeholder: 'https://… (Teams, Slack, egen tjänst)' });
@@ -1008,7 +1139,7 @@ function ruleDialog(rule) {
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
         h('div', { class: 'row' }, h('span', null, 'Upprepa var'), repeat, h('span', null, 'minut medan larmet pågår (0 = nej)')),
         box('Meddela även när larmet upphör', 'onClear'))),
-      rule && cond.value !== 'offline' ? h('div', { class: 'field full' }, h('div', { class: 'row' },
+      rule && ['down', 'latency', 'loss'].includes(cond.value) ? h('div', { class: 'field full' }, h('div', { class: 'row' },
         h('span', { class: 'muted', style: 'flex:1' }, 'Koppla regeln till målen:'),
         h('button', { class: 'btn sm', onclick: async () => assign(true) }, 'Koppla till alla mål'),
         h('button', { class: 'btn sm', onclick: async () => assign(false) }, 'Koppla bort från alla'))) : null),

@@ -22,11 +22,12 @@ import (
 	"github.com/kardianos/service"
 
 	"pingvakt/core/agentproto"
+	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 )
 
 // Version sätts vid bygge.
-var Version = "0.2.0"
+var Version = "0.3.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -225,6 +226,8 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	mon := monitor.NewManager(monitor.DefaultSettings())
 	defer mon.Close()
 	up := newUploader(c)
+	hc := hostinfo.New()
+	up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)

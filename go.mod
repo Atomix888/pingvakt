@@ -7,6 +7,7 @@ toolchain go1.24.7
 require (
 	github.com/kardianos/service v1.2.4
 	github.com/ncruces/go-sqlite3 v0.30.5
+	github.com/shirou/gopsutil/v4 v4.25.10
 	github.com/tc-hib/winres v0.3.1
 	github.com/wailsapp/wails/v2 v2.10.1
 	golang.org/x/crypto v0.47.0
@@ -16,6 +17,7 @@ require (
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -35,11 +37,14 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
+	github.com/tklauser/go-sysconf v0.3.15 // indirect
+	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.19 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/image v0.12.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 )

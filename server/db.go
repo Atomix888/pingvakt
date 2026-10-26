@@ -74,7 +74,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema); err != nil {
+	if _, err := d.Exec(schema + hostSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	return &DB{d}, nil
