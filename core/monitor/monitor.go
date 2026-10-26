@@ -91,6 +91,7 @@ const (
 	StatusWarn    = "warn"
 	StatusDown    = "down"
 	StatusPaused  = "paused"
+	StatusOffline = "offline" // agenten rapporterar inte (servern)
 )
 
 // Stats är aktuell statistik för ett mål, beräknad över statistikfönstret.
@@ -154,10 +155,54 @@ type Update struct {
 type runner struct {
 	mu     sync.Mutex
 	target Target
-	hist   *ring
-	stats  Stats
+	*Tracker
 	cancel context.CancelFunc
 }
+
+// Tracker håller historik och statistik för ett mål. Den används av mätloopen
+// och av servern, som räknar statistik på mätdata som agenterna skickar in.
+// Tracker är inte trådsäker; anroparen ansvarar för låsning.
+type Tracker struct {
+	hist  *ring
+	stats Stats
+}
+
+// NewTracker skapar en Tracker som sparar historySize mätpunkter.
+func NewTracker(historySize int) *Tracker {
+	return &Tracker{hist: newRing(historySize), stats: Stats{Status: StatusPending, Since: nowMs(), Last: -1}}
+}
+
+// Add lägger till en mätpunkt. errText är felet för ett förlorat paket.
+func (t *Tracker) Add(s Sample, errText, addr string) {
+	t.hist.push(s)
+	t.stats.Sent++
+	if s.Lost() {
+		t.stats.Lost++
+		t.stats.ConsecLost++
+		t.stats.Err = errText
+	} else {
+		t.stats.ConsecLost = 0
+		t.stats.Err = ""
+	}
+	if addr != "" {
+		t.stats.Addr = addr
+	}
+}
+
+// Stats returnerar aktuell statistik.
+func (t *Tracker) Stats() Stats { return t.stats }
+
+// Recent returnerar de n senaste mätpunkterna.
+func (t *Tracker) Recent(n int) []Sample { return t.hist.last(n) }
+
+// Since returnerar mätpunkter nyare än ms.
+func (t *Tracker) Since(ms int64) []Sample { return t.hist.since(ms) }
+
+// Resize ändrar hur många mätpunkter som sparas.
+func (t *Tracker) Resize(n int) { t.hist.resize(n) }
+
+// SetStatus sätter status direkt (t.ex. "paused" eller "offline").
+func (t *Tracker) SetStatus(s string) { t.setStatus(s) }
 
 // Manager äger alla mål och deras mätloopar.
 type Manager struct {
@@ -247,8 +292,7 @@ func (m *Manager) Upsert(t Target) Target {
 	m.mu.Lock()
 	r, exists := m.runners[t.ID]
 	if !exists {
-		r = &runner{target: t, hist: newRing(m.settings.HistorySize)}
-		r.stats = Stats{Status: StatusPending, Since: nowMs(), Last: -1}
+		r = &runner{target: t, Tracker: NewTracker(m.settings.HistorySize)}
 		m.runners[t.ID] = r
 		m.order = append(m.order, t.ID)
 	}
@@ -419,19 +463,7 @@ func (m *Manager) loop(ctx context.Context, r *runner) {
 		}
 		settings := m.Settings()
 		r.mu.Lock()
-		r.hist.push(s)
-		r.stats.Sent++
-		if s.Lost() {
-			r.stats.Lost++
-			r.stats.ConsecLost++
-			r.stats.Err = res.Err
-		} else {
-			r.stats.ConsecLost = 0
-			r.stats.Err = ""
-		}
-		if res.Addr != "" {
-			r.stats.Addr = res.Addr
-		}
+		r.Add(s, res.Err, res.Addr)
 		r.recompute(settings)
 		u := Update{TargetID: t.ID, Sample: s, Stats: r.stats}
 		r.mu.Unlock()
@@ -447,7 +479,14 @@ func (m *Manager) loop(ctx context.Context, r *runner) {
 
 // recompute räknar om statistik och status. Anroparen håller r.mu.
 func (r *runner) recompute(s Settings) {
-	if r.target.Paused {
+	r.Recompute(s, r.target.WarnMs, r.target.Paused)
+}
+
+// Recompute räknar om statistik och status. warnMs > 0 ersätter det globala
+// gränsvärdet för latens.
+func (r *Tracker) Recompute(s Settings, targetWarnMs float64, paused bool) {
+	s.normalize()
+	if paused {
 		r.setStatus(StatusPaused)
 		return
 	}
@@ -493,8 +532,8 @@ func (r *runner) recompute(s Settings) {
 	st.Loss = round2(float64(lost) * 100 / float64(len(win)))
 
 	warnMs := s.WarnMs
-	if r.target.WarnMs > 0 {
-		warnMs = r.target.WarnMs
+	if targetWarnMs > 0 {
+		warnMs = targetWarnMs
 	}
 	status := StatusUp
 	switch {
@@ -508,7 +547,7 @@ func (r *runner) recompute(s Settings) {
 	r.setStatus(status)
 }
 
-func (r *runner) setStatus(s string) {
+func (r *Tracker) setStatus(s string) {
 	if r.stats.Status != s {
 		r.stats.Status = s
 		r.stats.Since = nowMs()

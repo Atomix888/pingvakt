@@ -3,7 +3,9 @@
 #   scripts/build.sh windows   – PingVakt.exe + installationsprogram (kräver makensis och ImageMagick för ikonen)
 #   scripts/build.sh linux     – binär, .deb och .tar.gz (kräver libgtk-3-dev och libwebkit2gtk-4.1-dev)
 #   scripts/build.sh macos     – PingVakt.app och .dmg (måste köras på en Mac)
-#   scripts/build.sh all       – windows + linux (från Linux)
+#   scripts/build.sh agents    – agenten för alla plattformar (dist/agents/)
+#   scripts/build.sh server    – servern för Linux/Windows + agenter, paketerat som .tar.gz/.zip
+#   scripts/build.sh all       – windows + linux + server (från Linux)
 set -Eeuo pipefail
 # I GitHub Actions: visa felraden som annotering så att felet syns i sammanfattningen
 trap 'echo "::error file=scripts/build.sh,line=$LINENO::Kommandot misslyckades: $BASH_COMMAND"' ERR
@@ -97,10 +99,40 @@ macos() {
   echo "klart: $DIST/PingVakt-${VERSION}-macos.dmg"
 }
 
+agents() {
+  echo "==> Agenter ${VERSION}"
+  mkdir -p "$DIST/agents"
+  for p in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+    local os=${p%/*} arch=${p#*/} name ext=""
+    name=$arch; [ "$arch" = arm ] && name=armv7; [ "$os" = windows ] && ext=.exe
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=7 logged go build -trimpath -ldflags "$LDFLAGS" -o "$DIST/agents/pingvakt-agent-$os-$name$ext" ./agent
+  done
+}
+
+server() {
+  agents
+  echo "==> Server ${VERSION}"
+  for p in linux/amd64 linux/arm64 windows/amd64; do
+    local os=${p%/*} arch=${p#*/} ext=""
+    [ "$os" = windows ] && ext=.exe
+    local dir="$DIST/pingvakt-server-${VERSION}-$os-$arch"
+    rm -rf "$dir"; mkdir -p "$dir"
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch logged go build -trimpath -ldflags "$LDFLAGS" -o "$dir/pingvakt-server$ext" ./server
+    cp -r "$DIST/agents" "$dir/agents"
+    cp deploy/pingvakt-server.service deploy/docker-compose.yml deploy/Caddyfile LICENSE-THIRD-PARTY.txt "$dir/"
+    if [ "$os" = windows ]; then (cd "$DIST" && rm -f "$(basename "$dir").zip" && zip -qr "$(basename "$dir").zip" "$(basename "$dir")")
+    else tar -C "$DIST" -czf "$dir.tar.gz" "$(basename "$dir")"; fi
+    rm -rf "$dir"
+  done
+  echo "klart: $DIST/pingvakt-server-${VERSION}-*"
+}
+
 case "${1:-}" in
   windows) windows ;;
   linux) linux ;;
   macos) macos ;;
-  all) windows; linux ;;
-  *) echo "användning: $0 windows|linux|macos|all"; exit 1 ;;
+  agents) agents ;;
+  server) server ;;
+  all) windows; linux; server ;;
+  *) echo "användning: $0 windows|linux|macos|agents|server|all"; exit 1 ;;
 esac

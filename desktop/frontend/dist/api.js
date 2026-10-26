@@ -140,6 +140,9 @@ function createDemoAPI() {
       setTimeout(() => emit('trace:done', ''), 300 * (hops.length + 1));
     },
     StopTrace: () => {},
+    GetServer: () => ({ enabled: false, url: '', insecure: false, hasToken: false, status: {} }),
+    TestServer: () => { throw new Error('Inte tillgängligt i demoläget'); },
+    SaveServer: () => {},
     ExportCSV: () => '',
     OpenPath: () => {},
   };

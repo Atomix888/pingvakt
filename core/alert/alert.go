@@ -22,6 +22,7 @@ const (
 	CondDown    Condition = "down"    // förlorade paket
 	CondLatency Condition = "latency" // latens över gränsvärde (förlorat paket räknas också)
 	CondLoss    Condition = "loss"    // paketförlust i procent över fönstret
+	CondOffline Condition = "offline" // agenten har slutat rapportera (bara på servern)
 )
 
 // Alert är en larmdefinition som kan kopplas till ett eller flera mål.
@@ -40,6 +41,8 @@ type Alert struct {
 	Email     bool   `json:"email"`
 	EmailTo   string `json:"emailTo"`
 	Log       bool   `json:"log"`
+	Webhook   bool   `json:"webhook"`
+	HookURL   string `json:"hookUrl"` // tar emot JSON via POST (Teams, Slack, egen tjänst)
 
 	RepeatMin int  `json:"repeatMin"` // upprepa medan larmet är aktivt (0 = nej)
 	OnClear   bool `json:"onClear"`   // meddela när larmet upphör
@@ -52,10 +55,11 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss:
+	case CondLatency, CondLoss, CondOffline:
 	default:
 		a.Condition = CondDown
 	}
+	a.HookURL = strings.TrimSpace(a.HookURL)
 	if a.Samples < 1 {
 		a.Samples = map[Condition]int{CondDown: 3, CondLatency: 10, CondLoss: 60}[a.Condition]
 	}
@@ -92,6 +96,8 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf("Latens > %g ms (%d av %d)", a.Threshold, a.Count, a.Samples)
 	case CondLoss:
 		return fmt.Sprintf("Förlust > %g %% (senaste %d)", a.Threshold, a.Samples)
+	case CondOffline:
+		return "Agent offline"
 	}
 	return fmt.Sprintf("Nere (%d av %d förlorade)", a.Count, a.Samples)
 }
@@ -101,7 +107,7 @@ func (a Alert) Evaluate(samples []monitor.Sample) (bool, string) {
 	if len(samples) > a.Samples {
 		samples = samples[len(samples)-a.Samples:]
 	}
-	if len(samples) == 0 {
+	if len(samples) == 0 || a.Condition == CondOffline {
 		return false, ""
 	}
 	switch a.Condition {
@@ -179,12 +185,19 @@ type state struct {
 	lastSent time.Time
 }
 
+// Source ger larmmotorn tillgång till mål och mätpunkter. monitor.Manager
+// uppfyller gränssnittet; servern har en egen implementation.
+type Source interface {
+	Target(id string) (monitor.Target, bool)
+	Recent(id string, n int) []monitor.Sample
+}
+
 // Engine utvärderar larm vid varje mätning.
 type Engine struct {
 	mu      sync.Mutex
 	alerts  map[string]Alert
 	state   map[string]*state // nyckel: alertID|targetID
-	mon     *monitor.Manager
+	mon     Source
 	mailer  *Mailer
 	logPath string
 	onEvent func(Event)
@@ -193,9 +206,33 @@ type Engine struct {
 
 // NewEngine skapar en larmmotor och kopplar den till monitorn.
 func NewEngine(mon *monitor.Manager, mailer *Mailer, logPath string, onEvent func(Event)) *Engine {
-	e := &Engine{alerts: map[string]Alert{}, state: map[string]*state{}, mon: mon, mailer: mailer, logPath: logPath, onEvent: onEvent}
-	mon.Subscribe(e.handle)
+	e := NewEngineFor(mon, mailer, logPath, onEvent)
+	mon.Subscribe(e.Handle)
 	return e
+}
+
+// NewEngineFor skapar en larmmotor för en godtycklig källa. Anroparen matar den med Handle.
+func NewEngineFor(src Source, mailer *Mailer, logPath string, onEvent func(Event)) *Engine {
+	return &Engine{alerts: map[string]Alert{}, state: map[string]*state{}, mon: src, mailer: mailer, logPath: logPath, onEvent: onEvent}
+}
+
+// Alert returnerar en larmdefinition.
+func (e *Engine) Alert(id string) (Alert, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	a, ok := e.alerts[id]
+	return a, ok
+}
+
+// Alerts returnerar alla larmdefinitioner.
+func (e *Engine) Alerts() []Alert {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]Alert, 0, len(e.alerts))
+	for _, a := range e.alerts {
+		out = append(out, a)
+	}
+	return out
 }
 
 // SetAlerts byter larmdefinitioner. Aktiva larm för borttagna definitioner nollställs.
@@ -244,7 +281,8 @@ func (e *Engine) History() []Event {
 	return out
 }
 
-func (e *Engine) handle(u monitor.Update) {
+// Handle utvärderar larmen för målet i uppdateringen.
+func (e *Engine) Handle(u monitor.Update) {
 	t, ok := e.mon.Target(u.TargetID)
 	if !ok || t.Paused || len(t.AlertIDs) == 0 {
 		return
@@ -255,7 +293,7 @@ func (e *Engine) handle(u monitor.Update) {
 	e.mu.Lock()
 	for _, aid := range t.AlertIDs {
 		a, ok := e.alerts[aid]
-		if !ok {
+		if !ok || a.Condition == CondOffline {
 			continue
 		}
 		met, detail := a.Evaluate(e.mon.Recent(t.ID, a.Samples))
@@ -305,6 +343,19 @@ func (e *Engine) handle(u monitor.Update) {
 	}
 }
 
+// Fire registrerar en händelse som upptäckts utanför motorn (t.ex. agent offline)
+// och utför larmets åtgärder.
+func (e *Engine) Fire(a Alert, ev Event) {
+	e.mu.Lock()
+	e.history = append(e.history, ev)
+	if len(e.history) > 500 {
+		e.history = e.history[len(e.history)-500:]
+	}
+	logPath := e.logPath
+	e.mu.Unlock()
+	e.dispatch(a, ev, logPath)
+}
+
 func (e *Engine) dispatch(a Alert, ev Event, logPath string) {
 	if e.onEvent != nil {
 		e.onEvent(ev)
@@ -320,6 +371,9 @@ func (e *Engine) dispatch(a Alert, ev Event, logPath string) {
 		if len(to) > 0 {
 			e.mailer.Queue(a.ID, to, ev)
 		}
+	}
+	if a.Webhook && a.HookURL != "" {
+		go func() { _ = PostWebhook(a.HookURL, ev) }()
 	}
 }
 
@@ -340,6 +394,11 @@ func (e *Engine) Test(a Alert) error {
 	}
 	if a.Notify {
 		go Notify("TEST: "+a.Name, ev.Detail)
+	}
+	if a.Webhook && a.HookURL != "" {
+		if err := PostWebhook(a.HookURL, ev); err != nil {
+			return fmt.Errorf("webhook: %w", err)
+		}
 	}
 	if a.Email && e.mailer != nil {
 		to := SplitAddresses(a.EmailTo)

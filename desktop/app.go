@@ -16,6 +16,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
 	"pingvakt/core/config"
 	"pingvakt/core/monitor"
@@ -24,7 +25,7 @@ import (
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.1.0"
+var Version = "0.2.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.
@@ -42,6 +43,10 @@ type App struct {
 
 	tmu         sync.Mutex
 	traceCancel context.CancelFunc
+
+	umu      sync.Mutex
+	up       *agentproto.Uploader
+	upCancel context.CancelFunc
 }
 
 // NewApp skapar appen.
@@ -70,18 +75,140 @@ func (a *App) startup(ctx context.Context) {
 		a.pending[u.TargetID] = append(a.pending[u.TargetID], u.Sample)
 		a.pmu.Unlock()
 	})
+	a.mon.Subscribe(func(u monitor.Update) {
+		a.umu.Lock()
+		up := a.up
+		a.umu.Unlock()
+		if up != nil {
+			up.Add(u.TargetID, u.Sample, u.Stats.Err, u.Stats.Addr)
+		}
+	})
 	for _, t := range cfg.Targets {
 		a.mon.Upsert(t)
 	}
 	if err == nil {
 		_ = a.save()
 	}
+	a.startServerLink(cfg.Server)
 	go a.tickLoop(ctx)
 }
 
 func (a *App) shutdown(context.Context) {
 	_ = a.save()
+	a.umu.Lock()
+	up, cancel := a.up, a.upCancel
+	a.umu.Unlock()
+	if up != nil {
+		c, done := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = up.SendAll(c)
+		done()
+		cancel()
+	}
 	a.mon.Close()
+}
+
+// startServerLink startar (eller stoppar) rapporteringen till en PingVakt-server.
+func (a *App) startServerLink(l config.ServerLink) {
+	a.umu.Lock()
+	defer a.umu.Unlock()
+	if a.upCancel != nil {
+		a.upCancel()
+		a.up, a.upCancel = nil, nil
+	}
+	if !l.Enabled || l.URL == "" || l.Token == "" {
+		return
+	}
+	host, _ := os.Hostname()
+	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
+		Info:         agentproto.AgentInfo{Version: Version, Hostname: host, OS: goruntime.GOOS + "/" + goruntime.GOARCH, Kind: agentproto.KindDesktop},
+		LocalTargets: a.mon.Targets}
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.up, a.upCancel = up, cancel
+	go func() {
+		_ = up.SendAll(ctx)
+		up.Run(ctx)
+	}()
+}
+
+func (a *App) serverStatus() agentproto.Status {
+	a.umu.Lock()
+	up := a.up
+	a.umu.Unlock()
+	if up == nil {
+		return agentproto.Status{}
+	}
+	return up.Status()
+}
+
+// ServerInfo är serverkopplingen som visas i gränssnittet (utan token).
+type ServerInfo struct {
+	Enabled  bool              `json:"enabled"`
+	URL      string            `json:"url"`
+	Insecure bool              `json:"insecure"`
+	HasToken bool              `json:"hasToken"`
+	Status   agentproto.Status `json:"status"`
+}
+
+// GetServer returnerar serverkopplingen.
+func (a *App) GetServer() ServerInfo {
+	a.mu.Lock()
+	l := a.cfg.Server
+	a.mu.Unlock()
+	return ServerInfo{Enabled: l.Enabled, URL: l.URL, Insecure: l.Insecure, HasToken: l.Token != "", Status: a.serverStatus()}
+}
+
+// ServerInput kommer från inställningsdialogen. Tom token = behåll den sparade.
+type ServerInput struct {
+	Enabled  bool   `json:"enabled"`
+	URL      string `json:"url"`
+	Token    string `json:"token"`
+	Insecure bool   `json:"insecure"`
+}
+
+func (a *App) linkFrom(in ServerInput) config.ServerLink {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	l := config.ServerLink{Enabled: in.Enabled, URL: strings.TrimSpace(in.URL), Token: strings.TrimSpace(in.Token), Insecure: in.Insecure}
+	if l.Token == "" {
+		l.Token = a.cfg.Server.Token
+	}
+	return l
+}
+
+// TestServer provar anslutningen och returnerar kund, site och agentnamn.
+func (a *App) TestServer(in ServerInput) (agentproto.Status, error) {
+	l := a.linkFrom(in)
+	if l.Token == "" {
+		return agentproto.Status{}, errors.New("ange token från servern")
+	}
+	host, _ := os.Hostname()
+	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
+		Info:         agentproto.AgentInfo{Version: Version, Hostname: host, OS: goruntime.GOOS + "/" + goruntime.GOARCH, Kind: agentproto.KindDesktop},
+		LocalTargets: a.mon.Targets}
+	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+	defer cancel()
+	if _, err := up.Send(ctx); err != nil {
+		return agentproto.Status{}, err
+	}
+	return up.Status(), nil
+}
+
+// SaveServer sparar serverkopplingen och startar om rapporteringen.
+func (a *App) SaveServer(in ServerInput) error {
+	l := a.linkFrom(in)
+	if l.Enabled {
+		if _, err := agentproto.ReportURL(l.URL); err != nil {
+			return err
+		}
+		if l.Token == "" {
+			return errors.New("ange token från servern")
+		}
+	}
+	a.mu.Lock()
+	a.cfg.Server = l
+	a.mu.Unlock()
+	a.startServerLink(l)
+	return a.save()
 }
 
 // Tick är det paket som skickas till gränssnittet varje sekund.
@@ -89,6 +216,7 @@ type Tick struct {
 	Stats   map[string]monitor.Stats    `json:"stats"`
 	Samples map[string][]monitor.Sample `json:"samples"`
 	Active  map[string]int64            `json:"active"`
+	Server  agentproto.Status           `json:"server"`
 }
 
 func (a *App) tickLoop(ctx context.Context) {
@@ -104,7 +232,7 @@ func (a *App) tickLoop(ctx context.Context) {
 		samples := a.pending
 		a.pending = map[string][]monitor.Sample{}
 		a.pmu.Unlock()
-		runtime.EventsEmit(ctx, "tick", Tick{Stats: a.mon.Snapshot(), Samples: samples, Active: a.eng.Active()})
+		runtime.EventsEmit(ctx, "tick", Tick{Stats: a.mon.Snapshot(), Samples: samples, Active: a.eng.Active(), Server: a.serverStatus()})
 	}
 }
 

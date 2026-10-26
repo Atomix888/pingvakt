@@ -1,0 +1,28 @@
+# systemd-tjänst för PingVakt-servern utan Docker.
+#   sudo useradd -r -s /usr/sbin/nologin pingvakt
+#   sudo install -m755 pingvakt-server /usr/local/bin/
+#   sudo mkdir -p /var/lib/pingvakt/agents && sudo chown -R pingvakt /var/lib/pingvakt
+#   (lägg agentfilerna i /var/lib/pingvakt/agents)
+#   sudo cp pingvakt-server.service /etc/systemd/system/ && sudo systemctl enable --now pingvakt-server
+[Unit]
+Description=PingVakt-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pingvakt
+Environment=PINGVAKT_DATA=/var/lib/pingvakt
+Environment=PINGVAKT_AGENTS_DIR=/var/lib/pingvakt/agents
+Environment=PINGVAKT_LISTEN=127.0.0.1:8080
+Environment=PINGVAKT_TRUST_PROXY=1
+ExecStart=/usr/local/bin/pingvakt-server
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pingvakt
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,11 @@
 
 PingVakt övervakar latens och paketförlust mot många mål samtidigt, på samma sätt som MultiPing och vmPing. Programmet är skrivet i Go och [Wails](https://wails.io) och körs på Windows, macOS och Linux.
 
-Version 0.1 (MVP) innehåller **mätmotorn** och **skrivbordsappen**. Agenten och servern kommer i nästa etapp och kommer att använda samma mätmotor (se *Färdplan*).
+PingVakt består av tre delar som använder samma mätmotor:
+
+- **Skrivbordsappen** fungerar fristående, som MultiPing. Den kan också kopplas till en server.
+- **Servern** tar emot mätdata från många agenter, delar upp den per kund och site, sparar historik, larmar centralt och har ett webbgränssnitt.
+- **Agenten** körs som tjänst utan gränssnitt hos kunden (Windows, Linux, Raspberry Pi eller macOS). Den ansluter utåt till servern, så inga portar behöver öppnas.
 
 ## Funktioner
 
@@ -24,7 +28,52 @@ Version 0.1 (MVP) innehåller **mätmotorn** och **skrivbordsappen**. Agenten oc
   - macOS: `~/Library/Application Support/PingVakt/config.json`
   - Linux: `~/.config/PingVakt/config.json`
 
-## Installera
+## Servern
+
+**Snabbstart med Docker** (`deploy/docker-compose.yml` har Caddy, som ordnar HTTPS automatiskt):
+
+```bash
+cd deploy
+# ändra domänen i Caddyfile och peka DNS mot servern
+docker compose up -d
+```
+
+Utan Docker: packa upp `pingvakt-server-<ver>-linux-amd64.tar.gz` och följ instruktionerna i `pingvakt-server.service`. Servern lyssnar på port 8080 och bör ligga bakom en omvänd proxy med HTTPS (Caddy, Traefik, nginx). Har du redan certifikat kan du i stället använda `--tls-cert` och `--tls-key`.
+
+Första gången du öppnar webbgränssnittet skapar du administratörskontot. Sedan gör du så här:
+
+1. Skapa en **kund**. En första site skapas automatiskt.
+2. Klicka **Ny agent**. Du får en token och färdiga installationskommandon:
+   - Linux/Raspberry Pi/macOS: `curl -fsSL https://din-server/install.sh | sudo sh -s -- --token pva_…`
+   - Windows (PowerShell som admin): `& ([scriptblock]::Create((irm https://din-server/install.ps1))) -Token pva_…`
+3. Klicka **Lägg till mål** och välj agenten som ska mäta. Agenten hämtar sina mål från servern inom några sekunder.
+4. Skapa **larmregler**, antingen per kund eller för alla kunder. Larmen kan skicka e-post och webhook (Teams, Slack m.fl.) och visa popup och ljud i webbläsaren. *Agent offline* larmar när en agent slutar rapportera.
+
+Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adress och en agent-token. Appens egna mål syns då under kunden. Larmen väljs på servern.
+
+**Roller:** *Administratör* kan göra allt. *Kund* har bara läsbehörighet och ser bara sin egen kund.
+
+**Lagring:** SQLite i datamappen (`/data` i Docker). Varje enskild ping sparas i 7 dagar, och minutvärden (snitt, min, max och förlust) sparas i 400 dagar. Båda tiderna kan ändras under Inställningar. Graferna visar upp till 30 dagar.
+
+| Miljövariabel | Betydelse |
+|---|---|
+| `PINGVAKT_LISTEN` | Adress, standard `:8080` |
+| `PINGVAKT_DATA` | Mapp för databasen |
+| `PINGVAKT_AGENTS_DIR` | Mapp med agentfiler som erbjuds för nedladdning |
+| `PINGVAKT_TRUST_PROXY=1` | Lita på `X-Forwarded-*` från den omvända proxyn |
+| `PINGVAKT_ADMIN_EMAIL` / `PINGVAKT_ADMIN_PASSWORD` | Skapar första administratören vid start |
+
+## Agenten
+
+```
+pingvakt-agent enroll --server https://din-server --token pva_…   # registrera
+pingvakt-agent install && pingvakt-agent start                   # som tjänst (systemd, Windows-tjänst, launchd)
+pingvakt-agent status
+```
+
+Konfigurationen sparas i `/etc/pingvakt/agent.json`, `%ProgramData%\PingVakt\agent.json` eller `/Library/Application Support/PingVakt/agent.json`. Agenten sparar senast kända mål lokalt och mäter även när servern inte går att nå. Mätdata buffras i minnet och skickas när kontakten är tillbaka.
+
+## Installera skrivbordsappen
 
 | Plattform | Fil |
 |---|---|
@@ -57,9 +106,13 @@ go test ./core/...          # tester för mätmotorn
 scripts/build.sh linux      # binär + .deb + .tar.gz
 scripts/build.sh windows    # PingVakt.exe + installationsprogram + portabel zip (korskompileras från Linux)
 scripts/build.sh macos      # PingVakt.app + .dmg (på en Mac)
+scripts/build.sh server     # server för Linux/Windows + agenter för alla plattformar
+docker build -t pingvakt-server .
 ```
 
-**GitHub Actions** (`.github/workflows/build.yml`) bygger alla tre plattformarna vid varje push. När du pushar en tagg, till exempel `v0.1.0`, skapas en release med alla installationsfiler.
+**GitHub Actions** (`.github/workflows/build.yml`) bygger allt vid varje push och lägger Docker-avbildningen i `ghcr.io/atomix888/pingvakt-server`. Taggen `:edge` byggs från `main`, och `:<version>` och `:latest` byggs från releaser. När du skapar en release med en tagg, till exempel `v0.2.0`, publiceras alla installationsfiler på releasesidan.
+
+Repot är privat, så Docker-avbildningen är också privat. Logga in med `docker login ghcr.io -u Atomix888` och en personlig åtkomsttoken med behörigheten `read:packages`. Alternativt bygger du själv med `build: ..` i compose-filen.
 
 **Utveckla gränssnittet utan att bygga:** öppna `desktop/frontend/dist/index.html` via en lokal webbserver, till exempel med `python3 -m http.server`. Sidan går då i *demoläge* med simulerad data.
 
@@ -67,6 +120,7 @@ scripts/build.sh macos      # PingVakt.app + .dmg (på en Mac)
 
 ```
 core/              Mätmotorn – delas av skrivbordsapp, agent och server
+  agentproto/      Protokollet agent ↔ server och klienten som skickar mätdata
   probe/           ICMP (Windows-API / oprivilegierade socketar) och TCP-ping, DNS-cache
   monitor/         Schemaläggning per mål, ringbuffert med historik, statistik och status
   alert/           Larmregler, utvärdering, e-post (SMTP), systemnotiser, loggfil
@@ -76,18 +130,20 @@ desktop/           Skrivbordsappen (Wails)
   app.go           Brygga mellan gränssnittet och mätmotorn
   frontend/dist/   Gränssnittet (HTML/CSS/JS + uPlot), inget byggsteg
   build/           Ikon, Windows-installationsprogram (NSIS), .deb-filer, macOS Info.plist
+server/            Servern: SQLite, API, inloggning, central larmning, webbgränssnitt (server/web)
+agent/             Agenten (tjänst utan gränssnitt)
+deploy/            Docker Compose + Caddy, systemd-tjänst
 tools/winres/      Skapar Windows-ikon, manifest och versionsinfo
 scripts/build.sh   Byggskript för alla plattformar
 ```
 
 ## Färdplan
 
-**Etapp 2 – agent och server (flera kunder)**
-- `agent/`: tjänst utan gränssnitt (Windows-tjänst, systemd, launchd, Raspberry Pi) som använder `core/monitor`. Agenten ansluter **utåt** till servern över HTTPS/WebSocket med en token, så det fungerar bakom NAT och brandvägg hos kunden. Den hämtar sina mål och larmregler från servern och skickar upp mätdata, med buffring om förbindelsen bryts.
-- `server/`: tar emot mätdata från agenter och skrivbordsappar. Den sparar historik i en databas och har ett webbgränssnitt som bygger på samma frontend. Servern delar upp data per **kund och site**, har användare och roller (konsult, kund med läsrätt) och skickar larm centralt.
-- Skrivbordsappen får inställningen "Anslut till server", som gör att den samtidigt fungerar som agent.
-
-**Senare:** rapporter som PDF per kund, kodsignering, engelska som språkval, lösenord i operativsystemets nyckelring och HTTP(S)-kontroller som mättyp.
+- PDF-rapporter per kund och period
+- Kodsignering (Windows/macOS)
+- Engelska som språkval
+- HTTP(S)-kontroller som mättyp
+- Tvåstegsinloggning och inloggning via Microsoft/Google för kunder
 
 ## Licenser
 

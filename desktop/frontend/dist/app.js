@@ -283,7 +283,18 @@ function renderQuick() {
 }
 
 /* ---------------- händelser från motorn ---------------- */
+function renderServerChip(st) {
+  const el = $('#serverChip');
+  if (!el) return;
+  if (!st || !st.enabled) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.className = 'chip ' + (st.connected ? 'st-up' : 'st-down');
+  el.replaceChildren(h('span', { class: 'dot' }), st.connected ? `Server: ${st.customer || ''}${st.site ? ' / ' + st.site : ''}` : 'Server: ej ansluten');
+  el.title = st.connected ? `Rapporterar till servern som "${st.agentName}"` + (st.buffered ? ` – ${st.buffered} mätpunkter i kö` : '') : (st.lastError || 'Ingen kontakt med servern') + (st.buffered ? ` – ${st.buffered} mätpunkter väntar` : '');
+}
+
 function onTick(tk) {
+  renderServerChip(tk.server);
   S.stats = tk.stats || S.stats;
   S.active = tk.active || {};
   for (const [id, arr] of Object.entries(tk.samples || {})) {
@@ -766,7 +777,31 @@ function settingsDialog() {
     field('Konfigurationsfil', h('div', { class: 'row' }, h('code', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, S.configPath || '–')), null, true),
     h('small', { class: 'field full' }, `PingVakt ${S.version} · ${S.platform}`));
 
-  const TABS = [['general', 'Mätning'], ['defaults', 'Förval för nya mål'], ['email', 'E-post'], ['ui', 'Utseende och filer']];
+  // server
+  const srvEnabled = h('input', { type: 'checkbox' });
+  const srvUrl = h('input', { type: 'text', placeholder: 'https://pingvakt.exempel.se', spellcheck: 'false' });
+  const srvToken = h('input', { type: 'password', placeholder: 'pva_…', autocomplete: 'off' });
+  const srvInsecure = h('input', { type: 'checkbox' });
+  const srvRes = h('span');
+  let srvHasToken = false;
+  api.call('GetServer').then(si => {
+    srvEnabled.checked = si.enabled; srvUrl.value = si.url || ''; srvInsecure.checked = si.insecure; srvHasToken = si.hasToken;
+    if (si.hasToken) srvToken.placeholder = '•••••••• (sparad – lämna tomt för att behålla)';
+  }).catch(() => {});
+  const srvVal = () => ({ enabled: srvEnabled.checked, url: srvUrl.value.trim(), token: srvToken.value.trim(), insecure: srvInsecure.checked });
+  pane.server = h('div', { class: 'form' },
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvEnabled, 'Rapportera mätdata till en PingVakt-server')),
+    field('Serverns adress', srvUrl, null, true),
+    field('Token', srvToken, 'Skapas på servern: kunden → Ny agent. Samma token som för en agent.', true),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvInsecure, 'Godta självsignerat certifikat (bara för test)')),
+    h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => {
+      srvRes.className = ''; srvRes.replaceChildren(h('span', { class: 'spin' }), ' Ansluter…');
+      try { const st = await api.call('TestServer', srvVal()); srvRes.className = 'form-ok'; srvRes.textContent = `Ansluten: "${st.agentName}" hos ${st.customer} / ${st.site}`; }
+      catch (e) { srvRes.className = 'form-error'; srvRes.textContent = errText(e); }
+    } }, 'Testa anslutningen'), srvRes)),
+    h('small', { class: 'field full' }, 'Appen skickar sina egna mål och mätningar till servern, där de syns under kunden och siten som token hör till. Larm väljs på servern. Mätningarna fortsätter även utan anslutning och skickas när kontakten är tillbaka.'));
+
+  const TABS = [['general', 'Mätning'], ['defaults', 'Förval för nya mål'], ['email', 'E-post'], ['server', 'Server'], ['ui', 'Utseende och filer']];
   const show = k => { tab = k; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); body.replaceChildren(pane[k]); };
   tabs.append(...TABS.map(([k, l]) => h('button', { 'data-k': k, onclick: () => show(k) }, l)));
   show(tab);
@@ -780,7 +815,11 @@ function settingsDialog() {
           defaults: { intervalMs: +dInterval.value, timeoutMs: +dTimeout.value, size: +dSize.value, alertIds: [...dSel] },
           smtp: smtpVal(), newPassword: sPass.value !== '', alertLog: logPath.value.trim(), ui: { theme: theme.value, density: density.value, columns: S.ui.columns },
         };
-        try { await api.call('SaveSettings', inp); close(); cssCache = null; await afterChange(); rebuildChart(); }
+        try {
+          await api.call('SaveSettings', inp);
+          await api.call('SaveServer', srvVal());
+          close(); cssCache = null; await afterChange(); rebuildChart();
+        }
         catch (e) { err.textContent = errText(e); }
       } }, 'Spara')],
   });

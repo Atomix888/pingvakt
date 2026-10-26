@@ -1,0 +1,6 @@
+pingvakt.exempel.se {
+	encode gzip
+	reverse_proxy pingvakt:8080 {
+		flush_interval -1
+	}
+}

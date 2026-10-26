@@ -29,6 +29,14 @@ type Defaults struct {
 	AlertIDs   []string `json:"alertIds"`
 }
 
+// ServerLink är kopplingen till en PingVakt-server.
+type ServerLink struct {
+	Enabled  bool   `json:"enabled"`
+	URL      string `json:"url"`
+	Token    string `json:"token"`
+	Insecure bool   `json:"insecure,omitempty"`
+}
+
 // Config är hela programmets konfiguration.
 type Config struct {
 	Version  int              `json:"version"`
@@ -39,6 +47,7 @@ type Config struct {
 	SMTP     alert.SMTP       `json:"smtp"`
 	AlertLog string           `json:"alertLog"`
 	UI       UI               `json:"ui"`
+	Server   ServerLink       `json:"server"`
 }
 
 // Dir returnerar mappen där konfigurationen sparas.
