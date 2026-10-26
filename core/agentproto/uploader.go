@@ -47,6 +47,8 @@ type Uploader struct {
 
 	// OnConfig anropas när servern skickar ny konfiguration (agenter).
 	OnConfig func(Config)
+	// OnUpdate anropas när servern erbjuder en nyare agentversion.
+	OnUpdate func(UpdateInfo)
 	// LocalTargets returnerar klientens egna mål (skrivbordsappen).
 	LocalTargets func() []monitor.Target
 	// Host returnerar datorns CPU, minne och disk (agenter).
@@ -197,6 +199,10 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 		u.sentHash = hash
 	}
 	u.needTargets = resp.NeedLocalTargets
+	if resp.Update != nil && u.OnUpdate != nil {
+		upd := *resp.Update
+		go u.OnUpdate(upd)
+	}
 	if resp.Config != nil {
 		u.configVersion = resp.ConfigVersion
 		if resp.Config.ReportSec > 0 {
@@ -288,3 +294,15 @@ func targetsHash(ts []monitor.Target) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }
+
+// BaseURL returnerar serverns basadress (utan sökväg till rapporter).
+func BaseURL(server string) (string, error) {
+	r, err := ReportURL(server)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(r, ReportPath), nil
+}
+
+// HTTPClient returnerar klientens HTTP-klient (samma certifikatinställning som rapporterna).
+func (u *Uploader) HTTPClient() *http.Client { return u.httpClient() }

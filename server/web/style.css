@@ -387,3 +387,9 @@ table.tbl td.actions { text-align: right; white-space: nowrap; }
 .hostcharts h4 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
 .hchart { min-height: 120px; }
 @media (max-width: 860px) { .hostcharts { grid-template-columns: 1fr; } .hostmini { display: none; } }
+
+/* kvittering och service */
+.tile.acked { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+.tile.in-maint { background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--pending) 6%, transparent) 10px 20px); }
+.tile.in-maint .state-text { color: var(--pending); }
+.agent-chip.in-maint { border-style: dashed; border-color: var(--pending); }

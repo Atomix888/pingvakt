@@ -62,6 +62,14 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/export.csv", need(false, s.handleExport))
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
 	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
+	mux.HandleFunc("GET /api/maintenance", need(false, s.handleListMaintenance))
+	mux.HandleFunc("POST /api/maintenance", need(true, s.handleSaveMaintenance))
+	mux.HandleFunc("PUT /api/maintenance/{id}", need(true, s.handleSaveMaintenance))
+	mux.HandleFunc("DELETE /api/maintenance/{id}", need(true, s.handleDeleteMaintenance))
+	mux.HandleFunc("GET /api/alerts/active", need(false, s.handleActiveAlerts))
+	mux.HandleFunc("POST /api/alerts/ack", need(true, s.handleAck))
+	mux.HandleFunc("GET /api/backups", need(true, s.handleListBackups))
+	mux.HandleFunc("GET /api/backup", need(true, s.handleDownloadBackup))
 	// administration
 	mux.HandleFunc("POST /api/customers", need(true, s.handleSaveCustomer))
 	mux.HandleFunc("PUT /api/customers/{id}", need(true, s.handleSaveCustomer))
@@ -126,6 +134,8 @@ type stateOut struct {
 	ReportSec int                      `json:"reportSec"`
 	ServerURL string                   `json:"serverUrl"`
 	Server    *hostinfo.Metrics        `json:"server,omitempty"`
+	Maint     map[string]string        `json:"maint"`
+	Acks      map[string]Ack           `json:"acks"`
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +201,22 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	if u.Role == "admin" {
 		out.Server = s.hostLatest(ServerHostID)
 	}
+	out.Maint = map[string]string{}
+	for id, note := range s.inMaintenance() {
+		if _, ok := snap.Stats[id]; ok {
+			out.Maint[id] = note
+		} else if _, ok := snap.Agents[id]; ok {
+			out.Maint[id] = note
+		}
+	}
+	out.Acks = map[string]Ack{}
+	s.ops.mu.Lock()
+	for k := range out.Active {
+		if a, ok := s.ops.acks[k]; ok {
+			out.Acks[k] = a
+		}
+	}
+	s.ops.mu.Unlock()
 	writeJSON(w, out)
 }
 
@@ -704,9 +730,19 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := oldCopy
+	if in.DependsOn != "" {
+		s.mu.RLock()
+		p, ok := s.targets[in.DependsOn]
+		okCust := ok && s.customerOfTarget(p) == s.customerOfTarget(old)
+		s.mu.RUnlock()
+		if in.DependsOn == id || !okCust {
+			httpErr(w, 400, "målet kan bara bero på ett annat mål hos samma kund")
+			return
+		}
+	}
 	if oldCopy.Source == "agent" {
-		// skrivbordsappens mål: bara larm och varningsgräns kan ändras här
-		t.AlertIDs, t.WarnMs = in.AlertIDs, in.WarnMs
+		// skrivbordsappens mål: bara larm, beroende och varningsgräns kan ändras här
+		t.AlertIDs, t.WarnMs, t.DependsOn = in.AlertIDs, in.WarnMs, in.DependsOn
 	} else {
 		agentID := in.AgentID
 		if agentID == "" {

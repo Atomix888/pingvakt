@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
@@ -31,7 +32,7 @@ func TestIngestAndHistory(t *testing.T) {
 	if err := db.SaveTarget(tg); err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewServer(db, "test", t.TempDir())
+	s, err := NewServer(db, "test", t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,5 +111,63 @@ func TestEvalHost(t *testing.T) {
 	met, detail := evalHost(d, pts, m, end)
 	if !met || detail == "" {
 		t.Fatalf("disk 95 %% ska utlösa: %q", detail)
+	}
+}
+
+func TestMaintenanceWindow(t *testing.T) {
+	loc := time.Local
+	// lördag 23:30 och söndag 01:30 ska omfattas av "lördagar 22:00 i 6 h"
+	m := Maintenance{Weekly: true, Days: []int{6}, StartMin: 22 * 60, DurationMin: 360}
+	sat := time.Date(2026, 10, 31, 23, 30, 0, 0, loc) // lördag
+	if sat.Weekday() != time.Saturday {
+		t.Fatal("fel testdatum")
+	}
+	if !m.ActiveAt(sat) || !m.ActiveAt(sat.Add(2*time.Hour)) {
+		t.Fatal("ska vara aktivt lördag kväll och natten till söndag")
+	}
+	if m.ActiveAt(sat.Add(5 * time.Hour)) {
+		t.Fatal("ska ha slutat söndag 04:00")
+	}
+	one := Maintenance{Start: sat.UnixMilli(), End: sat.Add(time.Hour).UnixMilli()}
+	if !one.ActiveAt(sat.Add(time.Minute)) || one.ActiveAt(sat.Add(2*time.Hour)) {
+		t.Fatal("engångsfönster fel")
+	}
+}
+
+func TestAlertFilterDependency(t *testing.T) {
+	db, _ := OpenDB(filepath.Join(t.TempDir(), "t.db"))
+	defer db.Close()
+	_, _ = db.Exec(`INSERT INTO customers(id,name,created) VALUES('c1','Kund',1)`)
+	_, _ = db.Exec(`INSERT INTO sites(id,customer_id,name,created) VALUES('s1','c1','Site',1)`)
+	_, _ = db.Exec(`INSERT INTO agents(id,site_id,name,token_hash,created) VALUES('a1','s1','Agent','x',1)`)
+	r := Target{Target: monitor.Target{ID: "router", Host: "10.0.0.1"}, AgentID: "a1", Source: "server"}
+	r.Normalize()
+	ap := Target{Target: monitor.Target{ID: "ap", Host: "10.0.0.20", DependsOn: "router"}, AgentID: "a1", Source: "server"}
+	ap.Normalize()
+	_ = db.SaveTarget(r)
+	_ = db.SaveTarget(ap)
+	s, err := NewServer(db, "test", t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := alert.Alert{ID: "d", Name: "Nere", Condition: alert.CondDown}
+	rule.Normalize()
+	for i := 0; i < 5; i++ {
+		s.trackers["router"].Add(monitor.Sample{T: int64(i), RTT: -1}, "", "")
+	}
+	s.trackers["router"].Recompute(s.settings.Monitor, 0, false)
+	ev := alert.Event{Kind: "fire", TargetID: "ap"}
+	if s.alertFilter(rule, &ev) {
+		t.Fatal("larm för AP bakom nere router ska undertryckas")
+	}
+	clear := alert.Event{Kind: "clear", TargetID: "ap"}
+	if s.alertFilter(rule, &clear) {
+		t.Fatal("upphört ska också undertryckas när utlösningen var undertryckt")
+	}
+	// servicefönster för hela kunden
+	s.ops.maint["m"] = Maintenance{ID: "m", CustomerID: "c1", Start: now() - 1000, End: now() + 60000}
+	ev2 := alert.Event{Kind: "fire", TargetID: "router"}
+	if s.alertFilter(rule, &ev2) || ev2.Note == "" {
+		t.Fatal("servicefönster ska undertrycka larm")
 	}
 }

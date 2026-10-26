@@ -25,6 +25,8 @@ type Server struct {
 	db        *DB
 	version   string
 	agentsDir string
+	dataDir   string
+	ops       *opsState
 
 	mu        sync.RWMutex
 	settings  ServerSettings
@@ -49,8 +51,8 @@ type Server struct {
 }
 
 // NewServer läser in allt från databasen.
-func NewServer(db *DB, version, agentsDir string) (*Server, error) {
-	s := &Server{db: db, version: version, agentsDir: agentsDir,
+func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
+	s := &Server{db: db, version: version, agentsDir: agentsDir, dataDir: dataDir,
 		customers: map[string]Customer{}, sites: map[string]Site{}, agents: map[string]*Agent{},
 		tokens: map[string]string{}, targets: map[string]*Target{}, trackers: map[string]*monitor.Tracker{},
 		pending: map[string][]monitor.Sample{}, rules: map[string]Rule{}, offline: map[string]bool{},
@@ -59,6 +61,8 @@ func NewServer(db *DB, version, agentsDir string) (*Server, error) {
 	s.mailer = alert.NewMailer(s.settings.SMTP)
 	s.mailer.OnError = func(err error) { log.Printf("e-post: %v", err) }
 	s.eng = alert.NewEngineFor(engineSource{s}, s.mailer, "", s.onAlertEvent)
+	s.eng.Filter = s.alertFilter
+	s.loadOps()
 	if err := s.reload(); err != nil {
 		return nil, err
 	}
@@ -332,6 +336,9 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 		s.ingestHost(agentID, *rep.Host)
 	}
 
+	if kind == agentproto.KindAgent {
+		resp.Update = s.agentUpdate(rep.Agent.OS, rep.Agent.Version)
+	}
 	// konfiguration till agenter som styrs från servern
 	if kind == agentproto.KindAgent && rep.ConfigVersion != agentCopy.ConfigVersion {
 		resp.ConfigVersion = agentCopy.ConfigVersion
@@ -373,6 +380,7 @@ func (s *Server) syncLocalTargets(agentID string, local []monitor.Target, hash s
 		t.ID = id
 		if old, ok := existing[id]; ok {
 			t.AlertIDs = old.AlertIDs // larm väljs på servern, inte i appen
+			t.DependsOn = old.DependsOn
 		} else {
 			t.AlertIDs = s.defaultAlertIDs(agentID)
 		}
@@ -423,6 +431,7 @@ func (s *Server) defaultAlertIDs(agentID string) []string {
 func (s *Server) Run(ctx context.Context) {
 	go s.broadcastLoop(ctx)
 	go s.selfLoop(ctx)
+	go s.nightlyBackupLoop(ctx.Done())
 	go func() {
 		tk := time.NewTicker(10 * time.Second)
 		defer tk.Stop()
@@ -442,6 +451,7 @@ func (s *Server) Run(ctx context.Context) {
 			raw, agg := s.settings.RawDays, s.settings.AggDays
 			s.mu.RUnlock()
 			s.pruneHost(agg)
+			s.pruneMaintenance()
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
 			} else if n > 0 {
@@ -575,6 +585,13 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 		snap := s.snapshot(nil)
 		active := s.activeAlerts()
 		self := s.hostLatest(ServerHostID)
+		maint := s.inMaintenance()
+		s.ops.mu.Lock()
+		acks := make(map[string]Ack, len(s.ops.acks))
+		for k, v := range s.ops.acks {
+			acks[k] = v
+		}
+		s.ops.mu.Unlock()
 		for _, sub := range subs {
 			msg := map[string]any{"type": "tick"}
 			stats := map[string]monitor.Stats{}
@@ -608,6 +625,21 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 			if sub.customers == nil {
 				msg["server"] = self
 			}
+			mm := map[string]string{}
+			for id, note := range maint {
+				if _, ok := stats[id]; ok {
+					mm[id] = note
+				} else if _, ok := agents[id]; ok {
+					mm[id] = note
+				}
+			}
+			ak := map[string]Ack{}
+			for k := range act {
+				if a, ok := acks[k]; ok {
+					ak[k] = a
+				}
+			}
+			msg["maint"], msg["acks"] = mm, ak
 			b, _ := json.Marshal(msg)
 			select {
 			case sub.ch <- b:

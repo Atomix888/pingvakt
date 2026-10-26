@@ -74,7 +74,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	return &DB{d}, nil
@@ -136,18 +136,20 @@ type User struct {
 
 // ServerSettings är serverns inställningar.
 type ServerSettings struct {
-	PublicURL string           `json:"publicUrl"`
-	RawDays   int              `json:"rawDays"`
-	AggDays   int              `json:"aggDays"`
-	ReportSec int              `json:"reportSec"`
-	Monitor   monitor.Settings `json:"monitor"`
-	SMTP      alert.SMTP       `json:"smtp"`
+	PublicURL    string           `json:"publicUrl"`
+	NoAutoUpdate bool             `json:"noAutoUpdate"` // agenter uppdateras inte automatiskt
+	BackupKeep   int              `json:"backupKeep"`   // antal nattliga säkerhetskopior som sparas
+	RawDays      int              `json:"rawDays"`
+	AggDays      int              `json:"aggDays"`
+	ReportSec    int              `json:"reportSec"`
+	Monitor      monitor.Settings `json:"monitor"`
+	SMTP         alert.SMTP       `json:"smtp"`
 }
 
 func defaultServerSettings() ServerSettings {
 	m := monitor.DefaultSettings()
 	m.HistorySize = 3600
-	return ServerSettings{RawDays: 7, AggDays: 400, ReportSec: 5, Monitor: m,
+	return ServerSettings{RawDays: 7, AggDays: 400, ReportSec: 5, Monitor: m, BackupKeep: 7,
 		SMTP: alert.SMTP{Port: 587, Security: "starttls", MinMinutes: 5}}
 }
 

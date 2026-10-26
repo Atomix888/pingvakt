@@ -191,6 +191,8 @@ type Event struct {
 	Popup      bool   `json:"popup"`
 	Sound      bool   `json:"sound"`
 	SoundName  string `json:"soundName"`
+	Note       string `json:"note,omitempty"`       // t.ex. "Servicefönster" eller "Kvitterat"
+	Suppressed bool   `json:"suppressed,omitempty"` // inga åtgärder utfördes (e-post, webhook …)
 }
 
 // KindText är händelsetypen på svenska.
@@ -229,6 +231,10 @@ type Engine struct {
 	logPath string
 	onEvent func(Event)
 	history []Event
+
+	// Filter anropas före åtgärderna. Returnerar den false utförs inga åtgärder
+	// (händelsen skickas ändå till onEvent med Suppressed = true).
+	Filter func(a Alert, ev *Event) bool
 }
 
 // NewEngine skapar en larmmotor och kopplar den till monitorn.
@@ -281,6 +287,13 @@ func (e *Engine) SetAlerts(list []Alert) {
 func (e *Engine) SetLogPath(p string) {
 	e.mu.Lock()
 	e.logPath = p
+	e.mu.Unlock()
+}
+
+// Clear nollställer ett aktivt larm (t.ex. när målet tas bort).
+func (e *Engine) Clear(key string) {
+	e.mu.Lock()
+	delete(e.state, key)
 	e.mu.Unlock()
 }
 
@@ -384,6 +397,13 @@ func (e *Engine) Fire(a Alert, ev Event) {
 }
 
 func (e *Engine) dispatch(a Alert, ev Event, logPath string) {
+	if e.Filter != nil && !e.Filter(a, &ev) {
+		ev.Suppressed, ev.Popup, ev.Sound = true, false, false
+		if e.onEvent != nil {
+			e.onEvent(ev)
+		}
+		return
+	}
 	if e.onEvent != nil {
 		e.onEvent(ev)
 	}

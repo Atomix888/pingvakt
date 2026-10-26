@@ -19,7 +19,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.3.0"
+var Version = "0.4.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -61,7 +61,7 @@ func main() {
 		}
 	}
 
-	s, err := NewServer(db, Version, *agentsDir)
+	s, err := NewServer(db, Version, *agentsDir, *dataDir)
 	if err != nil {
 		log.Fatal(err)
 	}

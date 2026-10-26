@@ -59,7 +59,7 @@ async function loadState() {
   Object.assign(S, {
     me: st.me, customers: st.customers, sites: st.sites, agents: st.agents, targets: st.targets, rules: st.rules,
     stats: st.stats || {}, live: st.live || {}, active: st.active || {}, monitor: st.monitor, reportSec: st.reportSec,
-    serverUrl: st.serverUrl, version: st.version, serverHost: st.server || null,
+    serverUrl: st.serverUrl, version: st.version, serverHost: st.server || null, maint: st.maint || {}, acks: st.acks || {},
   });
 }
 
@@ -256,6 +256,7 @@ function renderCustomer(page, id) {
       h('button', { class: 'btn', onclick: () => siteDialog(id) }, '+ Ny site'),
       h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
         { label: 'Redigera kund…', action: () => customerDialog(c) },
+        { label: 'Servicefönster…', action: () => maintDialog(c.id) },
         { label: 'Larm för kunden…', action: () => { location.hash = '#/alerts'; } },
         '-',
         { label: 'Ta bort kund…', danger: true, action: () => deleteCustomer(c) },
@@ -303,9 +304,10 @@ function agentChip(a) {
     h('small', null, st === 'pending' ? 'väntar på första kontakt' : st === 'up' ? `${kind} · online` : `offline ${dur(Date.now() - seen)}`),
     lv.host && st === 'up' ? hostMini(lv.host) : null,
     isAdmin() ? h('button', { class: 'icon-btn', title: 'Agent', onclick: e => { e.stopPropagation(); agentMenu(a, e.currentTarget); } }, '⋯') : null);
-  if (Object.keys(S.active).some(k => k.endsWith('|' + a.id))) el.classList.add('alerting');
+  if (!S.maint[a.id] && Object.keys(S.active).some(k => k.endsWith('|' + a.id) && !S.acks[k])) el.classList.add('alerting');
+  if (S.maint[a.id]) { el.classList.add('in-maint'); el.title = '🔧 ' + S.maint[a.id]; }
   if (lv.host || a.kind === 'agent') { el.classList.add('clickable'); el.addEventListener('click', () => hostView(a.id)); }
-  el.dataset.sig = st + '|' + (lv.host ? [Math.round(lv.host.cpu), Math.round(memPct(lv.host)), Math.round(diskPct(lv.host))].join(',') : '');
+  el.dataset.sig = st + '|' + (S.maint[a.id] || '') + '|' + el.classList.contains('alerting') + '|' + (lv.host ? [Math.round(lv.host.cpu), Math.round(memPct(lv.host)), Math.round(diskPct(lv.host))].join(',') : '');
   return el;
 }
 
@@ -371,7 +373,10 @@ function updateTile(t) {
   const st = S.stats[t.id] || { status: 'pending', last: -1 };
   const status = st.status || 'pending';
   el.className = el.className.replace(/\bst-\w+/g, '').trim() + ' st-' + status;
-  el.classList.toggle('alerting', Object.keys(S.active).some(k => k.endsWith('|' + t.id)));
+  const keys = Object.keys(S.active).filter(k => k.endsWith('|' + t.id));
+  el.classList.toggle('alerting', keys.some(k => !S.acks[k]) && !maintNote(t));
+  el.classList.toggle('acked', keys.length > 0 && keys.every(k => S.acks[k]));
+  el.classList.toggle('in-maint', !!maintNote(t));
   el.classList.toggle('selected', S.selected === t.id);
   const nm = el.querySelector('.name');
   nm.textContent = displayName(t); nm.title = displayName(t);
@@ -402,9 +407,17 @@ function tileText(el, st) {
     case 'offline': txt = 'Agenten är offline'; break;
     default: txt = 'Väntar på data…';
   }
+  const tid = el.dataset.id, t = byId(S.targets, tid);
+  const mn = t && maintNote(t);
+  if (mn) txt = '🔧 ' + mn;
+  else if (t && t.dependsOn && st.status === 'down') {
+    const p = byId(S.targets, t.dependsOn);
+    if (p && (S.stats[p.id] || {}).status === 'down') txt = 'Bakom ' + displayName(p) + ' (nere)';
+  }
   const e = el.querySelector('.state-text');
   e.textContent = txt; e.title = st.err || txt;
 }
+function maintNote(t) { return S.maint[t.id] || S.maint[t.agentId] || ''; }
 
 function refreshTexts() {
   for (const t of S.targets) { const el = tiles.get(t.id); if (el) tileText(el, S.stats[t.id] || {}); }
@@ -484,6 +497,7 @@ function connectLive() {
   es.onmessage = ev => {
     let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (m.type === 'tick') onTick(m);
+    else if (m.type === 'ack') { S.acks[m.key] = m.ack; if (S.view.name === 'alerts') renderPage(); }
     else if (m.type === 'alert') onAlert(m.event);
   };
 }
@@ -494,6 +508,8 @@ function onTick(m) {
   Object.assign(S.stats, m.stats || {});
   Object.assign(S.live, m.agents || {});
   if (m.server) S.serverHost = m.server;
+  S.maint = m.maint || {};
+  S.acks = m.acks || {};
   if (S.hostView) refreshHostView();
   S.active = m.active || {};
   for (const [id, arr] of Object.entries(m.samples || {})) {
@@ -519,7 +535,9 @@ function renderNavThrottled() { const n = Date.now(); if (n - navT > 5000) { nav
 
 function onAlert(ev) {
   const title = { fire: 'Larm', repeat: 'Larm pågår', clear: 'Larm upphört', test: 'Testlarm' }[ev.kind] || 'Larm';
-  if (ev.popup || ev.kind === 'test') toast({ kind: ev.kind, title: `${title}: ${ev.targetName}`, text: `${ev.alertName} – ${ev.detail}`, time: ev.time, sticky: ev.kind === 'fire', target: byId(S.targets, ev.targetId) ? ev.targetId : null });
+  if (ev.suppressed) return;
+  if (ev.popup || ev.kind === 'test') toast({ kind: ev.kind, title: `${title}: ${ev.targetName}`, text: `${ev.alertName} – ${ev.detail}`, time: ev.time, sticky: ev.kind === 'fire', target: byId(S.targets, ev.targetId) ? ev.targetId : null,
+    ackKey: isAdmin() && (ev.kind === 'fire' || ev.kind === 'repeat') ? ev.alertId + '|' + ev.targetId : null });
   if (ev.sound) playSound(ev.soundName);
 }
 
@@ -716,6 +734,67 @@ function resizeChart() { if (chart) { const box = $('#dChart'); chart.setSize({ 
 window.addEventListener('resize', () => { resizeChart(); for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
 
 
+/* ---------------- kvittering och servicefönster ---------------- */
+function ackAlert(key) {
+  return new Promise(resolve => {
+    const note = h('input', { type: 'text', placeholder: 'Valfri kommentar, t.ex. "Tekniker på väg"' });
+    formDialog({ title: 'Kvittera larm', saveLabel: 'Kvittera', fields: [field('Kommentar', note, 'Larmet upprepas inte medan det är kvitterat. Kvitteringen tas bort när larmet upphör.', true)],
+      onSave: async () => { const a = await POST('/api/alerts/ack', { key, note: note.value }); S.acks[key] = a; resolve(true); } });
+  });
+}
+
+async function maintDialog(customerId) {
+  const c = byId(S.customers, customerId);
+  const listBox = h('div');
+  const sites = S.sites.filter(s => s.customerId === customerId);
+  const ags = S.agents.filter(a => customerOfAgent(a) === customerId);
+  const tgs = S.targets.filter(t => customerOfTarget(t) === customerId);
+  const scope = select([['', 'Hela kunden'], ...sites.map(s => ['s:' + s.id, 'Site: ' + s.name]), ...ags.map(a => ['a:' + a.id, 'Agent: ' + a.name]), ...tgs.map(t => ['t:' + t.id, 'Mål: ' + displayName(t)])], '');
+  const type = select([['once', 'En gång'], ['weekly', 'Varje vecka']], 'once');
+  const pad = n => String(n).padStart(2, '0');
+  const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const start = h('input', { type: 'datetime-local', value: local(new Date()) });
+  const end = h('input', { type: 'datetime-local', value: local(new Date(Date.now() + 2 * 3600e3)) });
+  const days = new Set([6]);
+  const dayNames = [[1, 'Mån'], [2, 'Tis'], [3, 'Ons'], [4, 'Tor'], [5, 'Fre'], [6, 'Lör'], [0, 'Sön']];
+  const dayBox = h('div', { class: 'checks' }, ...dayNames.map(([d, n]) => check(n, days.has(d), e => e.target.checked ? days.add(d) : days.delete(d))));
+  const wStart = h('input', { type: 'time', value: '22:00' });
+  const wDur = num(4, 0.25, 168, 0.25);
+  const note = h('input', { type: 'text', placeholder: 't.ex. Uppgradering av switchar' });
+  const once = h('div', { class: 'form', style: 'grid-column:1/-1' }, field('Start', start), field('Slut', end));
+  const weekly = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field('Dagar', dayBox, null, true), field('Starttid', wStart), field('Längd (timmar)', wDur));
+  type.onchange = () => { once.style.display = type.value === 'once' ? '' : 'none'; weekly.style.display = type.value === 'weekly' ? '' : 'none'; };
+  const err = h('span', { class: 'form-error' });
+  const scopeText = m => m.targetId ? 'Mål: ' + displayName(byId(S.targets, m.targetId) || { host: '?' }) : m.agentId ? 'Agent: ' + ((agentOf(m.agentId) || {}).name || '?') : m.siteId ? 'Site: ' + ((siteOf(m.siteId) || {}).name || '?') : 'Hela kunden';
+  const when = m => {
+    if (!m.weekly) return `${dateTime(m.start)} – ${dateTime(m.end)}`;
+    const ds = dayNames.filter(([d]) => (m.days || []).includes(d)).map(x => x[1]).join(', ');
+    return `${ds} ${pad(Math.floor(m.startMin / 60))}:${pad(m.startMin % 60)}, ${+(m.durationMin / 60).toFixed(2)} h`;
+  };
+  const load = async () => {
+    const all = (await GET('/api/maintenance')).filter(x => x.window.customerId === customerId);
+    listBox.replaceChildren(all.length ? h('table', { class: 'tbl' }, h('tbody', null, ...all.map(x => h('tr', null,
+      h('td', null, x.active ? h('span', { class: 'pill st-warn' }, h('span', { class: 'dot' }), 'Pågår') : x.expired ? h('span', { class: 'muted' }, 'Passerat') : h('span', { class: 'muted' }, 'Planerat')),
+      h('td', null, h('b', null, x.window.note || 'Servicefönster'), h('div', { class: 'muted' }, scopeText(x.window))),
+      h('td', null, when(x.window)),
+      h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm danger', onclick: async () => { await DEL('/api/maintenance/' + x.window.id); await load(); } }, 'Ta bort') : null))))) :
+      h('p', { class: 'muted' }, 'Inga servicefönster.'));
+  };
+  const form = isAdmin() ? h('div', { class: 'form', style: 'margin-top:14px' }, h('div', { class: 'section-title' }, 'Nytt servicefönster'),
+    field('Gäller', scope), field('Typ', type), once, weekly, field('Anteckning', note, null, true),
+    h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => {
+      err.textContent = '';
+      const [k, id] = scope.value.split(':');
+      const body = { customerId, note: note.value, siteId: k === 's' ? id : '', agentId: k === 'a' ? id : '', targetId: k === 't' ? id : '', weekly: type.value === 'weekly' };
+      if (body.weekly) { const [hh, mm] = wStart.value.split(':').map(Number); Object.assign(body, { days: [...days], startMin: hh * 60 + mm, durationMin: Math.round(+wDur.value * 60) }); }
+      else Object.assign(body, { start: new Date(start.value).getTime(), end: new Date(end.value).getTime() });
+      try { await POST('/api/maintenance', body); note.value = ''; await load(); } catch (e) { err.textContent = e.message; }
+    } }, 'Lägg till'), err)),
+    h('small', { class: 'field full' }, 'Under ett servicefönster skickas inga larm (e-post, webhook, popup). Händelserna sparas ändå i händelseloggen.')) : null;
+  modal({ title: `Servicefönster – ${c ? c.name : ''}`, wide: true, body: h('div', null, listBox, form) });
+  await load();
+}
+
 /* ---------------- CPU, minne och disk ---------------- */
 const pct = d => d && d.t ? d.u * 100 / d.t : 0;
 const memPct = m => m && m.memTotal ? m.memUsed * 100 / m.memTotal : 0;
@@ -827,7 +906,7 @@ function renderAgents(page) {
       h('td', null, h('b', null, a.name), h('div', { class: 'muted' }, a.kind === 'desktop' ? 'Skrivbordsapp' : a.kind === 'agent' ? 'Agent' : '–')),
       h('td', null, h('a', { href: '#/c/' + (site ? site.customerId : '') }, customerName(a)), h('div', { class: 'muted' }, site ? site.name : '')),
       h('td', { class: 'mono' }, a.hostname || '–', h('div', { class: 'muted' }, a.os || '')),
-      h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' }, a.version || '–'),
+      h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' + (a.kind === 'agent' && a.version && a.version !== S.version.replace(/-.*$/, '') && st === 'up' ? ' lvl-high' : ''), title: a.kind === 'agent' && a.version !== S.version.replace(/-.*$/, '') ? 'Uppdateras automatiskt till ' + S.version : '' }, a.version || '–'),
       h('td', null, seen ? dateTime(seen) : 'aldrig'),
       ...hostCells(lv.host, st === 'up'),
       h('td', null, String(S.targets.filter(t => t.agentId === a.id).length)),
@@ -855,7 +934,19 @@ async function renderAlerts(page) {
         : h('p', { class: 'muted' }, 'Inga regler.'));
   }).filter(Boolean);
   const evBox = h('div', null, h('p', { class: 'muted' }, 'Hämtar…'));
-  page.replaceChildren(head, ...ruleTables, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Senaste händelser')), evBox));
+  const actBox = h('div', null, h('p', { class: 'muted' }, 'Hämtar…'));
+  GET('/api/alerts/active').then(list => {
+    actBox.replaceChildren(list.length ? h('table', { class: 'tbl' },
+      h('thead', null, h('tr', null, ...['Sedan', 'Larm', 'Gäller', 'Status', ''].map(x => h('th', null, x)))),
+      h('tbody', null, ...list.map(a => h('tr', null,
+        h('td', { class: 'mono' }, dateTime(a.since), h('div', { class: 'muted' }, dur(Date.now() - a.since))),
+        h('td', null, h('b', null, a.ruleName)), h('td', null, a.targetName),
+        h('td', null, a.ack ? h('span', { class: 'pill' }, `Kvitterat av ${a.ack.user} ${clock(a.ack.t)}${a.ack.note ? ' – ' + a.ack.note : ''}`) : a.note ? h('span', { class: 'pill' }, a.note) : h('span', { class: 'pill st-down' }, h('span', { class: 'dot' }), 'Okvitterat')),
+        h('td', { class: 'actions' }, isAdmin() ? (a.ack ? h('button', { class: 'btn sm', onclick: async () => { await POST('/api/alerts/ack', { key: a.key, undo: true }); delete S.acks[a.key]; renderPage(); } }, 'Ångra') :
+          h('button', { class: 'btn sm primary', onclick: async () => { await ackAlert(a.key); renderPage(); } }, 'Kvittera')) : null)))))
+      : h('p', { class: 'muted' }, 'Inga aktiva larm.'));
+  }).catch(e => actBox.replaceChildren(h('p', { class: 'form-error' }, e.message)));
+  page.replaceChildren(head, h('div', { class: 'section', style: 'margin-top:0' }, h('div', { class: 'section-head' }, h('h2', null, 'Aktiva larm')), actBox), ...ruleTables, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Senaste händelser')), evBox));
   try {
     const evs = await GET('/api/events?limit=300');
     const kt = { fire: 'Utlöst', repeat: 'Pågår', clear: 'Upphört', test: 'Test' };
@@ -896,8 +987,16 @@ async function renderUsers(page) {
 /* ---------------- inställningar ---------------- */
 async function renderSettings(page) {
   const st = await GET('/api/settings');
+  GET('/api/backups').then(b => {
+    const box = $('#backupList'); if (!box) return;
+    box.replaceChildren(h('span', null, 'Sparade kopior'), b.files.length ? h('div', { class: 'checks', style: 'flex-direction:column' }, ...b.files.map(f =>
+      h('a', { href: '/api/backup?file=' + encodeURIComponent(f.name) }, `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`))) : h('small', null, 'Inga ännu.'),
+      h('small', null, `Mapp: ${b.dir}. Återställ genom att stoppa servern och ersätta pingvakt.db med en kopia.`));
+  }).catch(() => {});
   const pub = h('input', { type: 'text', value: st.publicUrl, placeholder: S.serverUrl });
   const rep = num(st.reportSec, 2, 300), raw = num(st.rawDays, 1, 365), agg = num(st.aggDays, 7, 3650);
+  const autoUpd = h('input', { type: 'checkbox', checked: !st.noAutoUpdate });
+  const backupKeep = num(st.backupKeep, 0, 365);
   const m = st.monitor;
   const win = num(m.statsWindow, 5, 3600), warnMs = num(m.warnMs, 0, 10000), warnLoss = num(m.warnLossPct, 0, 100, .5), downAfter = num(m.downAfter, 1, 100);
   const sm = st.smtp;
@@ -915,6 +1014,11 @@ async function renderSettings(page) {
       field('Publik adress', pub, 'Används i installationskommandon och mejl. Tomt = adressen du surfar på', true),
       field('Agenter rapporterar var (sekunder)', rep), h('span'),
       field('Spara rådata (dagar)', raw, 'Varje enskild ping'), field('Spara minutvärden (dagar)', agg, 'Snitt/min/max/förlust per minut'),
+      h('div', { class: 'field full' }, h('label', { class: 'check' }, autoUpd, 'Uppdatera agenterna automatiskt när servern får en ny version')),
+      h('div', { class: 'section-title' }, 'Säkerhetskopior'),
+      field('Spara nattliga kopior (antal)', backupKeep, 'Tas varje natt 03:15. 0 = av.'),
+      h('div', { class: 'field' }, h('span', null, 'Ladda ner'), h('div', { class: 'row' }, h('a', { class: 'btn', href: '/api/backup' }, 'Ladda ner säkerhetskopia nu'))),
+      h('div', { class: 'field full', id: 'backupList' }),
       h('div', { class: 'section-title' }, 'Mätning (skickas till agenterna)'),
       field('Statistikfönster (mätpunkter)', win), field('Nere efter (förlorade i rad)', downAfter),
       field('Varningsgräns latens (ms)', warnMs), field('Varningsgräns förlust (%)', warnLoss),
@@ -931,6 +1035,7 @@ async function renderSettings(page) {
         msg.className = ''; msg.textContent = '';
         try {
           await PUT('/api/settings', { publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
+            noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value,
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
             smtp: smtpVal(), newPassword: sPass.value !== '' });
           msg.className = 'form-ok'; msg.textContent = 'Sparat.'; await loadState();
@@ -1070,6 +1175,7 @@ function editTargetDialog(id) {
   const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: `Globalt (${S.monitor.warnMs} ms)` });
   const ags = S.agents.filter(a => customerOfAgent(a) === cust && a.kind !== 'desktop');
   const agent = select(ags.map(a => [a.id, a.name]), t.agentId); agent.disabled = fromApp;
+  const depends = select([['', '– inget –'], ...S.targets.filter(x => x.id !== t.id && customerOfTarget(x) === cust).map(x => [x.id, `${displayName(x)} (${x.host})`])], t.dependsOn || '');
   const sel = new Set(t.alertIds || []);
   const rules = S.rules.filter(r => ['down', 'latency', 'loss'].includes(r.condition) && (!r.customerId || r.customerId === cust));
   const pf = field('Port', port); const syncKind = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; }; kind.onchange = syncKind; syncKind();
@@ -1078,12 +1184,13 @@ function editTargetDialog(id) {
     field('Värd', host), field('Namn', name), field('Mättyp', kind), pf, fromApp ? null : field('Agent', agent),
     field('Intervall', interval), field('Tidsgräns (ms)', timeout), field('Paketstorlek (byte)', size), field('IP-version', ipMode),
     field('Grupp', group), field('Varningsgräns latens (ms)', warn, 'Tomt = globalt värde'),
+    field('Beror på', depends, 'Larm skickas inte för det här målet när målet det ligger bakom är nere – du får ett larm i stället för många.', true),
     h('div', { class: 'section-title' }, 'Larm'),
     h('div', { class: 'field full' }, rules.length ? h('div', { class: 'checks' }, ...rules.map(r => check(r.name, sel.has(r.id), e => e.target.checked ? sel.add(r.id) : sel.delete(r.id))))
       : h('small', null, 'Inga larmregler finns för kunden.'))],
     onSave: async () => {
       Object.assign(t, { host: host.value.trim(), name: name.value.trim(), kind: kind.value, port: +port.value || 0, intervalMs: +interval.value, timeoutMs: +timeout.value,
-        size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel], agentId: agent.value || t.agentId });
+        size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel], agentId: agent.value || t.agentId, dependsOn: depends.value });
       await PUT('/api/targets/' + id, t); S.spark[id] = S.spark[id] || []; await afterChange(); if (S.selected === id) loadChart();
     } });
 }
@@ -1199,12 +1306,13 @@ document.addEventListener('keydown', e => {
   if (S.selected) closeDrawer();
 });
 
-function toast({ kind = 'info', title, text, time, sticky, target }) {
+function toast({ kind = 'info', title, text, time, sticky, target, ackKey }) {
   const box = $('#toasts');
   const close = h('button', { class: 'icon-btn', title: 'Stäng', style: 'grid-row:1;grid-column:3' }, '✕');
   const el = h('div', { class: 'toast k-' + kind, style: 'grid-template-columns:1fr auto auto' }, h('b', null, title), h('span', { class: 't-time' }, clock(time || Date.now())), close,
     text ? h('div', { class: 't-text' }, text) : null);
   close.onclick = e => { e.stopPropagation(); el.remove(); };
+  if (ackKey) el.append(h('div', { style: 'grid-column:1/-1;margin-top:6px' }, h('button', { class: 'btn sm', onclick: async e => { e.stopPropagation(); await ackAlert(ackKey); el.remove(); } }, 'Kvittera')));
   if (target) { el.style.cursor = 'pointer'; el.onclick = () => { openDrawer(target); el.remove(); }; }
   box.prepend(el);
   while (box.children.length > 6) box.lastChild.remove();

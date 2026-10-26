@@ -27,7 +27,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.3.0"
+var Version = "0.4.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -223,6 +223,7 @@ func (p *program) Stop(s service.Service) error {
 
 func run(ctx context.Context, c agentConfig, cachePath string) {
 	log.Printf("PingVakt-agent %s startar, server %s", Version, c.Server)
+	cleanupOld()
 	mon := monitor.NewManager(monitor.DefaultSettings())
 	defer mon.Close()
 	up := newUploader(c)
@@ -263,6 +264,13 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 			apply(cfg)
 		}
 	}
+	upd := &updater{up: up, server: c.Server, restart: func() {
+		fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = up.SendAll(fctx)
+		cancel()
+		restartSelf()
+	}}
+	up.OnUpdate = upd.offer
 	up.OnConfig = func(cfg agentproto.Config) {
 		apply(cfg)
 		if b, err := json.Marshal(cfg); err == nil {

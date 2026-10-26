@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+
+	"pingvakt/core/agentproto"
 )
 
 var agentFile = regexp.MustCompile(`^pingvakt-agent-(linux|darwin|windows)-(amd64|arm64|armv7)(\.exe)?$`)
@@ -100,3 +106,51 @@ if ($LASTEXITCODE -ne 0) { throw 'Registreringen misslyckades.' }
 & $exe start
 Write-Host 'Klart! Agenten körs nu som Windows-tjänst och syns i PingVakt inom några sekunder.'
 `
+
+type agentFileInfo struct {
+	mod  int64
+	size int64
+	sha  string
+}
+
+var (
+	agentFilesMu sync.Mutex
+	agentFiles   = map[string]agentFileInfo{}
+)
+
+// agentUpdate returnerar en uppdatering om servern har en nyare agent för plattformen.
+func (s *Server) agentUpdate(osArch, version string) *agentproto.UpdateInfo {
+	s.mu.RLock()
+	off := s.settings.NoAutoUpdate
+	s.mu.RUnlock()
+	if off || !agentproto.NewerVersion(s.version, version) {
+		return nil
+	}
+	name := agentproto.AgentFileName(osArch)
+	if !agentFile.MatchString(name) {
+		return nil
+	}
+	p := filepath.Join(s.agentsDir, name)
+	st, err := os.Stat(p)
+	if err != nil {
+		return nil
+	}
+	agentFilesMu.Lock()
+	defer agentFilesMu.Unlock()
+	fi, ok := agentFiles[name]
+	if !ok || fi.mod != st.ModTime().UnixNano() || fi.size != st.Size() {
+		f, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		h := sha256.New()
+		_, err = io.Copy(h, f)
+		f.Close()
+		if err != nil {
+			return nil
+		}
+		fi = agentFileInfo{mod: st.ModTime().UnixNano(), size: st.Size(), sha: hex.EncodeToString(h.Sum(nil))}
+		agentFiles[name] = fi
+	}
+	return &agentproto.UpdateInfo{Version: s.version, Path: "/download/agent/" + name, SHA256: fi.sha, Size: fi.size}
+}

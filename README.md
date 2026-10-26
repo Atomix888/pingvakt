@@ -58,6 +58,15 @@ Regler som gäller alla kunder kontrollerar även själva servern. Värdena spar
 
 Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adress och en agent-token. Appens egna mål syns då under kunden. Larmen väljs på servern.
 
+**Larmhantering:**
+- *Kvittera* ett aktivt larm under Larm, eller direkt i popupen. Det upprepas då inte, och kvitteringen tas bort när larmet upphör.
+- *Servicefönster* lägger du in via kundens meny (⋯ → Servicefönster). De kan gälla en gång eller varje vecka, och omfatta hela kunden, en site, en agent eller ett mål. Under ett servicefönster skickas inga larm, men händelserna sparas.
+- *Beror på* sätts per mål, till exempel att accesspunkterna ligger bakom routern. När routern är nere kommer ett larm för routern, inte ett för varje mål bakom den.
+
+**Automatisk uppdatering:** när servern uppdateras hämtar agenterna (från version 0.4.0) den nya versionen själva. Agenten kontrollerar filens kontrollsumma och startar om sig själv. Det kan stängas av under Inställningar.
+
+**Säkerhetskopior:** servern sparar en kopia av databasen varje natt kl. 03:15 i `data/backups`. Som standard sparas de sju senaste. Under Inställningar kan du ladda ner en färsk kopia när som helst. Du återställer genom att stoppa servern och ersätta `pingvakt.db` med kopian.
+
 **Roller:** *Administratör* kan göra allt. *Kund* har bara läsbehörighet och ser bara sin egen kund.
 
 **Lagring:** SQLite i datamappen (`/data` i Docker). Varje enskild ping sparas i 7 dagar, och minutvärden (snitt, min, max och förlust) sparas i 400 dagar. Båda tiderna kan ändras under Inställningar. Graferna visar upp till 30 dagar.

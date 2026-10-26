@@ -28,7 +28,8 @@ type Target struct {
 	Size       int          `json:"size"`
 	IPMode     probe.IPMode `json:"ipMode"`
 	Group      string       `json:"group,omitempty"`
-	WarnMs     float64      `json:"warnMs,omitempty"` // 0 = använd globalt värde
+	WarnMs     float64      `json:"warnMs,omitempty"`    // 0 = använd globalt värde
+	DependsOn  string       `json:"dependsOn,omitempty"` // mål som detta ligger bakom (t.ex. routern)
 	AlertIDs   []string     `json:"alertIds"`
 	Paused     bool         `json:"paused"`
 }

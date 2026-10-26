@@ -7,6 +7,9 @@
 package agentproto
 
 import (
+	"strconv"
+	"strings"
+
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 )
@@ -56,12 +59,68 @@ type Config struct {
 
 // Response är serverns svar.
 type Response struct {
-	AgentID          string  `json:"agentId"`
-	AgentName        string  `json:"agentName"`
-	Customer         string  `json:"customer"`
-	Site             string  `json:"site"`
-	ServerTime       int64   `json:"serverTime"`
-	ConfigVersion    int64   `json:"configVersion"`
-	Config           *Config `json:"config,omitempty"`
-	NeedLocalTargets bool    `json:"needLocalTargets,omitempty"`
+	AgentID          string      `json:"agentId"`
+	AgentName        string      `json:"agentName"`
+	Customer         string      `json:"customer"`
+	Site             string      `json:"site"`
+	ServerTime       int64       `json:"serverTime"`
+	ConfigVersion    int64       `json:"configVersion"`
+	Config           *Config     `json:"config,omitempty"`
+	NeedLocalTargets bool        `json:"needLocalTargets,omitempty"`
+	Update           *UpdateInfo `json:"update,omitempty"`
+}
+
+// UpdateInfo erbjuder agenten en nyare version.
+type UpdateInfo struct {
+	Version string `json:"version"`
+	Path    string `json:"path"` // relativ sökväg på servern, t.ex. /download/agent/pingvakt-agent-linux-amd64
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+}
+
+// AgentFileName returnerar filnamnet för agenten på en plattform ("linux/arm" → pingvakt-agent-linux-armv7).
+func AgentFileName(osArch string) string {
+	os, arch, _ := strings.Cut(osArch, "/")
+	if arch == "arm" {
+		arch = "armv7"
+	}
+	name := "pingvakt-agent-" + os + "-" + arch
+	if os == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
+// NewerVersion avgör om a är en nyare version än b (jämför bara siffrorna, "0.4.0-edge" = "0.4.0").
+func NewerVersion(a, b string) bool {
+	pa, pb := versionParts(a), versionParts(b)
+	if pa == nil || pb == nil {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			return pa[i] > pb[i]
+		}
+	}
+	return false
+}
+
+func versionParts(v string) []int {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if i := strings.IndexAny(v, "-+ "); i >= 0 {
+		v = v[:i]
+	}
+	f := strings.Split(v, ".")
+	if len(f) < 2 {
+		return nil
+	}
+	out := make([]int, 3)
+	for i := 0; i < 3 && i < len(f); i++ {
+		n, err := strconv.Atoi(f[i])
+		if err != nil {
+			return nil
+		}
+		out[i] = n
+	}
+	return out
 }
