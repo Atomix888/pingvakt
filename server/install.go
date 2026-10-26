@@ -67,7 +67,7 @@ case "$(uname -m)" in
   *) echo "architecture $(uname -m) is not supported"; exit 1 ;;
 esac
 BIN=/usr/local/bin/pingvakt-agent
-echo "Downloading the agent for $OS/$ARCH…"
+echo "Downloading the agent for ${OS}/${ARCH}..."
 mkdir -p /usr/local/bin
 CURLK=""; [ -n "$INSECURE" ] && CURLK="-k"
 curl -fsSL $CURLK -o "$BIN.tmp" "$SERVER/download/agent/pingvakt-agent-$OS-$ARCH"
