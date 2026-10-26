@@ -1,0 +1,76 @@
+name: Bygg
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Systempaket
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev nsis imagemagick zip
+      - name: Beroenden
+        run: go mod tidy
+      - name: Tester
+        run: go test ./core/...
+      - name: Bygg Windows och Linux
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          scripts/build.sh all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-linux
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.deb
+            dist/*.tar.gz
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Beroenden
+        run: go mod tidy
+      - name: Tester
+        run: go test ./core/...
+      - name: Bygg macOS
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          scripts/build.sh macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-linux, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*-setup.exe
+            out/*.zip
+            out/*.deb
+            out/*.tar.gz
+            out/*.dmg

@@ -1,0 +1,12 @@
+Package: pingvakt
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Depends: libgtk-3-0, @WEBKIT@, libcap2-bin
+Recommends: traceroute, libnotify-bin
+Maintainer: PingVakt <info@pingvakt.local>
+Description: Övervakning av latens och paketförlust
+ PingVakt pingar många mål samtidigt (ICMP eller TCP-port), visar latens,
+ jitter och paketförlust i realtid och över tid, och larmar med popup,
+ ljud, systemnotis, e-post och loggfil.

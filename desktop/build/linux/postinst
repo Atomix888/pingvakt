@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+# PingVakt använder i första hand oprivilegierad ICMP (net.ipv4.ping_group_range).
+# Som reserv ges programmet rätt att skicka ICMP via råa socketar.
+if command -v setcap >/dev/null 2>&1; then
+  setcap cap_net_raw+ep /usr/bin/pingvakt || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
+exit 0

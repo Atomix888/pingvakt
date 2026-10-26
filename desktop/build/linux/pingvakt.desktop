@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PingVakt
+GenericName=Nätverksövervakning
+Comment=Övervaka latens och paketförlust mot många mål
+Exec=pingvakt
+Icon=pingvakt
+Terminal=false
+Categories=Network;Monitor;Utility;
+Keywords=ping;latens;nätverk;övervakning;traceroute;
+StartupWMClass=pingvakt
