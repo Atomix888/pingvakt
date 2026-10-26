@@ -6,10 +6,18 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Bygg och lägg filerna på en befintlig release (t.ex. v0.3.0). Tomt = vanligt bygge.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
   packages: write
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag }}
 
 jobs:
   windows-linux:
@@ -38,6 +46,7 @@ jobs:
       - name: Bygg Windows och Linux
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          if [[ -n "$RELEASE_TAG" ]]; then export VERSION="${RELEASE_TAG#v}"; fi
           scripts/build.sh all
       - uses: actions/upload-artifact@v4
         with:
@@ -70,13 +79,19 @@ jobs:
         id: tags
         run: |
           IMG=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')-server
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ -n "$RELEASE_TAG" ]]; then
+            V="${RELEASE_TAG#v}"
+            echo "tags=$IMG:$V,$IMG:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             V="${GITHUB_REF_NAME#v}"
             echo "tags=$IMG:$V,$IMG:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
           else
             echo "tags=$IMG:edge" >> "$GITHUB_OUTPUT"; echo "version=$(cat VERSION)-edge" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+          DOCKER_BUILD_SUMMARY: false
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -98,6 +113,7 @@ jobs:
       - name: Bygg macOS
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          if [[ -n "$RELEASE_TAG" ]]; then export VERSION="${RELEASE_TAG#v}"; fi
           scripts/build.sh macos
       - uses: actions/upload-artifact@v4
         with:
@@ -107,16 +123,22 @@ jobs:
             dist/*-macos-app.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
     needs: [windows-linux, macos]
     runs-on: ubuntu-24.04
     steps:
+      # bara byggresultaten – inte Docker-byggets egna poster
       - uses: actions/download-artifact@v4
         with:
+          name: windows-linux
           path: out
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos
+          path: out
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
           files: |
             out/*-setup.exe
             out/*.zip
