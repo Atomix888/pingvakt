@@ -22,12 +22,12 @@ RUN set -e; \
     done
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && adduser -D -H -u 10001 pingvakt && mkdir /data && chown pingvakt /data
+RUN apk add --no-cache ca-certificates tzdata su-exec && adduser -D -H -u 10001 pingvakt && mkdir /data && chown pingvakt /data
 COPY --from=build /out/pingvakt-server /usr/local/bin/pingvakt-server
 COPY --from=build /out/agents /app/agents
+COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENV PINGVAKT_DATA=/data PINGVAKT_AGENTS_DIR=/app/agents PINGVAKT_LISTEN=:8080 TZ=Europe/Stockholm
-USER pingvakt
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
-ENTRYPOINT ["pingvakt-server"]
+ENTRYPOINT ["entrypoint.sh"]
