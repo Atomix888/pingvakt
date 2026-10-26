@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 	"pingvakt/core/wifi"
 )
 
@@ -109,7 +110,7 @@ func (s *Server) ingestWiFi(agentID string, in wifi.Info) {
 	if roam != nil {
 		if _, err := s.db.Exec(`INSERT INTO wifi_roam(agent_id,t,ssid,from_bssid,to_bssid,from_rssi,to_rssi,from_ch,to_ch) VALUES(?,?,?,?,?,?,?,?,?)`,
 			agentID, roam.T, roam.SSID, roam.From, roam.To, roam.FromRSSI, roam.ToRSSI, roam.FromCh, roam.ToCh); err != nil {
-			log.Printf("spara roaming: %v", err)
+			log.Printf("save roaming: %v", err)
 		}
 	}
 	s.checkWiFiAlerts(agentID)
@@ -139,7 +140,7 @@ func (tr *wifiTrack) row(agent string) wifiRow {
 func (s *Server) saveWiFiRow(r wifiRow) {
 	if _, err := s.db.Exec(`INSERT OR REPLACE INTO wifi_metrics(agent_id,t,rssi,rssi_min,noise,ch,freq,tx,rx,ssid,bssid) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		r.agent, r.t, round1(r.rssi), r.min, r.noise, r.ch, r.freq, round1(r.tx), round1(r.rx), r.ssid, r.bssid); err != nil {
-		log.Printf("spara Wi-Fi: %v", err)
+		log.Printf("save Wi-Fi: %v", err)
 	}
 }
 
@@ -320,7 +321,7 @@ func evalRSSI(r alert.Alert, recent []wifiPoint, t int64) (bool, string) {
 		return false, ""
 	}
 	covered := t-first >= window*8/10 || r.Samples <= 1
-	return under && covered, fmt.Sprintf("Wi-Fi-signal %.0f dBm i snitt de senaste %d min", sum/float64(n), r.Samples)
+	return under && covered, fmt.Sprintf(i18n.T("Wi-Fi signal %.0f dBm on average over the last %d min"), sum/float64(n), r.Samples)
 }
 
 func (s *Server) checkWiFiAlerts(agentID string) {
@@ -365,7 +366,7 @@ func (s *Server) checkWiFiAlerts(agentID string) {
 			delete(s.host.alerts, key)
 			if r.OnClear {
 				kind = "clear"
-				detail = fmt.Sprintf("%s (larmet varade %s)", detail, time.Duration(t-since)*time.Millisecond/time.Second*time.Second)
+				detail = fmt.Sprintf(i18n.T("%s (the alert lasted %s)"), detail, time.Duration(t-since)*time.Millisecond/time.Second*time.Second)
 			}
 		}
 		s.host.mu.Unlock()

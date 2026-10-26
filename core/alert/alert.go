@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 )
 
@@ -138,25 +139,25 @@ func (a *Alert) Normalize() {
 func (a Alert) Describe() string {
 	switch a.Condition {
 	case CondLatency:
-		return fmt.Sprintf("Latens > %g ms (%d av %d)", a.Threshold, a.Count, a.Samples)
+		return fmt.Sprintf(i18n.T("Latency > %g ms (%d of %d)"), a.Threshold, a.Count, a.Samples)
 	case CondLoss:
-		return fmt.Sprintf("Förlust > %g %% (senaste %d)", a.Threshold, a.Samples)
+		return fmt.Sprintf(i18n.T("Loss > %g %% (last %d)"), a.Threshold, a.Samples)
 	case CondOffline:
 		return "Agent offline"
 	case CondCPU:
-		return fmt.Sprintf("CPU > %g %% i %d min", a.Threshold, a.Samples)
+		return fmt.Sprintf(i18n.T("CPU > %g %% for %d min"), a.Threshold, a.Samples)
 	case CondMem:
-		return fmt.Sprintf("Minne > %g %% i %d min", a.Threshold, a.Samples)
+		return fmt.Sprintf(i18n.T("Memory > %g %% for %d min"), a.Threshold, a.Samples)
 	case CondDisk:
 		return fmt.Sprintf("Disk > %g %% full", a.Threshold)
 	case CondRSSI:
-		return fmt.Sprintf("Wi-Fi-signal < %g dBm i %d min", a.Threshold, a.Samples)
+		return fmt.Sprintf(i18n.T("Wi-Fi signal < %g dBm for %d min"), a.Threshold, a.Samples)
 	case CondPath:
-		return "Vägen till målet ändras"
+		return i18n.T("Path to target changes")
 	case CondCert:
-		return fmt.Sprintf("Certifikat går ut inom %g dagar", a.Threshold)
+		return fmt.Sprintf(i18n.T("Certificate expires within %g days"), a.Threshold)
 	}
-	return fmt.Sprintf("Nere (%d av %d förlorade)", a.Count, a.Samples)
+	return fmt.Sprintf(i18n.T("Down (%d of %d lost)"), a.Count, a.Samples)
 }
 
 // Evaluate avgör om villkoret är uppfyllt för mätpunkterna (senaste sist).
@@ -179,7 +180,7 @@ func (a Alert) Evaluate(samples []monitor.Sample) (bool, string) {
 			}
 		}
 		pct := float64(lost) * 100 / float64(len(samples))
-		return pct > a.Threshold, fmt.Sprintf("Paketförlust %.1f %% (%d av %d)", pct, lost, len(samples))
+		return pct > a.Threshold, fmt.Sprintf(i18n.T("Packet loss %.1f %% (%d of %d)"), pct, lost, len(samples))
 	case CondLatency:
 		bad, n := 0, 0
 		var sum float64
@@ -196,7 +197,7 @@ func (a Alert) Evaluate(samples []monitor.Sample) (bool, string) {
 		if n > 0 {
 			avg = fmt.Sprintf("%.1f ms", sum/float64(n))
 		}
-		return bad >= a.Count, fmt.Sprintf("%d av %d över %g ms eller förlorade (snitt %s)", bad, len(samples), a.Threshold, avg)
+		return bad >= a.Count, fmt.Sprintf(i18n.T("%d of %d over %g ms or lost (avg %s)"), bad, len(samples), a.Threshold, avg)
 	default:
 		bad := 0
 		for _, s := range samples {
@@ -204,7 +205,7 @@ func (a Alert) Evaluate(samples []monitor.Sample) (bool, string) {
 				bad++
 			}
 		}
-		return bad >= a.Count, fmt.Sprintf("%d av %d senaste paket förlorade", bad, len(samples))
+		return bad >= a.Count, fmt.Sprintf(i18n.T("%d of %d latest packets lost"), bad, len(samples))
 	}
 }
 
@@ -229,11 +230,11 @@ type Event struct {
 func (e Event) KindText() string {
 	switch e.Kind {
 	case "fire":
-		return "UTLÖST"
+		return i18n.T("FIRED")
 	case "repeat":
-		return "PÅGÅR"
+		return i18n.T("ONGOING")
 	case "clear":
-		return "UPPHÖRT"
+		return i18n.T("CLEARED")
 	}
 	return "TEST"
 }
@@ -385,7 +386,7 @@ func (e *Engine) Handle(u monitor.Update) {
 			st.active = false
 			if a.OnClear {
 				dur := now.Sub(st.since).Round(time.Second)
-				detail = fmt.Sprintf("Larmet varade %s", dur)
+				detail = fmt.Sprintf(i18n.T("The alert lasted %s"), dur)
 				kind = "clear"
 			}
 		}
@@ -456,8 +457,8 @@ func (e *Engine) dispatch(a Alert, ev Event, logPath string) {
 
 // Test skickar en testhändelse genom alla åtgärder för larmet.
 func (e *Engine) Test(a Alert) error {
-	ev := Event{Kind: "test", AlertID: a.ID, AlertName: a.Name, TargetName: "Testmål", Host: "192.0.2.1",
-		Time: time.Now().UnixMilli(), Detail: "Detta är ett test av larmet", Popup: a.Popup, Sound: a.Sound, SoundName: a.SoundName}
+	ev := Event{Kind: "test", AlertID: a.ID, AlertName: a.Name, TargetName: i18n.T("Test target"), Host: "192.0.2.1",
+		Time: time.Now().UnixMilli(), Detail: i18n.T("This is a test of the alert"), Popup: a.Popup, Sound: a.Sound, SoundName: a.SoundName}
 	e.mu.Lock()
 	logPath := e.logPath
 	e.mu.Unlock()
@@ -480,7 +481,7 @@ func (e *Engine) Test(a Alert) error {
 	if a.Email && e.mailer != nil {
 		to := SplitAddresses(a.EmailTo)
 		if len(to) == 0 {
-			return fmt.Errorf("ingen mottagare angiven")
+			return fmt.Errorf("no recipient specified")
 		}
 		return e.mailer.SendNow(to, []Event{ev})
 	}

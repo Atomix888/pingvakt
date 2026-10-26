@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
-# PingVakt använder i första hand oprivilegierad ICMP (net.ipv4.ping_group_range).
-# Som reserv ges programmet rätt att skicka ICMP via råa socketar.
+# PingVakt primarily uses unprivileged ICMP (net.ipv4.ping_group_range).
+# As a fallback the program is allowed to send ICMP via raw sockets.
 if command -v setcap >/dev/null 2>&1; then
   setcap cap_net_raw+ep /usr/bin/pingvakt || true
 fi

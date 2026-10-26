@@ -1,6 +1,8 @@
 /* PingVakt – gränssnitt */
 'use strict';
 
+// T, TE och LANG finns i api.js
+
 const $ = sel => document.querySelector(sel);
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -26,14 +28,15 @@ const S = {
 const tiles = new Map();
 const SPARK_MAX = 600;
 
-const STATUS_TEXT = { up: 'Uppe', warn: 'Varning', down: 'Nere', paused: 'Pausad', pending: 'Väntar' };
+const STATUS_TEXT = { up: T('Up'), warn: T('Warning'), down: T('Down'), paused: T('Paused'), pending: T('Pending') };
 const STATUS_ORDER = { down: 0, warn: 1, pending: 2, up: 3, paused: 4 };
 const RANGES = [[60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h'], [21600, '6 h']];
 const INTERVALS = [250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 300000];
-const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', 'HTTP(S) (webbsida)'], ['dns', 'DNS (namnuppslag)']];
+const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', T('HTTP(S) (web page)')], ['dns', T('DNS (name lookup)')]];
 
 /* ---------------- start ---------------- */
 window.addEventListener('DOMContentLoaded', async () => {
+  translateDOM(document.body);
   api = await window.connectAPI();
   if (api.demo) $('#demoBadge').classList.remove('hidden');
   await reload();
@@ -46,7 +49,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderGrid();
   api.on('tick', onTick);
   api.on('alert', onAlert);
-  api.on('error', msg => toast({ kind: 'error', title: 'Fel', text: msg }));
+  api.on('error', msg => toast({ kind: 'error', title: T('Error'), text: msg }));
   bindUI();
   setInterval(() => { for (const t of S.targets) updateTileText(t); }, 15000);
 });
@@ -116,7 +119,7 @@ function buildTile(t) {
     h('div', { class: 'tile-head' },
       h('span', { class: 'dot' }),
       h('div', { class: 'names' }, h('div', { class: 'name' }), h('div', { class: 'host' })),
-      h('button', { class: 'icon-btn menu-btn', title: 'Meny' }, '⋯')),
+      h('button', { class: 'icon-btn menu-btn', title: T('Menu') }, '⋯')),
     h('div', { class: 'tile-main' }, h('span', { class: 'lat' }, '–'), h('span', { class: 'unit' }, 'ms'), h('span', { class: 'state-text' })),
     h('canvas', { class: 'spark' }),
     h('div', { class: 'tile-stats' }));
@@ -156,7 +159,7 @@ function buildTile(t) {
 function clearDrop() { document.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); }
 
 function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : t.kind === 'http' ? (/^http:/.test(t.host) ? 'HTTP' : 'HTTPS') : t.kind === 'dns' ? 'DNS' + (t.dnsServer ? ' @' + t.dnsServer : '') : 'ICMP'; }
-function certText(d) { return d < 0 ? 'utgånget' : d + ' d'; }
+function certText(d) { return d < 0 ? T('expired') : d + ' d'; }
 function displayName(t) { return t.name || t.host; }
 
 function fillTileStatic(el, t) {
@@ -176,16 +179,16 @@ function updateTile(t) {
   el.querySelector('.host').textContent = `${t.host}${addr} · ${kindText(t)}`;
   const lat = el.querySelector('.lat');
   const lost = st.window > 0 && st.last < 0;
-  lat.textContent = status === 'paused' ? '–' : st.window ? (lost ? 'förlorad' : fmtMs(st.last)) : '…';
+  lat.textContent = status === 'paused' ? '–' : st.window ? (lost ? T('lost') : fmtMs(st.last)) : '…';
   lat.classList.toggle('lost', lost);
   el.querySelector('.unit').style.visibility = (!st.window || lost || status === 'paused') ? 'hidden' : '';
   updateTileText(t);
   const s = el.querySelector('.tile-stats');
   s.replaceChildren(...[
-    h('span', null, h('i', null, 'snitt'), fmtMs(st.avg)),
+    h('span', null, h('i', null, T('avg')), fmtMs(st.avg)),
     h('span', null, h('i', null, 'max'), fmtMs(st.max)),
     h('span', null, h('i', null, 'jitter'), fmtMs(st.jitter)),
-    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
+    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, T('loss')), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
     t.kind === 'http' && st.httpStatus ? h('span', { class: st.httpStatus >= 400 ? 'bad' : '' }, h('i', null, 'HTTP'), String(st.httpStatus)) : null,
     t.kind === 'http' && st.certDays >= 0 ? h('span', { class: st.certDays < 14 ? 'bad' : '' }, h('i', null, 'cert'), certText(st.certDays)) : null].filter(Boolean));
   drawSpark(el.querySelector('canvas'), S.spark[t.id] || [], warnFor(t));
@@ -197,14 +200,14 @@ function updateTileText(t) {
   const st = S.stats[t.id] || {};
   let txt = '';
   switch (st.status) {
-    case 'up': txt = 'Uppe ' + dur(Date.now() - st.since); break;
-    case 'down': txt = (st.err || 'Nere') + ' · ' + dur(Date.now() - st.since); break;
-    case 'warn': txt = st.consecLost ? (st.err || 'Paket förlorat') : st.loss > (S.settings.warnLossPct || 0) ? `Förlust ${st.loss}%` : 'Hög latens'; break;
-    case 'paused': txt = 'Pausad'; break;
-    default: txt = 'Väntar på svar…';
+    case 'up': txt = T('Up ') + dur(Date.now() - st.since); break;
+    case 'down': txt = (TE(st.err) || T('Down')) + ' · ' + dur(Date.now() - st.since); break;
+    case 'warn': txt = st.consecLost ? (TE(st.err) || T('Packet lost')) : st.loss > (S.settings.warnLossPct || 0) ? T('Loss {0}%', st.loss) : T('High latency'); break;
+    case 'paused': txt = T('Paused'); break;
+    default: txt = T('Waiting for reply…');
   }
   const e = el.querySelector('.state-text');
-  e.textContent = txt; e.title = st.err || txt;
+  e.textContent = txt; e.title = TE(st.err) || txt;
 }
 
 function isAlerting(id) { return Object.keys(S.active || {}).some(k => k.endsWith('|' + id)); }
@@ -272,10 +275,10 @@ function updateSummary() {
   const c = { up: 0, warn: 0, down: 0, paused: 0 };
   for (const t of S.targets) { const s = (S.stats[t.id] || {}).status; if (s in c) c[s]++; }
   const chip = (k, label) => h('span', { class: 'chip st-' + k + (c[k] ? '' : ' zero'), title: label }, h('span', { class: 'dot' }), String(c[k]));
-  $('#summary').replaceChildren(chip('up', 'Uppe'), chip('warn', 'Varning'), chip('down', 'Nere'), chip('paused', 'Pausade'));
+  $('#summary').replaceChildren(chip('up', T('Up')), chip('warn', T('Warning')), chip('down', T('Down')), chip('paused', T('Paused|pl')));
   const allPaused = S.targets.length && S.targets.every(t => t.paused);
-  $('#btnPauseAll').textContent = allPaused ? '▶ Starta alla' : '❚❚ Pausa alla';
-  const title = c.down ? `PingVakt – ${c.down} nere` : c.warn ? `PingVakt – ${c.warn} varning` : 'PingVakt';
+  $('#btnPauseAll').textContent = allPaused ? T('▶ Start all') : T('❚❚ Pause all');
+  const title = c.down ? T('PingVakt – {0} down', c.down) : c.warn ? T('PingVakt – {0} warning', c.warn) : 'PingVakt';
   if (title !== document.title) { document.title = title; api.setTitle(title); }
 }
 
@@ -293,8 +296,8 @@ function renderServerChip(st) {
   if (!st || !st.enabled) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   el.className = 'chip ' + (st.connected ? 'st-up' : 'st-down');
-  el.replaceChildren(h('span', { class: 'dot' }), st.connected ? `Server: ${st.customer || ''}${st.site ? ' / ' + st.site : ''}` : 'Server: ej ansluten');
-  el.title = st.connected ? `Rapporterar till servern som "${st.agentName}"` + (st.buffered ? ` – ${st.buffered} mätpunkter i kö` : '') : (st.lastError || 'Ingen kontakt med servern') + (st.buffered ? ` – ${st.buffered} mätpunkter väntar` : '');
+  el.replaceChildren(h('span', { class: 'dot' }), st.connected ? `Server: ${st.customer || ''}${st.site ? ' / ' + st.site : ''}` : T('Server: not connected'));
+  el.title = st.connected ? T('Reporting to the server as "{0}"', st.agentName) + (st.buffered ? T(' – {0} samples queued', st.buffered) : '') : (st.lastError || T('No contact with the server')) + (st.buffered ? T(' – {0} samples waiting', st.buffered) : '');
 }
 
 function onTick(tk) {
@@ -314,7 +317,7 @@ function onTick(tk) {
 
 function onAlert(ev) {
   if (ev.popup || ev.kind === 'test') {
-    const title = { fire: 'Larm', repeat: 'Larm pågår', clear: 'Larm upphört', test: 'Testlarm' }[ev.kind] || 'Larm';
+    const title = { fire: T('Alerts'), repeat: T('Alert ongoing'), clear: T('Alert cleared'), test: T('Test alert') }[ev.kind] || T('Alerts');
     toast({ kind: ev.kind, title: `${title}: ${ev.targetName}`, text: `${ev.alertName} – ${ev.detail}`, time: ev.time, sticky: ev.kind === 'fire' || ev.kind === 'repeat', target: ev.targetId });
   }
   if (ev.sound) playSound(ev.soundName);
@@ -326,7 +329,7 @@ function toast({ kind = 'info', title, text, time, sticky, target }) {
   const el = h('div', { class: 'toast k-' + kind },
     h('b', null, title), h('span', { class: 't-time' }, clock(time || Date.now())),
     text ? h('div', { class: 't-text' }, text) : null);
-  const close = h('button', { class: 'icon-btn', title: 'Stäng', style: 'grid-row:1;grid-column:3' }, '✕');
+  const close = h('button', { class: 'icon-btn', title: T('Close'), style: 'grid-row:1;grid-column:3' }, '✕');
   el.style.gridTemplateColumns = '1fr auto auto';
   el.append(close);
   close.onclick = e => { e.stopPropagation(); el.remove(); };
@@ -377,14 +380,14 @@ function tileMenu(id, anchor) {
   const t = S.targets.find(x => x.id === id);
   if (!t) return;
   showMenu(anchor, [
-    { label: 'Visa graf', action: () => openDrawer(id) },
-    { label: 'Redigera…', action: () => editTarget(id) },
-    { label: t.paused ? 'Starta' : 'Pausa', action: () => togglePause(id) },
+    { label: T('Show graph'), action: () => openDrawer(id) },
+    { label: T('Edit…'), action: () => editTarget(id) },
+    { label: t.paused ? T('Start') : T('Pause'), action: () => togglePause(id) },
     { label: 'Traceroute…', action: () => traceDialog(t.host) },
-    { label: 'Exportera CSV…', action: () => exportCSV([id]) },
-    { label: 'Duplicera', action: async () => { const c = Object.assign({}, t, { id: '', name: (t.name || t.host) + ' (kopia)' }); await api.call('SaveTarget', c); await afterChange(); } },
+    { label: T('Export CSV…'), action: () => exportCSV([id]) },
+    { label: T('Duplicate'), action: async () => { const c = Object.assign({}, t, { id: '', name: (t.name || t.host) + T(' (copy)') }); await api.call('SaveTarget', c); await afterChange(); } },
     '-',
-    { label: 'Ta bort', danger: true, action: () => removeTargets([id]) },
+    { label: T('Delete'), danger: true, action: () => removeTargets([id]) },
   ]);
 }
 
@@ -396,7 +399,7 @@ async function togglePause(id) {
 
 async function removeTargets(ids) {
   const names = ids.map(id => displayName(S.targets.find(t => t.id === id) || { host: id }));
-  if (!await confirmDialog('Ta bort mål', `Ta bort ${names.join(', ')}? Historiken för målet försvinner.`, 'Ta bort')) return;
+  if (!await confirmDialog(T('Delete target'), T('Delete {0}? The target\'s history will be lost.', names.join(', ')), T('Delete'))) return;
   await api.call('RemoveTargets', ids);
   if (ids.includes(S.selected)) closeDrawer();
   await afterChange();
@@ -405,8 +408,8 @@ async function removeTargets(ids) {
 async function exportCSV(ids) {
   try {
     const p = await api.call('ExportCSV', ids, 0);
-    if (p) toast({ kind: 'info', title: 'Exporterat', text: p });
-  } catch (e) { toast({ kind: 'error', title: 'Export misslyckades', text: errText(e) }); }
+    if (p) toast({ kind: 'info', title: T('Exported'), text: p });
+  } catch (e) { toast({ kind: 'error', title: T('Export failed'), text: errText(e) }); }
 }
 
 async function afterChange() {
@@ -417,14 +420,14 @@ async function afterChange() {
   else if (S.selected) updateDrawerHead();
 }
 
-function errText(e) { return (e && (e.message || e.toString())) || String(e); }
+function errText(e) { return TE((e && (e.message || e.toString())) || String(e)); }
 
 /* ---------------- UI-bindningar ---------------- */
 function bindUI() {
   const kind = $('#addKind'), port = $('#addPort');
   kind.onchange = () => {
     port.classList.toggle('hidden', kind.value !== 'tcp');
-    $('#addHost').placeholder = { http: 'https://webb.se – en eller flera adresser', dns: 'Namn att slå upp, t.ex. kund.se' }[kind.value] || $('#addHost').dataset.ph;
+    $('#addHost').placeholder = { http: T('https://web.com – one or more addresses'), dns: T('Name to look up, e.g. customer.com') }[kind.value] || $('#addHost').dataset.ph;
   };
   $('#addHost').dataset.ph = $('#addHost').placeholder;
   $('#addForm').addEventListener('submit', async e => {
@@ -435,7 +438,7 @@ function bindUI() {
       await api.call('AddHosts', v, { kind: kind.value, port: +port.value || 0 });
       $('#addHost').value = '';
       await afterChange();
-    } catch (err) { toast({ kind: 'error', title: 'Kunde inte lägga till', text: errText(err) }); }
+    } catch (err) { toast({ kind: 'error', title: T('Could not add'), text: errText(err) }); }
   });
   $('#filter').addEventListener('input', e => { S.filter = e.target.value; renderGrid(); });
   $('#sortBy').addEventListener('change', e => { S.sort = e.target.value; renderGrid(); });
@@ -447,6 +450,7 @@ function bindUI() {
     const allPaused = S.targets.every(t => t.paused);
     await api.call('PauseAll', !allPaused); await afterChange();
   };
+  $('#btnScan').onclick = () => openScan();
   $('#btnTrace').onclick = () => traceDialog('');
   $('#btnAlerts').onclick = () => alertsDialog();
   $('#btnSettings').onclick = () => settingsDialog();
@@ -505,8 +509,8 @@ function updateDrawerHead() {
   const st = S.stats[t.id] || {};
   $('#dDot').parentElement.className = 'drawer-head st-' + (st.status || 'pending');
   $('#dName').textContent = displayName(t);
-  $('#dHost').textContent = `${t.host}${st.addr && st.addr !== t.host ? ' → ' + st.addr : ''} · ${kindText(t)} · var ${t.intervalMs >= 1000 ? t.intervalMs / 1000 + ' s' : t.intervalMs + ' ms'}`;
-  $('#dPause').textContent = t.paused ? '▶ Starta' : '❚❚ Pausa';
+  $('#dHost').textContent = T('{0}{1} · {2} · every {3}', t.host, st.addr && st.addr !== t.host ? ' → ' + st.addr : '', kindText(t), t.intervalMs >= 1000 ? t.intervalMs / 1000 + ' s' : t.intervalMs + ' ms');
+  $('#dPause').textContent = t.paused ? T('▶ Start') : T('❚❚ Pause');
   document.querySelectorAll('#dRanges button').forEach(b => b.classList.toggle('on', +b.dataset.r === S.range));
   renderDrawerStats();
 }
@@ -528,19 +532,19 @@ function renderDrawerStats() {
   $('#dStats').replaceChildren(
     h('dl', null,
       row('Status', STATUS_TEXT[st.status] || '–'),
-      row('Sedan', st.since ? dur(Date.now() - st.since) : '–'),
-      row('Senaste', st.last >= 0 ? fmtMs(st.last) + ' ms' : 'förlorad'),
-      row('Paket', String(n)),
-      row('Förlorade', `${lost} (${n ? +(lost * 100 / n).toFixed(1) : 0}%)`),
-      row('Snitt', fmtMs(avg) + ' ms'),
+      row(T('Since'), st.since ? dur(Date.now() - st.since) : '–'),
+      row(T('Last'), st.last >= 0 ? fmtMs(st.last) + ' ms' : T('lost')),
+      row(T('Packets'), String(n)),
+      row(T('Lost'), `${lost} (${n ? +(lost * 100 / n).toFixed(1) : 0}%)`),
+      row(T('Avg'), fmtMs(avg) + ' ms'),
       row('Min', fmtMs(sorted[0]) + ' ms'),
       row('Max', fmtMs(sorted[sorted.length - 1]) + ' ms'),
       row('Median', fmtMs(pct(.5)) + ' ms'),
-      row('95:e pct', fmtMs(pct(.95)) + ' ms'),
+      row(T('95th pct'), fmtMs(pct(.95)) + ' ms'),
       row('Jitter', fmtMs(jit) + ' ms'),
-      row('Totalt', `${st.sent || 0} skickade`),
+      row(T('Total'), `${st.sent || 0} skickade`),
     ),
-    ...(st.err ? [h('div', { class: 'err' }, st.err)] : []));
+    ...(st.err ? [h('div', { class: 'err' }, TE(st.err))] : []));
 }
 
 async function loadChart() {
@@ -604,9 +608,9 @@ function rebuildChart() {
     scales: { x: { time: true, range: () => { const n = Date.now() / 1000; return [n - S.range, n]; } }, y: { range: (u, min, max) => [0, Math.max((max || 0) * 1.15, 0.1)] }, loss: { range: [0, 1] } },
     axes: [Object.assign({}, axis, { values: (u, splits) => splits.map(v => timeLabel(v, S.range)) }), Object.assign({}, axis, { label: 'ms', labelSize: 18, size: 50 })],
     series: [
-      { label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleTimeString('sv-SE') },
-      { label: 'Latens', stroke: c.accent, width: 1.5, fill: hexA(c.accent, .12), points: { show: false }, spanGaps: false, value: (u, v, si, idx) => idx == null ? '–' : v == null ? 'förlorad' : fmtMs(v) + ' ms' },
-      { label: 'Förlorad', scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null ? '–' : v ? 'ja' : 'nej' },
+      { label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleTimeString('sv-SE') },
+      { label: T('Latency'), stroke: c.accent, width: 1.5, fill: hexA(c.accent, .12), points: { show: false }, spanGaps: false, value: (u, v, si, idx) => idx == null ? '–' : v == null ? T('lost') : fmtMs(v) + ' ms' },
+      { label: T('Lost|one'), scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null ? '–' : v ? T('yes') : T('no') },
     ],
     legend: { live: true },
     plugins: [lossPlugin],
@@ -615,7 +619,7 @@ function rebuildChart() {
   opts.hooks = { setSelect: [u => { if (u.select.width > 4) S.zoomed = true; }] };
   chart = new uPlot(opts, S.chartData, box);
   chart.over.addEventListener('dblclick', () => { S.zoomed = false; chart.setData(S.chartData, true); });
-  chart.over.title = 'Dra för att zooma, dubbelklicka för att återställa';
+  chart.over.title = T('Drag to zoom, double-click to reset');
 }
 
 function timeLabel(sec, range) {
@@ -642,7 +646,7 @@ function modal({ title, body, foot, wide, onClose }) {
   const close = () => { bd.remove(); onClose && onClose(); };
   const bd = h('div', { class: 'backdrop' },
     h('div', { class: 'modal' + (wide ? ' wide' : ''), role: 'dialog', 'aria-label': title },
-      h('div', { class: 'modal-head' }, h('h3', null, title), h('button', { class: 'icon-btn', title: 'Stäng', onclick: close }, '✕')),
+      h('div', { class: 'modal-head' }, h('h3', null, title), h('button', { class: 'icon-btn', title: T('Close'), onclick: close }, '✕')),
       h('div', { class: 'modal-body' }, body),
       foot ? h('div', { class: 'modal-foot' }, foot) : null));
   bd._close = close;
@@ -659,7 +663,7 @@ function confirmDialog(title, text, okLabel) {
     const finish = v => { if (!done) { done = true; resolve(v); close(); } };
     const close = modal({
       title, body: h('p', null, text),
-      foot: [h('button', { class: 'btn', onclick: () => finish(false) }, 'Avbryt'), h('button', { class: 'btn primary', onclick: () => finish(true) }, okLabel || 'OK')],
+      foot: [h('button', { class: 'btn', onclick: () => finish(false) }, T('Cancel')), h('button', { class: 'btn primary', onclick: () => finish(true) }, okLabel || 'OK')],
       onClose: () => { if (!done) { done = true; resolve(false); } },
     });
   });
@@ -676,36 +680,36 @@ function editTarget(id) {
   if (!orig) return;
   const t = JSON.parse(JSON.stringify(orig));
   const host = h('input', { type: 'text', value: t.host, spellcheck: 'false' });
-  const name = h('input', { type: 'text', value: t.name, placeholder: 'Valfritt visningsnamn' });
+  const name = h('input', { type: 'text', value: t.name, placeholder: T('Optional display name') });
   const kind = select(KINDS, t.kind);
   const port = num(t.port || 443, 1, 65535);
-  const kw = h('input', { type: 'text', value: t.keyword || '', placeholder: 'Valfritt – svaret måste innehålla texten' });
-  const dns = h('input', { type: 'text', value: t.dnsServer || '', placeholder: 'Tomt = datorns vanliga DNS' });
+  const kw = h('input', { type: 'text', value: t.keyword || '', placeholder: T('Optional – the response must contain the text') });
+  const dns = h('input', { type: 'text', value: t.dnsServer || '', placeholder: T('Empty = the computer\'s normal DNS') });
   const interval = select(INTERVALS.map(v => [v, v >= 60000 ? `${v / 60000} min` : v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs);
   const timeout = num(t.timeoutMs, 100, 60000, 100);
   const size = num(t.size, 1, 65000);
-  const ipMode = select([['auto', 'Automatiskt'], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode);
-  const group = h('input', { type: 'text', value: t.group || '', placeholder: 't.ex. Kund A / Lager' });
-  const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: `Globalt (${S.settings.warnMs} ms)` });
+  const ipMode = select([['auto', T('Automatic')], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode);
+  const group = h('input', { type: 'text', value: t.group || '', placeholder: T('e.g. Customer A / Warehouse') });
+  const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: T('Global ({0} ms)', S.settings.warnMs) });
   const sel = new Set(t.alertIds || []);
   const alertChecks = h('div', { class: 'checks' }, ...S.alerts.map(a => check(a.name, sel.has(a.id), e => e.target.checked ? sel.add(a.id) : sel.delete(a.id))));
-  const portField = field('Port', port), kwField = field('Text som måste finnas', kw), dnsField = field('DNS-server', dns);
-  const sizeField = field('Paketstorlek (byte)', size), ipField = field('IP-version', ipMode);
+  const portField = field('Port', port), kwField = field(T('Required text'), kw), dnsField = field(T('DNS server'), dns);
+  const sizeField = field(T('Packet size (bytes)'), size), ipField = field(T('IP version'), ipMode);
   const syncKind = () => { const k = kind.value; portField.style.display = k === 'tcp' ? '' : 'none'; kwField.style.display = k === 'http' ? '' : 'none';
     dnsField.style.display = k === 'dns' ? '' : 'none'; sizeField.style.display = k === 'icmp' ? '' : 'none'; ipField.style.display = k === 'http' || k === 'dns' ? 'none' : ''; };
   kind.onchange = syncKind; syncKind();
   const err = h('span', { class: 'form-error' });
   const close = modal({
-    title: 'Redigera mål',
+    title: T('Edit target'),
     body: h('div', { class: 'form' },
-      field('Värd (namn, IP eller URL)', host), field('Namn', name),
-      field('Mättyp', kind), portField, kwField, dnsField,
-      field('Intervall', interval), field('Tidsgräns (ms)', timeout),
+      field(T('Host (name, IP or URL)'), host), field(T('Name'), name),
+      field(T('Check type'), kind), portField, kwField, dnsField,
+      field(T('Interval'), interval), field(T('Timeout (ms)'), timeout),
       sizeField, ipField,
-      field('Grupp', group, 'Används för filtrering'), field('Varningsgräns latens (ms)', warn, 'Tomt = globalt värde'),
-      h('div', { class: 'section-title' }, 'Larm för det här målet'),
-      h('div', { class: 'field full' }, S.alerts.length ? alertChecks : h('small', null, 'Inga larm skapade ännu.'))),
-    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
+      field(T('Group'), group, T('Used for filtering')), field(T('Latency warning threshold (ms)'), warn, T('Empty = global value')),
+      h('div', { class: 'section-title' }, T('Alerts for this target')),
+      h('div', { class: 'field full' }, S.alerts.length ? alertChecks : h('small', null, T('No alerts created yet.')))),
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, T('Cancel')),
       h('button', { class: 'btn primary', onclick: async () => {
         Object.assign(t, { host: host.value.trim(), name: name.value.trim(), kind: kind.value, port: +port.value || 0, intervalMs: +interval.value,
           timeoutMs: +timeout.value, size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel],
@@ -716,7 +720,7 @@ function editTarget(id) {
           close(); await afterChange();
           if (S.selected === t.id) loadChart();
         } catch (e) { err.textContent = errText(e); }
-      } }, 'Spara')],
+      } }, T('Save'))],
   });
 }
 
@@ -738,30 +742,30 @@ function settingsDialog() {
   const statsWindow = num(st.statsWindow, 5, 3600), warnMs = num(st.warnMs, 0, 10000), warnLoss = num(st.warnLossPct, 0, 100, .5);
   const downAfter = num(st.downAfter, 1, 100), histSize = num(st.historySize, 300, 604800, 300);
   const histHint = h('small');
-  const syncHist = () => { histHint.textContent = `≈ ${dur(+histSize.value * (df.intervalMs || 1000))} per mål vid ${(df.intervalMs || 1000) / 1000} s intervall`; };
+  const syncHist = () => { histHint.textContent = T('≈ {0} per target at {1} s interval', dur(+histSize.value * (df.intervalMs || 1000)), (df.intervalMs || 1000) / 1000); };
   histSize.oninput = syncHist; syncHist();
   pane.general = h('div', { class: 'form' },
-    field('Statistikfönster (antal mätpunkter)', statsWindow, 'Snitt, min, max, jitter och förlust i rutorna räknas på detta'),
-    field('Nere efter (förlorade i rad)', downAfter),
-    field('Varningsgräns latens (ms)', warnMs, '0 = av. Kan ändras per mål'),
-    field('Varningsgräns förlust (%)', warnLoss),
-    h('label', { class: 'field full' }, h('span', null, 'Historik i minnet (mätpunkter per mål)'), histSize, histHint));
+    field(T('Statistics window (number of samples)'), statsWindow, T('Avg, min, max, jitter and loss in the tiles are calculated over this')),
+    field(T('Down after (lost in a row)'), downAfter),
+    field(T('Latency warning threshold (ms)'), warnMs, T('0 = off. Can be changed per target')),
+    field(T('Loss warning threshold (%)'), warnLoss),
+    h('label', { class: 'field full' }, h('span', null, T('History in memory (samples per target)')), histSize, histHint));
 
   // förval
   const dInterval = select(INTERVALS.map(v => [v, v >= 1000 ? `${v / 1000} s` : `${v} ms`]), df.intervalMs);
   const dTimeout = num(df.timeoutMs, 100, 60000, 100), dSize = num(df.size, 1, 65000);
   const dSel = new Set(df.alertIds || []);
   pane.defaults = h('div', { class: 'form' },
-    field('Intervall', dInterval), field('Tidsgräns (ms)', dTimeout), field('Paketstorlek (byte)', dSize), h('span'),
-    h('div', { class: 'section-title' }, 'Larm som kopplas till nya mål'),
+    field(T('Interval'), dInterval), field(T('Timeout (ms)'), dTimeout), field(T('Packet size (bytes)'), dSize), h('span'),
+    h('div', { class: 'section-title' }, T('Alerts attached to new targets')),
     h('div', { class: 'field full' }, h('div', { class: 'checks' }, ...S.alerts.map(a => check(a.name, dSel.has(a.id), e => e.target.checked ? dSel.add(a.id) : dSel.delete(a.id))))));
 
   // e-post
   const sHost = h('input', { type: 'text', value: sm.host, placeholder: 'smtp.exempel.se' });
   const sPort = num(sm.port || 587, 1, 65535);
-  const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', 'Ingen kryptering (25)']], sm.security || 'starttls');
+  const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', T('No encryption (25)')]], sm.security || 'starttls');
   const sUser = h('input', { type: 'text', value: sm.username, autocomplete: 'off' });
-  const sPass = h('input', { type: 'password', value: '', placeholder: S.hasPassword ? '•••••••• (sparat – lämna tomt för att behålla)' : '', autocomplete: 'new-password' });
+  const sPass = h('input', { type: 'password', value: '', placeholder: S.hasPassword ? T('•••••••• (saved – leave empty to keep)') : '', autocomplete: 'new-password' });
   const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'pingvakt@exempel.se' });
   const sMin = num(sm.minMinutes ?? 5, 0, 1440);
   const testTo = h('input', { type: 'email', placeholder: 'mottagare@exempel.se' });
@@ -769,72 +773,75 @@ function settingsDialog() {
   sSec.onchange = () => { sPort.value = { starttls: 587, tls: 465, none: 25 }[sSec.value]; };
   const smtpVal = () => ({ host: sHost.value.trim(), port: +sPort.value, security: sSec.value, username: sUser.value.trim(), password: sPass.value, from: sFrom.value.trim(), minMinutes: +sMin.value });
   pane.email = h('div', { class: 'form' },
-    field('SMTP-server', sHost), field('Säkerhet', sSec), field('Port', sPort), field('Avsändare', sFrom),
-    field('Användarnamn', sUser), field('Lösenord', sPass),
-    field('Max ett mejl per larm var (minuter)', sMin, 'Händelser däremellan samlas i nästa mejl', true),
-    h('div', { class: 'section-title' }, 'Testa'),
+    field(T('SMTP server'), sHost), field(T('Security'), sSec), field('Port', sPort), field(T('Sender'), sFrom),
+    field(T('Username'), sUser), field(T('Password'), sPass),
+    field(T('At most one email per alert every (minutes)'), sMin, T('Events in between are collected in the next email'), true),
+    h('div', { class: 'section-title' }, T('Test')),
     h('div', { class: 'field full' }, h('div', { class: 'row' }, testTo, h('button', { class: 'btn', onclick: async () => {
-      testRes.className = ''; testRes.replaceChildren(h('span', { class: 'spin' }), ' Skickar…');
-      try { await api.call('TestEmail', testTo.value, smtpVal(), sPass.value !== ''); testRes.className = 'form-ok'; testRes.textContent = 'Testmejlet skickades.'; }
+      testRes.className = ''; testRes.replaceChildren(h('span', { class: 'spin' }), T(' Sending…'));
+      try { await api.call('TestEmail', testTo.value, smtpVal(), sPass.value !== ''); testRes.className = 'form-ok'; testRes.textContent = T('The test email was sent.'); }
       catch (e) { testRes.className = 'form-error'; testRes.textContent = errText(e); }
-    } }, 'Skicka testmejl')), testRes),
-    h('small', { class: 'field full' }, 'Lösenordet sparas i konfigurationsfilen på den här datorn.'));
+    } }, T('Send test email'))), testRes),
+    h('small', { class: 'field full' }, T('The password is stored in the configuration file on this computer.')));
 
   // utseende och filer
-  const theme = select([['auto', 'Följ systemet'], ['dark', 'Mörkt'], ['light', 'Ljust']], ui.theme);
-  const density = select([['normal', 'Normal'], ['compact', 'Kompakt']], ui.density);
+  const theme = select([['auto', T('Follow system')], ['dark', T('Dark')], ['light', T('Light')]], ui.theme);
+  const density = select([['normal', 'Normal'], ['compact', T('Compact')]], ui.density);
+  const lang = select([['en', 'English'], ['sv', 'Svenska']], ui.lang || LANG());
   const logPath = h('input', { type: 'text', value: S.alertLog, spellcheck: 'false' });
   pane.ui = h('div', { class: 'form' },
-    field('Tema', theme), field('Rutor', density),
-    field('Larmlogg (fil)', h('div', { class: 'row' }, logPath, h('button', { class: 'btn', onclick: () => api.call('OpenPath', logPath.value) }, 'Öppna')), null, true),
-    field('Konfigurationsfil', h('div', { class: 'row' }, h('code', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, S.configPath || '–')), null, true),
+    field('Language / Språk', lang), h('span'),
+    field(T('Theme'), theme), field(T('Tiles'), density),
+    field(T('Alert log (file)'), h('div', { class: 'row' }, logPath, h('button', { class: 'btn', onclick: () => api.call('OpenPath', logPath.value) }, T('Open'))), null, true),
+    field(T('Configuration file'), h('div', { class: 'row' }, h('code', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, S.configPath || '–')), null, true),
     h('small', { class: 'field full' }, `PingVakt ${S.version} · ${S.platform}`));
 
   // server
   const srvEnabled = h('input', { type: 'checkbox' });
-  const srvUrl = h('input', { type: 'text', placeholder: 'https://pingvakt.exempel.se', spellcheck: 'false' });
+  const srvUrl = h('input', { type: 'text', placeholder: 'https://pingvakt.example.com', spellcheck: 'false' });
   const srvToken = h('input', { type: 'password', placeholder: 'pva_…', autocomplete: 'off' });
   const srvInsecure = h('input', { type: 'checkbox' });
   const srvRes = h('span');
   let srvHasToken = false;
   api.call('GetServer').then(si => {
     srvEnabled.checked = si.enabled; srvUrl.value = si.url || ''; srvInsecure.checked = si.insecure; srvHasToken = si.hasToken;
-    if (si.hasToken) srvToken.placeholder = '•••••••• (sparad – lämna tomt för att behålla)';
+    if (si.hasToken) srvToken.placeholder = T('•••••••• (saved – leave empty to keep)');
   }).catch(() => {});
   const srvVal = () => ({ enabled: srvEnabled.checked, url: srvUrl.value.trim(), token: srvToken.value.trim(), insecure: srvInsecure.checked });
   pane.server = h('div', { class: 'form' },
-    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvEnabled, 'Rapportera mätdata till en PingVakt-server')),
-    field('Serverns adress', srvUrl, null, true),
-    field('Token', srvToken, 'Skapas på servern: kunden → Ny agent. Samma token som för en agent.', true),
-    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvInsecure, 'Godta självsignerat certifikat (bara för test)')),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvEnabled, T('Report measurements to a PingVakt server'))),
+    field(T('Server address'), srvUrl, null, true),
+    field('Token', srvToken, T('Created on the server: customer → New agent. Same token as for an agent.'), true),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvInsecure, T('Accept self-signed certificate (testing only)'))),
     h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => {
-      srvRes.className = ''; srvRes.replaceChildren(h('span', { class: 'spin' }), ' Ansluter…');
-      try { const st = await api.call('TestServer', srvVal()); srvRes.className = 'form-ok'; srvRes.textContent = `Ansluten: "${st.agentName}" hos ${st.customer} / ${st.site}`; }
+      srvRes.className = ''; srvRes.replaceChildren(h('span', { class: 'spin' }), T(' Connecting…'));
+      try { const st = await api.call('TestServer', srvVal()); srvRes.className = 'form-ok'; srvRes.textContent = T('Connected: "{0}" at {1} / {2}', st.agentName, st.customer, st.site); }
       catch (e) { srvRes.className = 'form-error'; srvRes.textContent = errText(e); }
-    } }, 'Testa anslutningen'), srvRes)),
-    h('small', { class: 'field full' }, 'Appen skickar sina egna mål och mätningar till servern, där de syns under kunden och siten som token hör till. Larm väljs på servern. Mätningarna fortsätter även utan anslutning och skickas när kontakten är tillbaka.'));
+    } }, T('Test the connection')), srvRes)),
+    h('small', { class: 'field full' }, T('The app sends its own targets and measurements to the server, where they appear under the customer and site the token belongs to. Alerts are chosen on the server. Measurements continue without a connection and are sent when contact is restored.')));
 
-  const TABS = [['general', 'Mätning'], ['defaults', 'Förval för nya mål'], ['email', 'E-post'], ['server', 'Server'], ['ui', 'Utseende och filer']];
+  const TABS = [['general', T('Measurement')], ['defaults', T('Defaults for new targets')], ['email', T('Email')], ['server', 'Server'], ['ui', T('Appearance and files')]];
   const show = k => { tab = k; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); body.replaceChildren(pane[k]); };
   tabs.append(...TABS.map(([k, l]) => h('button', { 'data-k': k, onclick: () => show(k) }, l)));
   show(tab);
 
   const close = modal({
-    title: 'Inställningar', wide: false, body: h('div', null, tabs, body),
-    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
+    title: T('Settings'), wide: false, body: h('div', null, tabs, body),
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, T('Cancel')),
       h('button', { class: 'btn primary', onclick: async () => {
         const inp = {
           settings: { statsWindow: +statsWindow.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: +histSize.value },
           defaults: { intervalMs: +dInterval.value, timeoutMs: +dTimeout.value, size: +dSize.value, alertIds: [...dSel] },
-          smtp: smtpVal(), newPassword: sPass.value !== '', alertLog: logPath.value.trim(), ui: { theme: theme.value, density: density.value, columns: S.ui.columns },
+          smtp: smtpVal(), newPassword: sPass.value !== '', alertLog: logPath.value.trim(), ui: { theme: theme.value, density: density.value, columns: S.ui.columns, lang: lang.value },
         };
         try {
           await api.call('SaveSettings', inp);
           await api.call('SaveServer', srvVal());
+          if (lang.value !== LANG()) { location.reload(); return; }
           close(); cssCache = null; await afterChange(); rebuildChart();
         }
         catch (e) { err.textContent = errText(e); }
-      } }, 'Spara')],
+      } }, T('Save'))],
   });
 }
 
@@ -846,30 +853,30 @@ function alertsDialog() {
   const tabs = h('div', { class: 'tabs' });
   const body = h('div');
   const err = h('span', { class: 'form-error' });
-  const newAlert = () => ({ id: 'n' + Date.now().toString(36), name: 'Nytt larm', condition: 'down', threshold: 0, count: 3, samples: 3, popup: true, sound: true, soundName: 'beep', notify: false, email: false, emailTo: '', log: true, repeatMin: 0, onClear: true });
+  const newAlert = () => ({ id: 'n' + Date.now().toString(36), name: T('New alert'), condition: 'down', threshold: 0, count: 3, samples: 3, popup: true, sound: true, soundName: 'beep', notify: false, email: false, emailTo: '', log: true, repeatMin: 0, onClear: true });
 
   const renderRules = () => {
     const a = list.find(x => x.id === cur);
     const lst = h('div', { class: 'list' }, ...list.map(x => h('button', { class: x.id === cur ? 'on' : '', onclick: () => { cur = x.id; renderRules(); } },
-      x.name || '(namnlöst)', h('small', null, describe(x) + ' · ' + usage(x.id)))));
+      x.name || T('(unnamed)'), h('small', null, describe(x) + ' · ' + usage(x.id)))));
     const left = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, lst,
-      h('button', { class: 'btn', onclick: () => { const n = newAlert(); list.push(n); cur = n.id; renderRules(); } }, '+ Nytt larm'));
-    body.replaceChildren(h('div', { class: 'split' }, left, a ? alertForm(a) : h('div', { class: 'muted', style: 'padding:20px' }, 'Skapa ett larm till vänster.')));
+      h('button', { class: 'btn', onclick: () => { const n = newAlert(); list.push(n); cur = n.id; renderRules(); } }, T('+ New alert')));
+    body.replaceChildren(h('div', { class: 'split' }, left, a ? alertForm(a) : h('div', { class: 'muted', style: 'padding:20px' }, T('Create an alert on the left.'))));
   };
-  const usage = id => { const n = S.targets.filter(t => (t.alertIds || []).includes(id)).length; return n === 1 ? '1 mål' : n + ' mål'; };
+  const usage = id => { const n = S.targets.filter(t => (t.alertIds || []).includes(id)).length; return n === 1 ? T('1 target') : n + T(' targets'); };
 
   const alertForm = a => {
     const name = h('input', { type: 'text', value: a.name, oninput: e => { a.name = e.target.value; } });
-    const cond = select([['down', 'Nere – förlorade paket'], ['latency', 'Hög latens'], ['loss', 'Paketförlust i procent']], a.condition);
+    const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')]], a.condition);
     const thr = num(a.threshold, 0, 100000, .5);
     const cnt = num(a.count, 1, 3600), smp = num(a.samples, 1, 3600);
     const condRow = h('div', { class: 'field full' });
     const syncCond = () => {
       a.condition = cond.value;
       const c = a.condition;
-      if (c === 'down') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'förlorade av de senaste'), smp, h('span', null, 'paketen')));
-      if (c === 'latency') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'av de senaste'), smp, h('span', null, 'över'), thr, h('span', null, 'ms')), h('small', null, 'Förlorade paket räknas också som för höga.'));
-      if (c === 'loss') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Förlust över'), thr, h('span', null, '% av de senaste'), smp, h('span', null, 'paketen')));
+      if (c === 'down') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, cnt, h('span', null, T('lost of the last')), smp, h('span', null, T('packets'))));
+      if (c === 'latency') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, cnt, h('span', null, T('of the last')), smp, h('span', null, T('over')), thr, h('span', null, 'ms')), h('small', null, T('Lost packets also count as too high.')));
+      if (c === 'loss') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Loss over')), thr, h('span', null, T('% of the last')), smp, h('span', null, T('packets'))));
     };
     cond.onchange = () => {
       if (cond.value === 'latency' && !(a.threshold > 0)) thr.value = 150;
@@ -879,45 +886,45 @@ function alertsDialog() {
     const upd = () => { a.threshold = +thr.value; a.count = +cnt.value; a.samples = +smp.value; };
     [thr, cnt, smp].forEach(x => x.oninput = upd);
     syncCond();
-    const sound = select([['beep', 'Pip'], ['alarm', 'Larm'], ['chime', 'Klocka']], a.soundName);
+    const sound = select([['beep', T('Beep')], ['alarm', T('Alerts')], ['chime', T('Chime')]], a.soundName);
     sound.onchange = () => { a.soundName = sound.value; playSound(sound.value); };
-    const emailTo = h('input', { type: 'text', value: a.emailTo, placeholder: 'en@exempel.se, två@exempel.se', oninput: e => { a.emailTo = e.target.value; } });
+    const emailTo = h('input', { type: 'text', value: a.emailTo, placeholder: T('one@example.com, two@example.com'), oninput: e => { a.emailTo = e.target.value; } });
     const repeat = num(a.repeatMin, 0, 1440); repeat.oninput = () => { a.repeatMin = +repeat.value; };
     const box = (label, key) => check(label, a[key], e => { a[key] = e.target.checked; });
     const assigned = S.targets.filter(t => (t.alertIds || []).includes(a.id)).length;
     return h('div', { class: 'form', style: 'align-content:start' },
-      field('Namn', name, null, true),
-      field('Typ', cond, null, true), condRow,
-      h('div', { class: 'section-title' }, 'Åtgärder'),
+      field(T('Name'), name, null, true),
+      field(T('Type'), cond, null, true), condRow,
+      h('div', { class: 'section-title' }, T('Actions')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
-        box('Visa popup i programmet', 'popup'),
-        h('div', { class: 'row' }, box('Spela ljud', 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')),
-        box('Systemnotis', 'notify'),
-        h('div', { class: 'row' }, box('Skicka e-post till', 'email'), emailTo),
-        box('Skriv till larmloggen', 'log'))),
-      h('div', { class: 'section-title' }, 'När'),
+        box(T('Show popup in the app'), 'popup'),
+        h('div', { class: 'row' }, box(T('Play sound'), 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')),
+        box(T('System notification'), 'notify'),
+        h('div', { class: 'row' }, box(T('Send email to'), 'email'), emailTo),
+        box(T('Write to the alert log'), 'log'))),
+      h('div', { class: 'section-title' }, T('When')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
-        h('div', { class: 'row' }, h('span', null, 'Upprepa var'), repeat, h('span', null, 'minut medan larmet pågår (0 = nej)')),
-        box('Meddela även när larmet upphör', 'onClear'))),
-      h('div', { class: 'section-title' }, 'Mål'),
+        h('div', { class: 'row' }, h('span', null, T('Repeat every')), repeat, h('span', null, T('minutes while the alert is active (0 = no)'))),
+        box(T('Also notify when the alert clears'), 'onClear'))),
+      h('div', { class: 'section-title' }, T('Targets')),
       h('div', { class: 'field full' }, h('div', { class: 'row' },
-        h('span', { class: 'muted', style: 'flex:1' }, `Kopplat till ${assigned} av ${S.targets.length} mål.`),
-        h('button', { class: 'btn sm', onclick: async () => { await persist(); await api.call('AssignAlert', a.id, S.targets.map(t => t.id), true); await afterChange(); renderRules(); } }, 'Koppla till alla'),
-        h('button', { class: 'btn sm', onclick: async () => { await persist(); await api.call('AssignAlert', a.id, S.targets.map(t => t.id), false); await afterChange(); renderRules(); } }, 'Koppla bort från alla'))),
+        h('span', { class: 'muted', style: 'flex:1' }, T('Attached to {0} of {1} targets.', assigned, S.targets.length)),
+        h('button', { class: 'btn sm', onclick: async () => { await persist(); await api.call('AssignAlert', a.id, S.targets.map(t => t.id), true); await afterChange(); renderRules(); } }, T('Attach to all')),
+        h('button', { class: 'btn sm', onclick: async () => { await persist(); await api.call('AssignAlert', a.id, S.targets.map(t => t.id), false); await afterChange(); renderRules(); } }, T('Detach from all')))),
       h('div', { class: 'field full' }, h('div', { class: 'row', style: 'justify-content:space-between' },
         h('button', { class: 'btn', onclick: async () => {
           err.textContent = '';
           try { await api.call('TestAlert', a); } catch (e) { err.textContent = errText(e); }
-        } }, 'Testa larmet'),
-        h('button', { class: 'btn danger', onclick: () => { list = list.filter(x => x.id !== a.id); cur = list[0] ? list[0].id : null; renderRules(); } }, 'Ta bort larmet'))));
+        } }, T('Test the alert')),
+        h('button', { class: 'btn danger', onclick: () => { list = list.filter(x => x.id !== a.id); cur = list[0] ? list[0].id : null; renderRules(); } }, T('Delete the alert')))));
   };
 
   const renderEvents = async () => {
     const evs = await api.call('AlertHistory');
-    if (!evs || !evs.length) { body.replaceChildren(h('p', { class: 'muted' }, 'Inga larmhändelser sedan programmet startade. Äldre händelser finns i larmloggen.')); return; }
-    const kt = { fire: 'Utlöst', repeat: 'Pågår', clear: 'Upphört', test: 'Test' };
+    if (!evs || !evs.length) { body.replaceChildren(h('p', { class: 'muted' }, T('No alert events since the app started. Older events are in the alert log.'))); return; }
+    const kt = { fire: T('Fired'), repeat: T('Ongoing'), clear: T('Cleared'), test: 'Test' };
     body.replaceChildren(h('div', { style: 'max-height:440px;overflow:auto' }, h('table', { class: 'events' },
-      h('thead', null, h('tr', null, h('th', null, 'Tid'), h('th', null, 'Händelse'), h('th', null, 'Mål'), h('th', null, 'Larm'), h('th', null, 'Detalj'))),
+      h('thead', null, h('tr', null, h('th', null, T('Time')), h('th', null, T('Event')), h('th', null, T('Targets')), h('th', null, T('Alerts')), h('th', null, T('Detail')))),
       h('tbody', null, ...evs.map(e => h('tr', null,
         h('td', { class: 'mono' }, new Date(e.time).toLocaleString('sv-SE')), h('td', null, h('span', { class: 'tag ' + e.kind }, kt[e.kind] || e.kind)),
         h('td', null, e.targetName), h('td', null, e.alertName), h('td', null, e.detail)))))));
@@ -928,33 +935,61 @@ function alertsDialog() {
     S.alerts = list;
   };
   const show = k => { tab = k; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); k === 'rules' ? renderRules() : renderEvents(); };
-  tabs.append(h('button', { 'data-k': 'rules', onclick: () => show('rules') }, 'Larmregler'), h('button', { 'data-k': 'events', onclick: () => show('events') }, 'Händelser'));
+  tabs.append(h('button', { 'data-k': 'rules', onclick: () => show('rules') }, T('Alert rules')), h('button', { 'data-k': 'events', onclick: () => show('events') }, T('Events')));
   show(tab);
 
   const close = modal({
-    title: 'Larm', wide: true, body: h('div', null, tabs, body),
-    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Stäng utan att spara'),
+    title: T('Alerts'), wide: true, body: h('div', null, tabs, body),
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, T('Close without saving')),
       h('button', { class: 'btn primary', onclick: async () => {
         try { await persist(); close(); await afterChange(); } catch (e) { err.textContent = errText(e); }
-      } }, 'Spara')],
+      } }, T('Save'))],
   });
 }
 
 function describe(a) {
-  if (a.condition === 'latency') return `> ${a.threshold} ms, ${a.count} av ${a.samples}`;
-  if (a.condition === 'loss') return `förlust > ${a.threshold} %`;
-  return `${a.count} av ${a.samples} förlorade`;
+  if (a.condition === 'latency') return T('> {0} ms, {1} of {2}', a.threshold, a.count, a.samples);
+  if (a.condition === 'loss') return T('loss > {0} %', a.threshold);
+  return T('{0} of {1} lost', a.count, a.samples);
+}
+
+/* --- nätverksskanning --- */
+let scanCtl = null, scanBound = false;
+async function openScan() {
+  if (!scanBound) {
+    scanBound = true;
+    api.on('scan:progress', p => scanCtl && scanCtl.progress(p));
+    api.on('scan:done', r => scanCtl && scanCtl.done(r.devices, r.err ? TE(r.err) : ''));
+  }
+  let nets = [];
+  try { nets = await api.call('Networks'); } catch (e) { /* */ }
+  const known = new Set(S.targets.map(t => t.host));
+  const ctl = scanCtl = scanDialog({
+    networks: nets, known, live: true,
+    start: cidr => api.call('StartScan', cidr),
+    stop: () => api.call('StopScan'),
+    add: async list => {
+      const added = await api.call('AddHosts', list.map(d => d.ip).join(','), { kind: 'icmp', port: 0 });
+      for (const t of added || []) {
+        const d = list.find(x => x.ip === t.host);
+        const name = d && (d.name || (d.vendor && d.vendor !== 'Private address' ? d.vendor : ''));
+        if (name) { t.name = name; await api.call('SaveTarget', t); }
+      }
+      await afterChange();
+    },
+    onClose: () => { if (scanCtl === ctl) scanCtl = null; },
+  });
 }
 
 /* --- traceroute --- */
 let traceHandlersBound = false;
 let traceState = null;
 function traceDialog(host) {
-  const input = h('input', { type: 'text', value: host || '', placeholder: 'Värdnamn eller IP', spellcheck: 'false' });
-  const btn = h('button', { class: 'btn primary' }, 'Starta');
+  const input = h('input', { type: 'text', value: host || '', placeholder: T('Host name or IP'), spellcheck: 'false' });
+  const btn = h('button', { class: 'btn primary' }, T('Start'));
   const status = h('span', { class: 'muted' });
   const tbody = h('tbody');
-  const addAll = h('button', { class: 'btn', disabled: true }, 'Lägg till alla hopp som mål');
+  const addAll = h('button', { class: 'btn', disabled: true }, T('Add all hops as targets'));
   const hops = [];
   const st = traceState = { running: false };
 
@@ -963,9 +998,9 @@ function traceDialog(host) {
     const tr = h('tr', { class: hop.addr ? '' : 'timeout' },
       h('td', null, String(hop.n)), h('td', null, hop.addr || '*'), h('td', { class: 'name', title: hop.name || '' }, hop.name || ''),
       h('td', null, hop.rtt >= 0 ? fmtMs(hop.rtt) + ' ms' : '–'),
-      h('td', null, hop.addr ? h('button', { class: 'btn sm', title: 'Lägg till som mål', onclick: async ev => {
+      h('td', null, hop.addr ? h('button', { class: 'btn sm', title: T('Add as target'), onclick: async ev => {
         ev.target.disabled = true; const [t] = await api.call('AddHosts', hop.addr, { kind: 'icmp', port: 0 });
-        t.name = `Hopp ${hop.n}${hop.name ? ' ' + hop.name : ''}`; await api.call('SaveTarget', t); await afterChange();
+        t.name = T('Hop {0}{1}', hop.n, hop.name ? ' ' + hop.name : ''); await api.call('SaveTarget', t); await afterChange();
       } }, '+') : null));
     tbody.append(tr);
     addAll.disabled = !hops.some(x => x.addr);
@@ -977,17 +1012,17 @@ function traceDialog(host) {
   }
   st.onHop = addHop;
   st.onDone = msg => {
-    st.running = false; btn.textContent = 'Starta';
+    st.running = false; btn.textContent = T('Start');
     status.className = msg ? 'form-error' : 'muted';
-    status.textContent = msg || `Klar – ${hops.length} hopp`;
+    status.textContent = msg || T('Done – {0} hops', hops.length);
   };
   const start = async () => {
-    if (st.running) { await api.call('StopTrace'); st.onDone('Avbruten'); return; }
+    if (st.running) { await api.call('StopTrace'); st.onDone(T('Cancelled')); return; }
     const v = input.value.trim();
     if (!v) return input.focus();
     hops.length = 0; tbody.replaceChildren(); addAll.disabled = true;
-    st.running = true; btn.textContent = 'Stoppa';
-    status.className = 'muted'; status.replaceChildren(h('span', { class: 'spin' }), ' Kör traceroute…');
+    st.running = true; btn.textContent = T('Stop');
+    status.className = 'muted'; status.replaceChildren(h('span', { class: 'spin' }), T(' Running traceroute…'));
     try { await api.call('StartTrace', v); } catch (e) { st.onDone(errText(e)); }
   };
   btn.onclick = start;
@@ -996,18 +1031,18 @@ function traceDialog(host) {
     const dest = input.value.trim();
     for (const hop of hops.filter(x => x.addr)) {
       const [t] = await api.call('AddHosts', hop.addr, { kind: 'icmp', port: 0 });
-      t.name = `${dest} hopp ${hop.n}${hop.name ? ' (' + hop.name + ')' : ''}`;
+      t.name = `${dest} ${T('hop')} ${hop.n}${hop.name ? ' (' + hop.name + ')' : ''}`;
       await api.call('SaveTarget', t);
     }
     addAll.disabled = true;
     await afterChange();
-    toast({ kind: 'info', title: 'Hopp tillagda', text: `${hops.filter(x => x.addr).length} mål lades till` });
+    toast({ kind: 'info', title: T('Hops added'), text: T('{0} targets added', hops.filter(x => x.addr).length) });
   };
   modal({
     title: 'Traceroute', wide: true,
     body: h('div', null, h('div', { class: 'row' }, input, btn), h('div', { style: 'margin-top:8px' }, status),
       h('div', { style: 'max-height:420px;overflow:auto' }, h('table', { class: 'trace-table' },
-        h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'Adress'), h('th', null, 'Namn'), h('th', null, 'Latens'), h('th', null, ''))), tbody))),
+        h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, T('Address')), h('th', null, T('Name')), h('th', null, T('Latency')), h('th', null, ''))), tbody))),
     foot: [addAll],
     onClose: () => { if (st.running) api.call('StopTrace'); if (traceState === st) traceState = null; },
   });

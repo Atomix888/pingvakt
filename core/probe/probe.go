@@ -89,7 +89,7 @@ func (p *Pinger) Do(ctx context.Context, req Request) Result {
 	}
 	ip, err := p.resolver.Resolve(ctx, req.Host, req.IPMode)
 	if err != nil {
-		res.Err = "Namnuppslag misslyckades: " + shortErr(err)
+		res.Err = "Name lookup failed: " + shortErr(err)
 		return res
 	}
 	res.Addr = ip.String()
@@ -108,11 +108,11 @@ func (p *Pinger) Do(ctx context.Context, req Request) Result {
 }
 
 // ErrTimeout returneras när inget svar kommit inom tidsgränsen.
-var ErrTimeout = errors.New("Tidsgräns överskriden")
+var ErrTimeout = errors.New("Timed out")
 
 func tcpPing(ctx context.Context, ip net.IP, port int, timeout time.Duration) (time.Duration, error) {
 	if port <= 0 || port > 65535 {
-		return 0, fmt.Errorf("ogiltig port %d", port)
+		return 0, fmt.Errorf("invalid port %d", port)
 	}
 	d := net.Dialer{Timeout: timeout}
 	start := time.Now()
@@ -123,7 +123,7 @@ func tcpPing(ctx context.Context, ip net.IP, port int, timeout time.Duration) (t
 		if errors.As(err, &ne) && ne.Timeout() {
 			return 0, ErrTimeout
 		}
-		return 0, fmt.Errorf("Port stängd: %s", shortErr(err))
+		return 0, fmt.Errorf("Port closed: %s", shortErr(err))
 	}
 	_ = c.Close()
 	return rtt, nil
@@ -137,7 +137,7 @@ func shortErr(err error) string {
 	var de *net.DNSError
 	if errors.As(err, &de) {
 		if de.IsNotFound {
-			return "värdnamnet hittades inte"
+			return "host name not found"
 		}
 		return de.Err
 	}
@@ -164,10 +164,10 @@ func NewResolver(ttl time.Duration) *Resolver {
 func (r *Resolver) Resolve(ctx context.Context, host string, mode IPMode) (net.IP, error) {
 	if ip := net.ParseIP(host); ip != nil {
 		if mode == IPv4 && ip.To4() == nil {
-			return nil, errors.New("adressen är inte IPv4")
+			return nil, errors.New("the address is not IPv4")
 		}
 		if mode == IPv6 && ip.To4() != nil {
-			return nil, errors.New("adressen är inte IPv6")
+			return nil, errors.New("the address is not IPv6")
 		}
 		return ip, nil
 	}
@@ -208,7 +208,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string, mode IPMode) (net.I
 		}
 	}
 	if ip == nil {
-		return nil, fmt.Errorf("ingen %s-adress för %s", familyName(mode), host)
+		return nil, fmt.Errorf("no %s address for %s", familyName(mode), host)
 	}
 	r.mu.Lock()
 	r.cache[key] = cacheEntry{ip: ip, exp: time.Now().Add(r.ttl)}

@@ -27,7 +27,7 @@ func collect(ctx context.Context) (*Info, error) {
 	defer spMu.Unlock()
 	if time.Since(spT) < time.Minute {
 		if spLast == nil {
-			return nil, errors.New("ingen Wi-Fi-anslutning")
+			return nil, errors.New("no Wi-Fi connection")
 		}
 		cp := *spLast
 		return &cp, nil
@@ -40,7 +40,7 @@ func collect(ctx context.Context) (*Info, error) {
 	}
 	spLast = parseSystemProfiler(out)
 	if spLast == nil {
-		return nil, errors.New("ingen Wi-Fi-anslutning")
+		return nil, errors.New("no Wi-Fi connection")
 	}
 	cp := *spLast
 	cp.Iface = "en0"

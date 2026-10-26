@@ -29,7 +29,7 @@ func TestHTTPCheck(t *testing.T) {
 	if r := do(srv.URL, "Välkommen"); !r.OK || r.Status != 200 || r.CertDays < 0 || r.Addr == "" {
 		t.Fatalf("ok-fall: %+v", r)
 	}
-	if r := do(srv.URL, "Saknas"); r.OK || !strings.Contains(r.Err, "saknas") {
+	if r := do(srv.URL, "Saknas"); r.OK || !strings.Contains(r.Err, "Missing text") {
 		t.Fatalf("nyckelord: %+v", r)
 	}
 	if r := do(srv.URL+"/fel", ""); r.OK || r.Status != 503 {

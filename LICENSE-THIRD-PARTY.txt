@@ -1,4 +1,4 @@
-PingVakt använder följande programvara från tredje part.
+PingVakt uses the following third-party software.
 
 ------------------------------------------------------------------------
 Wails v2 – https://github.com/wailsapp/wails
@@ -7,11 +7,11 @@ MIT License, Copyright (c) 2018-present Lea Anthony
 uPlot – https://github.com/leeoniya/uPlot
 MIT License, Copyright (c) 2022 Leon Sorokin
 
-Go standardbibliotek och golang.org/x/net, golang.org/x/sys
+Go standard library and golang.org/x/net, golang.org/x/sys
 BSD 3-Clause License, Copyright (c) 2009 The Go Authors
 
 ------------------------------------------------------------------------
-Funktionerna i PingVakt är inspirerade av vmPing:
+The features of PingVakt are inspired by vmPing:
 vmPing – https://github.com/R-Smith/vmPing
 MIT License, Copyright (c) 2020 Ryan Smith
 

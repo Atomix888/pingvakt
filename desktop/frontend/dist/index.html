@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sv" data-theme="auto">
+<html lang="en" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,37 +14,38 @@
       <span>PingVakt</span>
     </div>
     <form class="addbar" id="addForm" autocomplete="off">
-      <input id="addHost" type="text" placeholder="Lägg till mål – värdnamn, IP eller värd:port (flera med komma)" spellcheck="false">
-      <select id="addKind" title="Mättyp">
+      <input id="addHost" type="text" placeholder="Add targets – host name, IP or host:port (several separated by commas)" spellcheck="false">
+      <select id="addKind" title="Check type">
         <option value="icmp">ICMP</option>
         <option value="tcp">TCP</option>
         <option value="http">HTTP(S)</option>
         <option value="dns">DNS</option>
       </select>
       <input id="addPort" type="number" min="1" max="65535" value="443" title="Port" class="hidden">
-      <button type="submit" class="btn primary">Lägg till</button>
+      <button type="submit" class="btn primary">Add</button>
     </form>
     <div class="summary" id="summary"></div>
     <nav class="actions">
-      <button class="btn ghost" id="btnPauseAll" title="Pausa/starta alla mål"></button>
+      <button class="btn ghost" id="btnPauseAll" title="Pause/start all targets"></button>
+      <button class="btn ghost" id="btnScan" title="Scan network">Scan network</button>
       <button class="btn ghost" id="btnTrace" title="Traceroute">Traceroute</button>
-      <button class="btn ghost" id="btnAlerts" title="Larm">Larm</button>
-      <button class="btn ghost" id="btnSettings" title="Inställningar">Inställningar</button>
+      <button class="btn ghost" id="btnAlerts" title="Alerts">Alerts</button>
+      <button class="btn ghost" id="btnSettings" title="Settings">Settings</button>
     </nav>
   </header>
 
   <div class="toolbar">
-    <input id="filter" type="search" placeholder="Filtrera…" spellcheck="false">
-    <label class="tb-field">Sortera
+    <input id="filter" type="search" placeholder="Filter…" spellcheck="false">
+    <label class="tb-field">Sort
       <select id="sortBy">
-        <option value="manual">Egen ordning</option>
-        <option value="name">Namn</option>
+        <option value="manual">Custom order</option>
+        <option value="name">Name</option>
         <option value="status">Status</option>
-        <option value="latency">Latens</option>
-        <option value="loss">Förlust</option>
+        <option value="latency">Latency</option>
+        <option value="loss">Loss</option>
       </select>
     </label>
-    <label class="tb-field">Kolumner
+    <label class="tb-field">Columns
       <select id="columns">
         <option value="0">Auto</option>
         <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option>
@@ -52,19 +53,19 @@
     </label>
     <span class="spacer"></span>
     <span class="chip hidden" id="serverChip"></span>
-    <span class="demo-badge hidden" id="demoBadge">Demoläge – ingen mätmotor ansluten</span>
+    <span class="demo-badge hidden" id="demoBadge">Demo mode – no measurement engine connected</span>
     <span class="muted" id="footInfo"></span>
   </div>
 
   <main id="grid" class="grid"></main>
   <div id="empty" class="empty hidden">
-    <h2>Inga mål ännu</h2>
-    <p>Skriv ett värdnamn eller en IP-adress i fältet ovan. Flera mål kan läggas till på en gång, separerade med komma.<br>
-      Skriv <code>värd:port</code> för att mäta mot en TCP-port i stället för med ICMP.</p>
+    <h2>No targets yet</h2>
+    <p data-i18n="emptyHelp">Type a host name or an IP address in the field above. Several targets can be added at once, separated by commas.<br>
+      Write <code>host:port</code> to measure against a TCP port instead of with ICMP.</p>
     <div class="quick" id="quickAdd"></div>
   </div>
 
-  <section id="drawer" class="drawer hidden" aria-label="Detaljer">
+  <section id="drawer" class="drawer hidden" aria-label="Details">
     <div class="drawer-grip" id="drawerGrip"></div>
     <div class="drawer-head">
       <span class="dot" id="dDot"></span>
@@ -74,11 +75,11 @@
       </div>
       <div class="ranges" id="dRanges"></div>
       <div class="drawer-actions">
-        <button class="btn ghost sm" id="dEdit">Redigera</button>
+        <button class="btn ghost sm" id="dEdit">Edit</button>
         <button class="btn ghost sm" id="dPause"></button>
         <button class="btn ghost sm" id="dTrace">Traceroute</button>
-        <button class="btn ghost sm" id="dExport">Exportera CSV</button>
-        <button class="icon-btn" id="dClose" title="Stäng (Esc)">✕</button>
+        <button class="btn ghost sm" id="dExport">Export CSV</button>
+        <button class="icon-btn" id="dClose" title="Close (Esc)">✕</button>
       </div>
     </div>
     <div class="drawer-body">
@@ -91,7 +92,9 @@
   <div id="modalRoot"></div>
 
   <script src="vendor/uPlot.iife.min.js"></script>
+  <script src="i18n.js"></script>
   <script src="api.js"></script>
+  <script src="scanui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

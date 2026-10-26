@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="sv" data-theme="auto">
+<html lang="en" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Driftstatus</title>
+  <title>Service status</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/status.css">
@@ -14,15 +14,16 @@
     <header class="sp-head">
       <div>
         <div class="sp-company" id="company"></div>
-        <h1 id="customer">Driftstatus</h1>
+        <h1 id="customer">Service status</h1>
       </div>
       <div class="sp-updated muted" id="updated"></div>
     </header>
     <div class="sp-overall" id="overall"></div>
     <div id="maint"></div>
     <div id="sites"></div>
-    <footer class="sp-foot muted">Uppdateras automatiskt · PingVakt</footer>
+    <footer class="sp-foot muted" id="foot">Updates automatically · PingVakt</footer>
   </main>
+  <script src="/i18n.js?status=1"></script>
   <script src="/status.js"></script>
 </body>
 </html>

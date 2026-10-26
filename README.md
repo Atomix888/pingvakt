@@ -1,190 +1,202 @@
 # PingVakt
 
-PingVakt övervakar latens och paketförlust mot många mål samtidigt, på samma sätt som MultiPing och vmPing. Programmet är skrivet i Go och [Wails](https://wails.io) och körs på Windows, macOS och Linux.
+*English · [Svenska](README.sv.md)*
 
-PingVakt består av tre delar som använder samma mätmotor:
+PingVakt monitors latency and packet loss to many targets at once, like MultiPing and vmPing. It is written in Go and [Wails](https://wails.io) and runs on Windows, macOS and Linux. The user interface is available in English and Swedish.
 
-- **Skrivbordsappen** fungerar fristående, som MultiPing. Den kan också kopplas till en server.
-- **Servern** tar emot mätdata från många agenter, delar upp den per kund och site, sparar historik, larmar centralt och har ett webbgränssnitt.
-- **Agenten** körs som tjänst utan gränssnitt hos kunden (Windows, Linux, Raspberry Pi eller macOS). Den ansluter utåt till servern, så inga portar behöver öppnas.
+PingVakt has three parts that share the same measurement engine:
 
-## Funktioner
+- **The desktop app** works on its own, like MultiPing. It can also be connected to a server.
+- **The server** receives measurements from many agents, organises them per customer and site, stores history, raises alerts centrally and has a web interface.
+- **The agent** runs as a headless service at the customer (Windows, Linux, Raspberry Pi or macOS). It connects outbound to the server, so no ports need to be opened.
 
-- **Många mål samtidigt** visas som rutor med statusfärg (uppe, varning, nere, pausad). Varje ruta har en minigraf med staplar, och förlorade paket syns som röda staplar.
-- **ICMP-ping (IPv4 och IPv6)** och **TCP-portping**. Skriv `värd:port` för TCP.
-- **HTTP(S)-kontroller:** skriv en adress som börjar med `https://` (eller välj mättypen HTTP(S)). Svarstiden mäts inklusive uppkoppling och TLS. Statuskod 400 eller högre räknas som fel, och du kan kräva att en viss text finns i svaret. Rutan visar statuskoden och hur många dagar certifikatet är giltigt.
-- **DNS-kontroller:** mäter hur lång tid ett namnuppslag tar, mot datorns vanliga DNS eller en DNS-server du anger. Svar som saknas eller NXDOMAIN räknas som fel.
-- **Statistik per mål:** senaste värde, snitt, min, max, jitter och förlust i %. I detaljvyn finns dessutom median och 95:e percentil.
-- **Detaljgraf** över tid (1 min till 6 h). Grafen visar latens, markerar förlorade paket och har en linje för varningsgränsen. Du kan zooma genom att dra i grafen och återställa med dubbelklick.
-- **Larmregler** av samma typ som i MultiPing:
-  - *Nere:* X förlorade av de senaste Y paketen.
-  - *Hög latens:* X av de senaste Y paketen över N ms. Förlorade paket räknas också.
-  - *Paketförlust:* förlusten över de senaste Y paketen överstiger N %.
+## Features
 
-  När ett larm går kan programmet visa en popup, spela ljud, visa en systemnotis, skicka **e-post via SMTP** och skriva till **loggfil**. Larmen kan upprepas medan de pågår och meddela när de upphör. E-post kan begränsas till högst ett mejl per N minuter, och händelser däremellan samlas i nästa mejl.
-- **Traceroute** med knappar som lägger till hoppen som mål.
-- **CSV-export** av mätdata. Filen är semikolonseparerad och öppnas direkt i svenskt Excel.
-- Egen sorteringsordning med dra och släpp, filtrering, sortering, val av antal kolumner, kompakt läge och mörkt/ljust tema.
-- Inställningarna sparas i:
+- **Many targets at once**, shown as tiles with a status colour (up, warning, down, paused). Each tile has a small bar graph, and lost packets show as red bars.
+- **ICMP ping (IPv4 and IPv6)** and **TCP port ping**. Write `host:port` for TCP.
+- **HTTP(S) checks:** enter an address starting with `https://` (or choose the HTTP(S) check type). The response time includes connecting and TLS. Status code 400 or higher counts as an error, and you can require a certain text in the response. The tile shows the status code and how many days the certificate is valid.
+- **DNS checks:** measure how long a name lookup takes, against the computer's normal DNS or a DNS server you choose. Missing answers and NXDOMAIN count as errors.
+- **Statistics per target:** last value, average, min, max, jitter and loss in %. The detail view also shows median and 95th percentile.
+- **Detail graph** over time (1 min to 6 h) with latency, lost packets and a line for the warning threshold. Drag to zoom, double-click to reset.
+- **Alert rules** of the same kind as in MultiPing:
+  - *Down:* X lost of the last Y packets.
+  - *High latency:* X of the last Y packets over N ms. Lost packets also count.
+  - *Packet loss:* loss over the last Y packets exceeds N %.
+
+  When an alert fires the app can show a popup, play a sound, show a system notification, send **email via SMTP** and write to a **log file**. Alerts can repeat while active and notify when they clear. Email can be limited to one message per N minutes; events in between are collected in the next email.
+- **Traceroute** with buttons that add the hops as targets.
+- **Network scan:** the *Scan network* button finds active devices in a network (e.g. `192.168.1.0/24`). It shows IP address, name (DNS/NetBIOS), MAC address, manufacturer, likely type (router, printer, NAS, camera, access point, Windows computer …) and open ports. Select the devices and add them as targets with one click.
+- **CSV export** of measurements. In Swedish the file uses semicolons and decimal commas so it opens directly in Swedish Excel.
+- Custom order with drag and drop, filtering, sorting, number of columns, compact mode and dark/light theme.
+- **English and Swedish:** English is the default. Choose the language under Settings → Appearance.
+- Settings are stored in:
   - Windows: `%APPDATA%\PingVakt\config.json`
   - macOS: `~/Library/Application Support/PingVakt/config.json`
   - Linux: `~/.config/PingVakt/config.json`
 
-## Servern
+## The server
 
-**Snabbstart med Docker** (`deploy/docker-compose.yml` har Caddy, som ordnar HTTPS automatiskt):
+**Quick start with Docker** (`deploy/docker-compose.yml` includes Caddy, which handles HTTPS automatically):
 
 ```bash
 cd deploy
-# ändra domänen i Caddyfile och peka DNS mot servern
+# change the domain in Caddyfile and point DNS at the server
 docker compose up -d
 ```
 
-Utan Docker: packa upp `pingvakt-server-<ver>-linux-amd64.tar.gz` och följ instruktionerna i `pingvakt-server.service`. Servern lyssnar på port 8080 och bör ligga bakom en omvänd proxy med HTTPS (Caddy, Traefik, nginx). Har du redan certifikat kan du i stället använda `--tls-cert` och `--tls-key`.
+Without Docker: unpack `pingvakt-server-<ver>-linux-amd64.tar.gz` and follow the instructions in `pingvakt-server.service`. The server listens on port 8080 and should sit behind a reverse proxy with HTTPS (Caddy, Traefik, nginx). If you already have certificates you can use `--tls-cert` and `--tls-key` instead.
 
-Första gången du öppnar webbgränssnittet skapar du administratörskontot. Sedan gör du så här:
+The first time you open the web interface you create the administrator account. Then:
 
-1. Skapa en **kund**. En första site skapas automatiskt.
-2. Klicka **Ny agent**. Du får en token och färdiga installationskommandon:
-   - Linux/Raspberry Pi/macOS: `curl -fsSL https://din-server/install.sh | sudo sh -s -- --token pva_…`
-   - Windows (PowerShell som admin): `& ([scriptblock]::Create((irm https://din-server/install.ps1))) -Token pva_…`
-3. Klicka **Lägg till mål** och välj agenten som ska mäta. Agenten hämtar sina mål från servern inom några sekunder.
-4. Skapa **larmregler**, antingen per kund eller för alla kunder. Larmen kan skicka e-post och webhook (Teams, Slack m.fl.) och visa popup och ljud i webbläsaren. *Agent offline* larmar när en agent slutar rapportera.
+1. Create a **customer**. A first site is created automatically.
+2. Click **New agent**. You get a token and ready-made install commands:
+   - Linux/Raspberry Pi/macOS: `curl -fsSL https://your-server/install.sh | sudo sh -s -- --token pva_…`
+   - Windows (PowerShell as admin): `& ([scriptblock]::Create((irm https://your-server/install.ps1))) -Token pva_…`
+3. Click **Add targets** and choose the agent that should measure. The agent fetches its targets from the server within seconds. Use **Find devices with a network scan…** to discover what is on the customer's network.
+4. Create **alert rules**, per customer or for all customers. Alerts can send email and webhooks (Teams, Slack etc.) and show popups and sounds in the browser. *Agent offline* fires when an agent stops reporting.
 
-**CPU, minne och disk:** agenterna rapporterar datorns CPU-belastning, minnesanvändning och hur fulla diskarna är. Värdena visas på agenten under kunden och i agentlistan. Klickar du på en agent får du grafer från 1 timme upp till 30 dagar. Servern visar också sina egna värden på översikten. Det finns tre larmtyper för detta:
-- *CPU hög:* över X % i N minuter i sträck.
-- *Minne högt:* över X % i N minuter i sträck.
-- *Disk full:* någon volym är mer än X % full.
+**CPU, memory and disk:** agents report CPU load, memory use and how full the disks are. The values are shown on the agent under the customer and in the agent list. Click an agent for graphs from 1 hour to 30 days. The server also shows its own values on the overview. Three alert types use this:
+- *CPU high:* over X % for N minutes in a row.
+- *Memory high:* over X % for N minutes in a row.
+- *Disk full:* any volume more than X % full.
 
-Regler som gäller alla kunder kontrollerar även själva servern. Värdena sparas som minutvärden lika länge som ping-historiken (400 dagar som standard).
+Rules for all customers also check the server itself. The values are stored as minute values as long as the ping history (400 days by default).
 
-Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adress och en agent-token. Appens egna mål syns då under kunden. Larmen väljs på servern.
+The desktop app connects under **Settings → Server** with the server address and an agent token. The app's own targets then appear under the customer. Alerts are chosen on the server.
 
-**Larmhantering:**
-- *Kvittera* ett aktivt larm under Larm, eller direkt i popupen. Det upprepas då inte, och kvitteringen tas bort när larmet upphör.
-- *Servicefönster* lägger du in via kundens meny (⋯ → Servicefönster). De kan gälla en gång eller varje vecka, och omfatta hela kunden, en site, en agent eller ett mål. Under ett servicefönster skickas inga larm, men händelserna sparas.
-- *Beror på* sätts per mål, till exempel att accesspunkterna ligger bakom routern. När routern är nere kommer ett larm för routern, inte ett för varje mål bakom den.
+**Alert handling:**
+- *Acknowledge* an active alert under Alerts, or directly in the popup. It is then not repeated, and the acknowledgement is removed when the alert clears.
+- *Maintenance windows* are added from the customer menu (⋯ → Maintenance windows). They can be one-off or weekly and cover the whole customer, a site, an agent or a target. No alerts are sent during a maintenance window, but events are still recorded.
+- *Depends on* is set per target, e.g. that the access points sit behind the router. When the router is down you get one alert for the router instead of one per target behind it.
 
-**Wi-Fi:** agenter och skrivbordsappar som är anslutna via Wi-Fi rapporterar signalstyrka (RSSI), brus, SNR, kanal, åtkomstpunkt (BSSID) och länkhastighet. Klicka på en agent för att se en graf över signalen där varje roaming (byte av åtkomstpunkt) är markerad, en lista över roamingar och hur länge datorn varit ansluten till varje åtkomstpunkt. Under Agenter finns en Wi-Fi-kolumn med aktuell signal. Värdena hämtas med `iw` på Linux, `netsh` på Windows och `wdutil`/`system_profiler` på macOS (brus finns inte på Windows).
+**Wi-Fi:** agents and desktop apps connected via Wi-Fi report signal strength (RSSI), noise, SNR, channel, access point (BSSID) and link speed. Click an agent to see a signal graph where every roam (change of access point) is marked, a list of roams and how long the computer was connected to each access point. The Agents page has a Wi-Fi column with the current signal. Values come from `iw` on Linux, `netsh` on Windows and `wdutil`/`system_profiler` on macOS (noise is not available on Windows).
 
-**Traceroute och vägbevakning:** i målets detaljvy finns knappen *Traceroute*. Den körs från agenten som mäter målet, och svaret visas efter några sekunder. Under *Redigera → Vägbevakning* kan agenten köra traceroute var 5:e, 15:e, 30:e eller 60:e minut. När en ny väg syns två gånger i rad räknas det som en vägändring. Hoppen som är nya markeras, och regeln *Vägen ändras* larmar.
+**Traceroute and path monitoring:** the target's detail view has a *Traceroute* button. It runs from the agent measuring the target, and the result appears after a few seconds. Under *Edit → Path monitoring* the agent can run traceroute every 5, 15, 30 or 60 minutes. When a new path is seen twice in a row it counts as a path change. New hops are highlighted, and the *Path changes* rule fires.
 
-**Nya larmtyper:** *Agentens Wi-Fi-signal svag* (under N dBm i X minuter), *HTTPS-certifikat går ut* (inom N dagar) och *Vägen (traceroute) ändras*.
+**Network scan from the agent:** from the agent menu (⋯ → *Scan network*) or via *Add targets*. The scan runs on the agent at the customer, so you can see what is on the customer's network remotely. The agent reports which networks it is on, and you can also enter your own network or range (at most /20).
 
-**Automatisk uppdatering:** när servern uppdateras hämtar agenterna (från version 0.4.0) den nya versionen själva. Agenten kontrollerar filens kontrollsumma och startar om sig själv. Det kan stängas av under Inställningar.
+**More alert types:** *Agent Wi-Fi signal weak* (below N dBm for X minutes), *HTTPS certificate expiring* (within N days) and *Path (traceroute) changes*.
 
-**Säkerhetskopior:** servern sparar en kopia av databasen varje natt kl. 03:15 i `data/backups`. Som standard sparas de sju senaste. Under Inställningar kan du ladda ner en färsk kopia när som helst. Du återställer genom att stoppa servern och ersätta `pingvakt.db` med kopian.
+**Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
 
-**Rapporter:** under kunden → *Rapport* skapar du en PDF för förra månaden, förra veckan eller valfri period. Den innehåller:
-- tillgänglighet och nertid per mål
-- paketförlust och latens
-- grafer per dygn
-- agenternas CPU, minne och disk
-- servicefönster och larmhändelser
+**Automatic updates:** when the server is updated, agents (from version 0.4.0) download the new version themselves. The agent verifies the checksum and restarts itself. This can be turned off under Settings.
 
-Rapporten kan mejlas automatiskt varje vecka (måndag morgon) eller varje månad (den 1:a). Företagsnamnet på rapporterna ställer du in under Inställningar.
+**Backups:** the server saves a copy of the database every night at 03:15 in `data/backups`. By default the seven latest are kept. Under Settings you can download a fresh copy at any time. Restore by stopping the server and replacing `pingvakt.db` with the copy.
 
-**Publik statussida:** under kundens meny → *Publik statussida* skapar du en hemlig länk som kunden kan öppna utan inloggning. Den visar status och tillgänglighet (24 h och 30 d) per mål, men inga IP-adresser eller detaljer.
+**Reports:** under the customer → *Report* you create a PDF for last month, last week or any period. It contains:
+- availability and downtime per target
+- packet loss and latency
+- daily graphs
+- the agents' CPU, memory and disk
+- maintenance windows and alert events
 
-**TV-läge:** en helskärmsvy med alla kunder och det som är fel just nu. Den passar för en skärm på kontoret.
+The report can be emailed automatically every week (Monday morning) or every month (on the 1st). The company name on the reports is set under Settings.
 
-**Tvåstegsinloggning:** varje användare kan aktivera tvåstegsinloggning under kontomenyn längst ner till vänster. Det fungerar med Microsoft Authenticator, Google Authenticator, 1Password, Bitwarden m.fl. Användaren får också reservkoder. En administratör kan återställa tvåstegsinloggningen för någon som tappat telefonen.
+**Public status page:** under the customer menu → *Public status page* you create a secret link the customer can open without signing in. It shows status and availability (24 h and 30 d) per target, but no IP addresses or details.
 
-**Ändringslogg:** inloggningar och alla ändringar (kunder, agenter, mål, larm, användare, inställningar) loggas med användare, tid och IP-adress.
+**TV mode:** a full-screen view of all customers and everything that is wrong right now, suitable for a screen in the office.
 
-**Roller:** *Administratör* kan göra allt. *Kund* har bara läsbehörighet och ser bara sin egen kund.
+**Two-factor authentication:** each user can enable two-factor authentication in the account menu at the bottom left. It works with Microsoft Authenticator, Google Authenticator, 1Password, Bitwarden and others. The user also gets backup codes. An administrator can reset two-factor authentication for someone who lost their phone.
 
-**Lagring:** SQLite i datamappen (`/data` i Docker). Varje enskild ping sparas i 7 dagar, och minutvärden (snitt, min, max och förlust) sparas i 400 dagar. Båda tiderna kan ändras under Inställningar. Graferna visar upp till 30 dagar.
+**Audit log:** sign-ins and all changes (customers, agents, targets, alerts, users, settings) are logged with user, time and IP address.
 
-| Miljövariabel | Betydelse |
+**Roles:** *Administrator* can do everything. *Customer* is read-only and only sees their own customer.
+
+**Storage:** SQLite in the data folder (`/data` in Docker). Every single ping is kept for 7 days, and minute values (avg, min, max and loss) for 400 days. Both can be changed under Settings. Graphs show up to 30 days.
+
+| Environment variable | Meaning |
 |---|---|
-| `PINGVAKT_LISTEN` | Adress, standard `:8080` |
-| `PINGVAKT_DATA` | Mapp för databasen |
-| `PINGVAKT_AGENTS_DIR` | Mapp med agentfiler som erbjuds för nedladdning |
-| `PINGVAKT_TRUST_PROXY=1` | Lita på `X-Forwarded-*` från den omvända proxyn |
-| `PINGVAKT_ADMIN_EMAIL` / `PINGVAKT_ADMIN_PASSWORD` | Skapar första administratören vid start |
+| `PINGVAKT_LISTEN` | Address, default `:8080` |
+| `PINGVAKT_DATA` | Folder for the database |
+| `PINGVAKT_AGENTS_DIR` | Folder with agent files offered for download |
+| `PINGVAKT_TRUST_PROXY=1` | Trust `X-Forwarded-*` from the reverse proxy |
+| `PINGVAKT_ADMIN_EMAIL` / `PINGVAKT_ADMIN_PASSWORD` | Creates the first administrator at startup |
 
-## Agenten
+## The agent
 
 ```
-pingvakt-agent enroll --server https://din-server --token pva_…   # registrera
-pingvakt-agent install && pingvakt-agent start                   # som tjänst (systemd, Windows-tjänst, launchd)
+pingvakt-agent enroll --server https://your-server --token pva_…   # enroll
+pingvakt-agent install && pingvakt-agent start                     # as a service (systemd, Windows service, launchd)
 pingvakt-agent status
 ```
 
-Konfigurationen sparas i `/etc/pingvakt/agent.json`, `%ProgramData%\PingVakt\agent.json` eller `/Library/Application Support/PingVakt/agent.json`. Agenten sparar senast kända mål lokalt och mäter även när servern inte går att nå. Mätdata buffras i minnet och skickas när kontakten är tillbaka.
+The configuration is stored in `/etc/pingvakt/agent.json`, `%ProgramData%\PingVakt\agent.json` or `/Library/Application Support/PingVakt/agent.json`. The agent keeps its last known targets locally and keeps measuring when the server is unreachable. Measurements are buffered in memory and sent when contact is restored.
 
-## Installera skrivbordsappen
+## Installing the desktop app
 
-| Plattform | Fil |
+| Platform | File |
 |---|---|
-| Windows 10/11 (x64) | `PingVakt-<ver>-windows-x64-setup.exe` (installationsprogram) eller `…-portable.zip` |
+| Windows 10/11 (x64) | `PingVakt-<ver>-windows-x64-setup.exe` (installer) or `…-portable.zip` |
 | Debian/Ubuntu | `pingvakt_<ver>_amd64.deb` → `sudo apt install ./pingvakt_<ver>_amd64.deb` |
-| Övriga Linux | `pingvakt-<ver>-linux-amd64.tar.gz` (kräver GTK 3 och WebKitGTK 4.1) |
-| macOS 11+ (Intel och Apple Silicon) | `PingVakt-<ver>-macos.dmg`, byggs i GitHub Actions |
+| Other Linux | `pingvakt-<ver>-linux-amd64.tar.gz` (requires GTK 3 and WebKitGTK 4.1) |
+| macOS 11+ (Intel and Apple Silicon) | `PingVakt-<ver>-macos.dmg`, built in GitHub Actions |
 
-Programmet är inte kodsignerat. Därför varnar Windows SmartScreen ("Kör ändå") och macOS Gatekeeper första gången (högerklicka på appen → Öppna).
+The app is not code-signed, so Windows SmartScreen ("Run anyway") and macOS Gatekeeper (right-click the app → Open) warn the first time.
 
-### Behörigheter för ICMP
+### ICMP permissions
 
-- **Windows:** använder systemets ICMP-API (samma som `ping.exe`) och kräver inte administratörsrättigheter.
-- **macOS:** använder oprivilegierade ICMP-socketar och kräver inga särskilda rättigheter.
-- **Linux:** använder oprivilegierade ICMP-socketar om `net.ipv4.ping_group_range` tillåter det, vilket är standard i Ubuntu och Fedora. .deb-paketet ger dessutom programmet `cap_net_raw` som reserv. Ger ping fel ändå kan du köra:
+- **Windows:** uses the system ICMP API (same as `ping.exe`) and does not require administrator rights.
+- **macOS:** uses unprivileged ICMP sockets and needs no special rights.
+- **Linux:** uses unprivileged ICMP sockets if `net.ipv4.ping_group_range` allows it, which is the default on Ubuntu and Fedora. The .deb package also gives the app `cap_net_raw` as a fallback. If ping still fails, run:
   `sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`
 
-Traceroute använder systemets verktyg: `tracert` på Windows och `traceroute` på macOS/Linux. På Linux behöver paketet `traceroute` vara installerat.
+Traceroute uses the system tool: `tracert` on Windows and `traceroute` on macOS/Linux. On Linux the `traceroute` package must be installed.
 
-## Bygga själv
+## Building
 
-Krav: Go 1.22+.
-- **Linux:** `libgtk-3-dev` och `libwebkit2gtk-4.1-dev`.
-- **Windows-installationsprogrammet:** `nsis` och `imagemagick` (byggs från Linux).
+Requirements: Go 1.22+.
+- **Linux:** `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`.
+- **Windows installer:** `nsis` and `imagemagick` (built from Linux).
 - **macOS:** Xcode Command Line Tools.
 
 ```bash
-go mod tidy                 # första gången
-go test ./core/...          # tester för mätmotorn
-scripts/build.sh linux      # binär + .deb + .tar.gz
-scripts/build.sh windows    # PingVakt.exe + installationsprogram + portabel zip (korskompileras från Linux)
-scripts/build.sh macos      # PingVakt.app + .dmg (på en Mac)
-scripts/build.sh server     # server för Linux/Windows + agenter för alla plattformar
+go mod tidy                 # first time
+go run ./tools/genoui       # full MAC manufacturer list from IEEE (optional)
+go test ./core/...          # tests for the measurement engine
+scripts/build.sh linux      # binary + .deb + .tar.gz
+scripts/build.sh windows    # PingVakt.exe + installer + portable zip (cross-compiled from Linux)
+scripts/build.sh macos      # PingVakt.app + .dmg (on a Mac)
+scripts/build.sh server     # server for Linux/Windows + agents for all platforms
 docker build -t pingvakt-server .
 ```
 
-**GitHub Actions** (`.github/workflows/build.yml`) bygger allt vid varje push och lägger Docker-avbildningen i `ghcr.io/atomix888/pingvakt-server`. Taggen `:edge` byggs från `main`, och `:<version>` och `:latest` byggs från releaser. När du skapar en release med en tagg, till exempel `v0.2.0`, publiceras alla installationsfiler på releasesidan.
+**GitHub Actions** (`.github/workflows/build.yml`) builds everything on every push and publishes the Docker image to `ghcr.io/atomix888/pingvakt-server`. The `:edge` tag is built from `main`, and `:<version>` and `:latest` from releases. When you create a release with a tag such as `v0.7.0`, all installation files are published on the release page.
 
-Repot är privat, så Docker-avbildningen är också privat. Logga in med `docker login ghcr.io -u Atomix888` och en personlig åtkomsttoken med behörigheten `read:packages`. Alternativt bygger du själv med `build: ..` i compose-filen.
+The repository is private, so the Docker image is private too. Sign in with `docker login ghcr.io -u Atomix888` and a personal access token with the `read:packages` scope, or build it yourself with `build: ..` in the compose file.
 
-**Utveckla gränssnittet utan att bygga:** öppna `desktop/frontend/dist/index.html` via en lokal webbserver, till exempel med `python3 -m http.server`. Sidan går då i *demoläge* med simulerad data.
+**Developing the interface without building:** open `desktop/frontend/dist/index.html` through a local web server, e.g. `python3 -m http.server`. The page then runs in *demo mode* with simulated data.
 
-## Struktur
+**Translations:** the source texts in the code are English. `core/i18n/sv.json` maps English to Swedish and is used by the Go code, the web interface and the desktop app.
+
+## Structure
 
 ```
-core/              Mätmotorn – delas av skrivbordsapp, agent och server
-  agentproto/      Protokollet agent ↔ server och klienten som skickar mätdata
-  probe/           ICMP (Windows-API / oprivilegierade socketar), TCP-ping, HTTP(S)- och DNS-kontroller
-  wifi/            Wi-Fi-avläsning (iw, netsh, wdutil, system_profiler)
-  monitor/         Schemaläggning per mål, ringbuffert med historik, statistik och status
-  alert/           Larmregler, utvärdering, e-post (SMTP), systemnotiser, loggfil
-  trace/           Traceroute via systemets verktyg
-  config/          JSON-konfiguration
-desktop/           Skrivbordsappen (Wails)
-  app.go           Brygga mellan gränssnittet och mätmotorn
-  frontend/dist/   Gränssnittet (HTML/CSS/JS + uPlot), inget byggsteg
-  build/           Ikon, Windows-installationsprogram (NSIS), .deb-filer, macOS Info.plist
-server/            Servern: SQLite, API, inloggning, central larmning, webbgränssnitt (server/web)
-agent/             Agenten (tjänst utan gränssnitt)
-deploy/            Docker Compose + Caddy, systemd-tjänst
-tools/winres/      Skapar Windows-ikon, manifest och versionsinfo
-scripts/build.sh   Byggskript för alla plattformar
+core/              The measurement engine – shared by desktop app, agent and server
+  agentproto/      Agent ↔ server protocol and the client that sends measurements
+  probe/           ICMP (Windows API / unprivileged sockets), TCP ping, HTTP(S) and DNS checks
+  wifi/            Wi-Fi readings (iw, netsh, wdutil, system_profiler)
+  netscan/         Network scan (ping, ports, ARP, manufacturer, NetBIOS)
+  monitor/         Per-target scheduling, history ring buffer, statistics and status
+  alert/           Alert rules, evaluation, email (SMTP), system notifications, log file
+  trace/           Traceroute via the system tool
+  i18n/            Translations (sv.json: English → Swedish)
+  config/          JSON configuration
+desktop/           The desktop app (Wails)
+  app.go           Bridge between the interface and the engine
+  frontend/dist/   The interface (HTML/CSS/JS + uPlot), no build step
+  build/           Icon, Windows installer (NSIS), .deb files, macOS Info.plist
+server/            The server: SQLite, API, sign-in, central alerting, web interface (server/web)
+agent/             The agent (headless service)
+deploy/            Docker Compose + Caddy, systemd service
+tools/             winres (Windows icon/manifest), genoui (MAC manufacturer list)
+scripts/build.sh   Build script for all platforms
 ```
 
-## Färdplan
+## Roadmap
 
-- Kodsignering (Windows/macOS)
-- Engelska som språkval
-- Inloggning via Microsoft/Google för kunder
+- Code signing (Windows/macOS)
+- Sign-in with Microsoft/Google for customers
 
-## Licenser
+## Licences
 
-Se `LICENSE-THIRD-PARTY.txt`. PingVakt innehåller Wails och uPlot, som båda har MIT-licens. Funktionerna är inspirerade av vmPing (MIT), men koden är nyskriven.
+See `LICENSE-THIRD-PARTY.txt`. PingVakt includes Wails and uPlot, both MIT licensed. The features are inspired by vmPing (MIT), but the code is written from scratch. The MAC manufacturer list comes from the IEEE registration authority.

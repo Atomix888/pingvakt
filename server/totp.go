@@ -19,6 +19,8 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
+
+	"pingvakt/core/i18n"
 )
 
 // ---------- TOTP (RFC 6238) ----------
@@ -134,11 +136,11 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 	p, ok := totps.pending[u.ID]
 	totps.mu.Unlock()
 	if !ok || time.Now().After(p.exp) {
-		httpErr(w, 400, "börja om – QR-koden har gått ut")
+		httpErr(w, 400, "start over – the QR code has expired")
 		return
 	}
 	if !totpValid(p.secret, in.Code) {
-		httpErr(w, 400, "fel kod – kontrollera att klockan i telefonen går rätt")
+		httpErr(w, 400, "wrong code – check that the clock on your phone is correct")
 		return
 	}
 	codes, hashes := newRecoveryCodes()
@@ -149,7 +151,7 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 	totps.mu.Lock()
 	delete(totps.pending, u.ID)
 	totps.mu.Unlock()
-	s.audit(r, "inloggning", u.ID, "aktiverade tvåstegsinloggning")
+	s.audit(r, "sign-in", u.ID, i18n.T("enabled two-factor authentication"))
 	writeJSON(w, map[string]any{"ok": true, "recovery": codes})
 }
 
@@ -162,11 +164,11 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	var hash string
 	_ = s.db.QueryRow(`SELECT pw_hash FROM users WHERE id=?`, u.ID).Scan(&hash)
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
-		httpErr(w, 400, "fel lösenord")
+		httpErr(w, 400, "wrong password")
 		return
 	}
 	_, _ = s.db.Exec(`UPDATE users SET totp_secret='', totp_recovery='' WHERE id=?`, u.ID)
-	s.audit(r, "inloggning", u.ID, "stängde av tvåstegsinloggning")
+	s.audit(r, "sign-in", u.ID, i18n.T("turned off two-factor authentication"))
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -174,7 +176,7 @@ func (s *Server) handleTOTPReset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	_, _ = s.db.Exec(`UPDATE users SET totp_secret='', totp_recovery='' WHERE id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, id)
-	s.audit(r, "användare", id, "återställde tvåstegsinloggning")
+	s.audit(r, "user", id, i18n.T("reset two-factor authentication"))
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -195,7 +197,7 @@ func startTOTPLogin(userID string) string {
 func (s *Server) handleLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if s.limiter.blocked(ip) {
-		httpErr(w, http.StatusTooManyRequests, "för många misslyckade försök – vänta 15 minuter")
+		httpErr(w, http.StatusTooManyRequests, "too many failed attempts – wait 15 minutes")
 		return
 	}
 	var in struct{ Ticket, Code string }
@@ -210,7 +212,7 @@ func (s *Server) handleLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	totps.mu.Unlock()
 	if !ok || time.Now().After(t.exp) || t.attempts > 5 {
-		httpErr(w, 401, "inloggningen har gått ut – börja om")
+		httpErr(w, 401, "the sign-in has expired – start over")
 		return
 	}
 	sec, rec := s.userTOTP(t.userID)
@@ -234,7 +236,7 @@ func (s *Server) handleLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !valid {
 		s.limiter.fail(ip)
-		httpErr(w, 401, "fel kod")
+		httpErr(w, 401, "wrong code")
 		return
 	}
 	totps.mu.Lock()
@@ -246,8 +248,8 @@ func (s *Server) handleLoginTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var u User
-	_ = s.db.QueryRow(`SELECT id,email,name,role,customer_id,created FROM users WHERE id=?`, t.userID).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created)
-	s.auditAs(u.Email, ip, "inloggning", u.ID, "loggade in (tvåsteg)")
+	_ = s.db.QueryRow(`SELECT id,email,name,role,customer_id,created,lang FROM users WHERE id=?`, t.userID).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.Lang)
+	s.auditAs(u.Email, ip, "sign-in", u.ID, i18n.T("signed in (2FA)"))
 	writeJSON(w, u)
 }
 

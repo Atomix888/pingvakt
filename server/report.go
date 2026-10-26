@@ -16,6 +16,7 @@ import (
 
 	"pingvakt/core/alert"
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/i18n"
 )
 
 // ---------- data ----------
@@ -56,7 +57,11 @@ type reportData struct {
 	Agents   []reportAgent
 	Events   []alert.Event
 	Maint    []Maintenance
+	Lang     string
 }
+
+// L översätter till rapportens språk.
+func (rd *reportData) L(s string) string { return i18n.TL(rd.Lang, s) }
 
 func (s *Server) buildReport(customerID string, from, to time.Time) (*reportData, error) {
 	s.mu.RLock()
@@ -65,7 +70,7 @@ func (s *Server) buildReport(customerID string, from, to time.Time) (*reportData
 		s.mu.RUnlock()
 		return nil, errNotFound
 	}
-	rd := &reportData{Customer: c, From: from, To: to, Company: s.settings.ReportName}
+	rd := &reportData{Customer: c, From: from, To: to, Company: s.settings.ReportName, Lang: i18n.Norm(c.Lang, s.settings.Language)}
 	var ts []Target
 	agentSite := map[string]string{}
 	var ags []Agent
@@ -242,18 +247,22 @@ func fmtDur(min int) string {
 	return fmt.Sprintf("%d d %d h", h/24, h%24)
 }
 
-func fmtNum(v float64, dec int) string {
-	return strings.Replace(strconv.FormatFloat(v, 'f', dec, 64), ".", ",", 1)
+func (rd *reportData) fmtNum(v float64, dec int) string {
+	f := strconv.FormatFloat(v, 'f', dec, 64)
+	if rd.Lang == "sv" {
+		return strings.Replace(f, ".", ",", 1)
+	}
+	return f
 }
 
-func fmtMsR(v float64) string {
+func (rd *reportData) fmtMsR(v float64) string {
 	switch {
 	case v < 1:
-		return fmtNum(v, 2)
+		return rd.fmtNum(v, 2)
 	case v < 10:
-		return fmtNum(v, 1)
+		return rd.fmtNum(v, 1)
 	}
-	return fmtNum(math.Round(v), 0)
+	return rd.fmtNum(math.Round(v), 0)
 }
 
 func availColor(p float64) [3]int {
@@ -271,7 +280,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
 	pdf.SetMargins(16, 16, 16)
 	pdf.SetAutoPageBreak(true, 18)
-	pdf.SetTitle(tr("Driftrapport "+rd.Customer.Name), false)
+	pdf.SetTitle(tr(rd.L("Service report")+" "+rd.Customer.Name), false)
 	pdf.SetCreator("PingVakt", false)
 	period := rd.From.Format("2006-01-02") + " – " + rd.To.Add(-time.Second).Format("2006-01-02")
 	pdf.SetFooterFunc(func() {
@@ -279,7 +288,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		pdf.SetFont("Helvetica", "", 8)
 		pdf.SetTextColor(colMuted[0], colMuted[1], colMuted[2])
 		pdf.CellFormat(0, 5, tr(rd.Customer.Name+" · "+period), "", 0, "L", false, 0, "")
-		pdf.CellFormat(0, 5, tr(fmt.Sprintf("Sida %d av {nb}", pdf.PageNo())), "", 0, "R", false, 0, "")
+		pdf.CellFormat(0, 5, tr(fmt.Sprintf(rd.L("Page %d of {nb}"), pdf.PageNo())), "", 0, "R", false, 0, "")
 	})
 	pdf.AliasNbPages("{nb}")
 	pdf.AddPage()
@@ -295,12 +304,12 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	pdf.SetXY(23, 16)
 	pdf.SetFont("Helvetica", "B", 20)
 	setC(colInk)
-	pdf.CellFormat(0, 9, tr("Driftrapport"), "", 2, "L", false, 0, "")
+	pdf.CellFormat(0, 9, tr(rd.L("Service report")), "", 2, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 12)
 	pdf.CellFormat(0, 7, tr(rd.Customer.Name), "", 2, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 9)
 	setC(colMuted)
-	sub := "Period " + period + " · skapad " + time.Now().Format("2006-01-02 15:04")
+	sub := fmt.Sprintf(rd.L("Period %s · created %s"), period, time.Now().Format("2006-01-02 15:04"))
 	if rd.Company != "" {
 		sub = rd.Company + " · " + sub
 	}
@@ -333,10 +342,10 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		label, value string
 		col          [3]int
 	}{
-		{"Tillgänglighet", fmtNum(avail, 3) + " %", availColor(avail)},
-		{"Total nertid", fmtDur(down), colInk},
-		{"Paketförlust", fmtNum(lossPct, 2) + " %", colInk},
-		{"Larm", strconv.Itoa(fired), colInk},
+		{rd.L("Availability"), rd.fmtNum(avail, 3) + " %", availColor(avail)},
+		{rd.L("Total downtime"), fmtDur(down), colInk},
+		{rd.L("Packet loss"), rd.fmtNum(lossPct, 2) + " %", colInk},
+		{rd.L("Alerts"), strconv.Itoa(fired), colInk},
 	}
 	bw := (cw - 3*4) / 4
 	y := pdf.GetY()
@@ -356,7 +365,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	pdf.SetY(y + 26)
 	pdf.SetFont("Helvetica", "", 9)
 	setC(colMuted)
-	pdf.MultiCell(0, 4.5, tr(fmt.Sprintf("%d mål övervakas av %d agenter. Tillgänglighet räknas per minut: en minut räknas som nertid när inga paket kom fram.", len(rd.Targets), len(rd.Agents))), "", "L", false)
+	pdf.MultiCell(0, 4.5, tr(fmt.Sprintf(rd.L("%d targets monitored by %d agents. Availability is calculated per minute: a minute counts as downtime when no packets got through."), len(rd.Targets), len(rd.Agents))), "", "L", false)
 	pdf.Ln(4)
 
 	section := func(title string) {
@@ -381,8 +390,8 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	}
 
 	// mål
-	section("Mål")
-	cols := []string{"Mål", "Site", "Tillgänglighet", "Nertid", "Förlust", "Snitt ms", "Max ms"}
+	section(rd.L("Targets"))
+	cols := []string{rd.L("Target"), "Site", rd.L("Availability"), rd.L("Downtime"), rd.L("Loss"), rd.L("Avg ms"), "Max ms"}
 	widths := []float64{50, 30, 24, 22, 18, 17, 17}
 	aligns := []string{"L", "L", "R", "R", "R", "R", "R"}
 	tableHead(cols, widths, aligns)
@@ -410,12 +419,12 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		setC(colMuted)
 		pdf.CellFormat(widths[1], 6, tr(clip(t.Site, 22)), "", 0, "L", true, 0, "")
 		if t.Minutes == 0 {
-			pdf.CellFormat(widths[2]+widths[3]+widths[4]+widths[5]+widths[6], 6, tr("ingen data under perioden"), "", 1, "R", true, 0, "")
+			pdf.CellFormat(widths[2]+widths[3]+widths[4]+widths[5]+widths[6], 6, tr(rd.L("no data during the period")), "", 1, "R", true, 0, "")
 			continue
 		}
 		setC(availColor(t.Available))
 		pdf.SetFont("Helvetica", "B", 8.5)
-		pdf.CellFormat(widths[2], 6, fmtNum(t.Available, 3)+" %", "", 0, "R", true, 0, "")
+		pdf.CellFormat(widths[2], 6, rd.fmtNum(t.Available, 3)+" %", "", 0, "R", true, 0, "")
 		pdf.SetFont("Helvetica", "", 8.5)
 		setC(colInk)
 		pdf.CellFormat(widths[3], 6, tr(fmtDur(t.DownMin)), "", 0, "R", true, 0, "")
@@ -423,13 +432,13 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		if t.N > 0 {
 			lp = float64(t.Lost) * 100 / float64(t.N)
 		}
-		pdf.CellFormat(widths[4], 6, fmtNum(lp, 2)+" %", "", 0, "R", true, 0, "")
+		pdf.CellFormat(widths[4], 6, rd.fmtNum(lp, 2)+" %", "", 0, "R", true, 0, "")
 		avg := "–"
 		if t.HasAvg {
-			avg = fmtMsR(t.Avg)
+			avg = rd.fmtMsR(t.Avg)
 		}
 		pdf.CellFormat(widths[5], 6, tr(avg), "", 0, "R", true, 0, "")
-		pdf.CellFormat(widths[6], 6, fmtMsR(t.Max), "", 1, "R", true, 0, "")
+		pdf.CellFormat(widths[6], 6, rd.fmtMsR(t.Max), "", 1, "R", true, 0, "")
 	}
 	pdf.Ln(4)
 
@@ -442,7 +451,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	}
 	if len(withData) > 0 {
 		pdf.AddPage()
-		section("Latens och förlust per dygn")
+		section(rd.L("Latency and loss per day"))
 		gw, gh := (cw-6)/2, 38.0
 		rowY := pdf.GetY()
 		for i, t := range withData {
@@ -466,21 +475,21 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 			pdf.SetFont("Helvetica", "B", 8.5)
 			setC(colInk)
 			pdf.CellFormat(gw, 5, tr(clip(name, 48)), "", 0, "L", false, 0, "")
-			drawDayChart(pdf, t.Days, x, y+6, gw, gh-8, rd.From, rd.To)
+			rd.drawDayChart(pdf, t.Days, x, y+6, gw, gh-8, rd.From, rd.To)
 			if col == 1 || i == len(withData)-1 {
 				pdf.SetY(y + gh + 4)
 			}
 		}
 		pdf.SetFont("Helvetica", "", 7.5)
 		setC(colMuted)
-		pdf.CellFormat(0, 4, tr("Linje: snittlatens per dygn (ms). Röda staplar: paketförlust per dygn (skala till höger, %)."), "", 1, "L", false, 0, "")
+		pdf.CellFormat(0, 4, tr(rd.L("Line: average latency per day (ms). Red bars: packet loss per day (scale on the right, %).")), "", 1, "L", false, 0, "")
 		pdf.Ln(3)
 	}
 
 	// agenter
 	if len(rd.Agents) > 0 {
-		section("Agenter – CPU, minne och disk")
-		cols := []string{"Agent", "Site", "Version", "CPU snitt", "CPU max", "Minne snitt", "Disk max"}
+		section(rd.L("Agents – CPU, memory and disk"))
+		cols := []string{"Agent", "Site", "Version", rd.L("CPU avg"), "CPU max", rd.L("Memory avg"), "Disk max"}
 		widths := []float64{44, 34, 20, 20, 20, 20, 20}
 		aligns := []string{"L", "L", "L", "R", "R", "R", "R"}
 		tableHead(cols, widths, aligns)
@@ -494,7 +503,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 			pdf.CellFormat(widths[2], 6, tr(a.Agent.Version), "", 0, "L", false, 0, "")
 			setC(colInk)
 			if a.Samples == 0 {
-				pdf.CellFormat(widths[3]+widths[4]+widths[5]+widths[6], 6, tr("inga värden"), "", 1, "R", false, 0, "")
+				pdf.CellFormat(widths[3]+widths[4]+widths[5]+widths[6], 6, tr(rd.L("no values")), "", 1, "R", false, 0, "")
 				continue
 			}
 			pctCell := func(w, v float64, last bool) {
@@ -509,7 +518,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 				if last {
 					ln = 1
 				}
-				pdf.CellFormat(w, 6, fmtNum(v, 0)+" %", "", ln, "R", false, 0, "")
+				pdf.CellFormat(w, 6, rd.fmtNum(v, 0)+" %", "", ln, "R", false, 0, "")
 			}
 			pctCell(widths[3], a.CPUAvg, false)
 			pctCell(widths[4], a.CPUMax, false)
@@ -521,25 +530,25 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 
 	// servicefönster
 	if len(rd.Maint) > 0 {
-		section("Servicefönster")
+		section(rd.L("Maintenance window"))
 		pdf.SetFont("Helvetica", "", 8.5)
 		for _, m := range rd.Maint {
 			when := ""
 			if m.Weekly {
-				days := []string{"sön", "mån", "tis", "ons", "tor", "fre", "lör"}
+				days := []string{rd.L("Sun"), rd.L("Mon"), rd.L("Tue"), rd.L("Wed"), rd.L("Thu"), rd.L("Fri"), rd.L("Sat")}
 				var ds []string
 				for _, d := range m.Days {
 					if d >= 0 && d < 7 {
 						ds = append(ds, days[d])
 					}
 				}
-				when = fmt.Sprintf("Varje vecka %s %02d:%02d, %s", strings.Join(ds, ", "), m.StartMin/60, m.StartMin%60, fmtDur(m.DurationMin))
+				when = fmt.Sprintf(rd.L("Weekly %s %02d:%02d, %s"), strings.Join(ds, ", "), m.StartMin/60, m.StartMin%60, fmtDur(m.DurationMin))
 			} else {
 				when = time.UnixMilli(m.Start).Format("2006-01-02 15:04") + " – " + time.UnixMilli(m.End).Format("2006-01-02 15:04")
 			}
 			note := m.Note
 			if note == "" {
-				note = "Servicefönster"
+				note = rd.L("Maintenance window")
 			}
 			setC(colInk)
 			pdf.CellFormat(70, 5.5, tr(clip(note, 48)), "", 0, "L", false, 0, "")
@@ -550,22 +559,22 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	}
 
 	// larmhändelser
-	section("Larmhändelser")
+	section(rd.L("Alert events"))
 	if len(rd.Events) == 0 {
 		pdf.SetFont("Helvetica", "", 9)
 		setC(colMuted)
-		pdf.CellFormat(0, 6, tr("Inga larm under perioden."), "", 1, "L", false, 0, "")
+		pdf.CellFormat(0, 6, tr(rd.L("No alerts during the period.")), "", 1, "L", false, 0, "")
 	} else {
-		cols := []string{"Tid", "Händelse", "Mål", "Larm"}
+		cols := []string{rd.L("Time"), rd.L("Event"), rd.L("Target"), rd.L("Alert")}
 		widths := []float64{30, 20, 82, 46}
 		aligns := []string{"L", "L", "L", "L"}
 		tableHead(cols, widths, aligns)
-		kinds := map[string]string{"fire": "Utlöst", "repeat": "Pågår", "clear": "Upphört"}
+		kinds := map[string]string{"fire": rd.L("Fired"), "repeat": rd.L("Ongoing"), "clear": rd.L("Cleared")}
 		for i, e := range rd.Events {
 			if i >= 80 {
 				pdf.SetFont("Helvetica", "", 8)
 				setC(colMuted)
-				pdf.CellFormat(0, 5, tr(fmt.Sprintf("… och %d händelser till.", len(rd.Events)-80)), "", 1, "L", false, 0, "")
+				pdf.CellFormat(0, 5, tr(fmt.Sprintf(rd.L("… and %d more events."), len(rd.Events)-80)), "", 1, "L", false, 0, "")
 				break
 			}
 			if pdf.GetY() > 272 {
@@ -598,7 +607,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		}
 		pdf.SetFont("Helvetica", "", 7.5)
 		setC(colMuted)
-		pdf.CellFormat(0, 5, tr("* Larmet skickades inte (servicefönster eller beroende)."), "", 1, "L", false, 0, "")
+		pdf.CellFormat(0, 5, tr(rd.L("* The alert was not sent (maintenance window or dependency).")), "", 1, "L", false, 0, "")
 	}
 
 	var buf bytes.Buffer
@@ -617,7 +626,7 @@ func clip(s string, n int) string {
 }
 
 // drawDayChart ritar snittlatens (linje) och förlust (staplar) per dygn.
-func drawDayChart(pdf *fpdf.Fpdf, days []reportDay, x, y, w, h float64, from, to time.Time) {
+func (rd *reportData) drawDayChart(pdf *fpdf.Fpdf, days []reportDay, x, y, w, h float64, from, to time.Time) {
 	pdf.SetDrawColor(colLine[0], colLine[1], colLine[2])
 	pdf.SetFillColor(252, 252, 253)
 	pdf.Rect(x, y, w, h, "FD")
@@ -644,7 +653,7 @@ func drawDayChart(pdf *fpdf.Fpdf, days []reportDay, x, y, w, h float64, from, to
 			pdf.Line(x, yy, x+w, yy)
 		}
 		pdf.SetXY(x-9, yy-1.5)
-		pdf.CellFormat(8, 3, fmtMsR(v), "", 0, "R", false, 0, "")
+		pdf.CellFormat(8, 3, rd.fmtMsR(v), "", 0, "R", false, 0, "")
 	}
 	// förlust
 	bw := w / (span / 86400000) * 0.6
@@ -726,7 +735,7 @@ func reportPeriod(r *http.Request) (time.Time, time.Time) {
 func (s *Server) handleCustomerReport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !canSee(userFrom(r), id) {
-		httpErr(w, 404, "kunden finns inte")
+		httpErr(w, 404, "the customer does not exist")
 		return
 	}
 	from, to := reportPeriod(r)
@@ -750,14 +759,14 @@ func (s *Server) handleCustomerReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func reportFileName(rd *reportData) string {
-	return "driftrapport-" + safeFile(strings.ReplaceAll(rd.Customer.Name, " ", "-")) + "-" + rd.From.Format("2006-01-02") + ".pdf"
+	return rd.L("service-report") + "-" + safeFile(strings.ReplaceAll(rd.Customer.Name, " ", "-")) + "-" + rd.From.Format("2006-01-02") + ".pdf"
 }
 
 // sendReport skapar och mejlar rapporten för en period.
 func (s *Server) sendReport(c Customer, from, to time.Time, toAddr string) error {
 	rcpt := alert.SplitAddresses(toAddr)
 	if len(rcpt) == 0 {
-		return fmt.Errorf("ange minst en mottagare")
+		return fmt.Errorf("enter at least one recipient")
 	}
 	rd, err := s.buildReport(c.ID, from, to)
 	if err != nil {
@@ -772,19 +781,19 @@ func (s *Server) sendReport(c Customer, from, to time.Time, toAddr string) error
 	company := s.settings.ReportName
 	s.mu.RUnlock()
 	period := from.Format("2006-01-02") + " – " + to.Add(-time.Second).Format("2006-01-02")
-	body := fmt.Sprintf("Hej!\r\n\r\nHär kommer driftrapporten för %s, perioden %s.\r\n\r\n", c.Name, period)
+	body := fmt.Sprintf(rd.L("Hello,\r\n\r\nHere is the service report for %s, period %s.\r\n\r\n"), c.Name, period)
 	var mins, down int
 	for _, t := range rd.Targets {
 		mins += t.Minutes
 		down += t.DownMin
 	}
 	if mins > 0 {
-		body += fmt.Sprintf("Tillgänglighet: %s %%\r\nTotal nertid: %s\r\n\r\n", fmtNum(float64(mins-down)*100/float64(mins), 3), fmtDur(down))
+		body += fmt.Sprintf(rd.L("Availability: %s %%\r\nTotal downtime: %s\r\n\r\n"), rd.fmtNum(float64(mins-down)*100/float64(mins), 3), fmtDur(down))
 	}
 	if company != "" {
-		body += "Med vänliga hälsningar\r\n" + company + "\r\n"
+		body += rd.L("Kind regards\r\n") + company + "\r\n"
 	}
-	return alert.SendWithAttachments(cfg, rcpt, "Driftrapport "+c.Name+" "+period, body,
+	return alert.SendWithAttachments(cfg, rcpt, rd.L("Service report")+" "+c.Name+" "+period, body,
 		alert.Attachment{Name: reportFileName(rd), ContentType: "application/pdf", Data: b})
 }
 
@@ -803,7 +812,7 @@ func (s *Server) handleSendReport(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.customers[id]
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, 404, "kunden finns inte")
+		httpErr(w, 404, "the customer does not exist")
 		return
 	}
 	q := r.URL.Query()
@@ -816,7 +825,7 @@ func (s *Server) handleSendReport(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, err.Error())
 		return
 	}
-	s.audit(r, "rapport", id, "skickade rapport till "+in.To)
+	s.audit(r, "report", id, i18n.T("sent report to ")+in.To)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -859,7 +868,7 @@ func (s *Server) reportLoop(stop <-chan struct{}) {
 				continue
 			}
 			if err := s.sendReport(c, from, to, c.ReportTo); err != nil {
-				log.Printf("rapport %s: %v", c.Name, err)
+				log.Printf("report %s: %v", c.Name, err)
 				continue
 			}
 			_, _ = s.db.Exec(`UPDATE customers SET report_last=? WHERE id=?`, to.UnixMilli(), c.ID)
@@ -869,7 +878,7 @@ func (s *Server) reportLoop(stop <-chan struct{}) {
 				s.customers[c.ID] = cc
 			}
 			s.mu.Unlock()
-			log.Printf("rapport skickad: %s (%s – %s)", c.Name, from.Format("2006-01-02"), to.Format("2006-01-02"))
+			log.Printf("report sent: %s (%s – %s)", c.Name, from.Format("2006-01-02"), to.Format("2006-01-02"))
 		}
 	}
 }

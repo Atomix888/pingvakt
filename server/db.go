@@ -14,6 +14,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 )
 
@@ -85,6 +86,8 @@ func OpenDB(path string) (*DB, error) {
 		`ALTER TABLE customers ADD COLUMN status_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN totp_recovery TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE customers ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.Exec(m)
 	}
@@ -102,6 +105,7 @@ type Customer struct {
 	ReportFreq string `json:"reportFreq"` // "", "weekly", "monthly"
 	ReportLast int64  `json:"reportLast"` // slutet på senast skickade period
 	StatusKey  string `json:"statusKey"`  // hemlig nyckel för publik statussida ("" = av)
+	Lang       string `json:"lang"`       // språk för rapporter och statussida ("" = serverns)
 }
 
 type Site struct {
@@ -148,10 +152,12 @@ type User struct {
 	CustomerID string `json:"customerId"`
 	Created    int64  `json:"created"`
 	TOTP       bool   `json:"totp"` // tvåstegsinloggning aktiverad
+	Lang       string `json:"lang"` // gränssnittets språk ("" = serverns)
 }
 
 // ServerSettings är serverns inställningar.
 type ServerSettings struct {
+	Language     string           `json:"language"` // standardspråk: en eller sv
 	PublicURL    string           `json:"publicUrl"`
 	NoAutoUpdate bool             `json:"noAutoUpdate"` // agenter uppdateras inte automatiskt
 	BackupKeep   int              `json:"backupKeep"`   // antal nattliga säkerhetskopior som sparas
@@ -189,6 +195,7 @@ func (d *DB) LoadSettings() ServerSettings {
 	if s.ReportSec < 2 || s.ReportSec > 300 {
 		s.ReportSec = 5
 	}
+	s.Language = i18n.Norm(s.Language, "en")
 	return s
 }
 
@@ -201,7 +208,7 @@ func (d *DB) SaveSettings(s ServerSettings) error {
 // ---------- kunder, siter, agenter ----------
 
 func (d *DB) Customers() ([]Customer, error) {
-	rows, err := d.Query(`SELECT id,name,notes,created,report_to,report_freq,report_last,status_key FROM customers ORDER BY name COLLATE NOCASE`)
+	rows, err := d.Query(`SELECT id,name,notes,created,report_to,report_freq,report_last,status_key,lang FROM customers ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +216,7 @@ func (d *DB) Customers() ([]Customer, error) {
 	out := []Customer{}
 	for rows.Next() {
 		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Notes, &c.Created, &c.ReportTo, &c.ReportFreq, &c.ReportLast, &c.StatusKey); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Notes, &c.Created, &c.ReportTo, &c.ReportFreq, &c.ReportLast, &c.StatusKey, &c.Lang); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -556,7 +563,7 @@ func (d *DB) Prune(rawDays, aggDays int) (int64, error) {
 // ---------- användare ----------
 
 func (d *DB) Users() ([]User, error) {
-	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created,totp_secret<>'' FROM users ORDER BY email`)
+	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created,totp_secret<>'',lang FROM users ORDER BY email`)
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +571,7 @@ func (d *DB) Users() ([]User, error) {
 	out := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -581,19 +588,19 @@ func (d *DB) UserCount() int {
 func (d *DB) UserByEmail(email string) (User, string, error) {
 	var u User
 	var hash string
-	err := d.QueryRow(`SELECT id,email,name,role,customer_id,created,pw_hash FROM users WHERE email=?`, strings.TrimSpace(email)).
-		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &hash)
+	err := d.QueryRow(`SELECT id,email,name,role,customer_id,created,pw_hash,lang FROM users WHERE email=?`, strings.TrimSpace(email)).
+		Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &hash, &u.Lang)
 	return u, hash, err
 }
 
 func (d *DB) UserBySession(tokenHash string) (User, error) {
 	var u User
-	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created,u.totp_secret<>'' FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP)
+	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created,u.totp_secret<>'',u.lang FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang)
 	return u, err
 }
 
-var errNotFound = errors.New("hittades inte")
+var errNotFound = errors.New("not found")
 
 // toProto konverterar mål för en agent.
 func toProto(ts []Target) []monitor.Target {

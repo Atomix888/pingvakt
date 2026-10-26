@@ -13,5 +13,5 @@ func collect(ctx context.Context) (*Info, error) {
 	if in := parseNetsh(out); in != nil {
 		return in, nil
 	}
-	return nil, errors.New("ingen Wi-Fi-anslutning")
+	return nil, errors.New("no Wi-Fi connection")
 }

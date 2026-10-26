@@ -14,6 +14,7 @@ import (
 
 	"pingvakt/core/alert"
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/i18n"
 )
 
 // ServerHostID är det ID som serverns egna värden sparas under.
@@ -115,7 +116,7 @@ func (s *Server) saveHostRow(r hostRow) {
 	d, _ := json.Marshal(r.disks)
 	if _, err := s.db.Exec(`INSERT OR REPLACE INTO host_metrics(agent_id,t,cpu,cpu_max,mem_used,mem_total,disks) VALUES(?,?,?,?,?,?,?)`,
 		r.agent, r.t, round1(r.cpu), round1(r.max), int64(r.memUsed), int64(r.memTotal), string(d)); err != nil {
-		log.Printf("spara systemvärden: %v", err)
+		log.Printf("save system values: %v", err)
 	}
 }
 
@@ -191,7 +192,7 @@ func (s *Server) selfLoop(ctx context.Context) {
 func (s *Server) checkHostAlerts(agentID string) {
 	s.mu.RLock()
 	cust := ""
-	name := "PingVakt-servern"
+	name := i18n.T("PingVakt server")
 	hostname := ""
 	if agentID != ServerHostID {
 		a, ok := s.agents[agentID]
@@ -244,7 +245,7 @@ func (s *Server) checkHostAlerts(agentID string) {
 			delete(s.host.alerts, key)
 			if r.OnClear {
 				kind = "clear"
-				detail = fmt.Sprintf("%s (larmet varade %s)", detail, time.Duration(t-since)*time.Millisecond/time.Second*time.Second)
+				detail = fmt.Sprintf(i18n.T("%s (the alert lasted %s)"), detail, time.Duration(t-since)*time.Millisecond/time.Second*time.Second)
 			}
 		}
 		s.host.mu.Unlock()
@@ -267,7 +268,7 @@ func evalHost(r alert.Alert, recent []hostPoint, last hostinfo.Metrics, t int64)
 				worst, pct = d.Mount, p
 			}
 		}
-		return pct > r.Threshold, fmt.Sprintf("Disk %s är %.0f %% full (%s ledigt)", worst, pct, gb(diskFree(last, worst)))
+		return pct > r.Threshold, fmt.Sprintf(i18n.T("Disk %s is %.0f %% full (%s free)"), worst, pct, gb(diskFree(last, worst)))
 	case alert.CondCPU, alert.CondMem:
 		window := int64(r.Samples) * 60000
 		from := t - window
@@ -296,12 +297,12 @@ func evalHost(r alert.Alert, recent []hostPoint, last hostinfo.Metrics, t int64)
 		}
 		what := "CPU"
 		if r.Condition == alert.CondMem {
-			what = "Minne"
+			what = i18n.T("Memory")
 		}
 		avg := sum / float64(n)
 		// kräver att hela tidsfönstret täcks av mätningar (minst 80 %)
 		covered := t-first >= window*8/10 || r.Samples <= 1
-		return over && covered, fmt.Sprintf("%s %.0f %% i snitt de senaste %d min", what, avg, r.Samples)
+		return over && covered, fmt.Sprintf(i18n.T("%s %.0f %% on average over the last %d min"), what, avg, r.Samples)
 	}
 	return false, ""
 }
@@ -434,7 +435,7 @@ func (s *Server) handleAgentMetrics(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	if id == ServerHostID {
 		if u.Role != "admin" {
-			httpErr(w, 403, "kräver administratör")
+			httpErr(w, 403, "requires administrator")
 			return
 		}
 	} else {
@@ -443,7 +444,7 @@ func (s *Server) handleAgentMetrics(w http.ResponseWriter, r *http.Request) {
 		vis := ok && canSee(u, s.customerOfAgent(a))
 		s.mu.RUnlock()
 		if !vis {
-			httpErr(w, 404, "agenten finns inte")
+			httpErr(w, 404, "the agent does not exist")
 			return
 		}
 	}

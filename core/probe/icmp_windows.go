@@ -145,13 +145,13 @@ func statusErr(st uint32) error {
 	case 11010: // IP_REQ_TIMED_OUT
 		return ErrTimeout
 	case 11002, 11003: // DEST_NET/HOST_UNREACHABLE
-		return errors.New("Målet kan inte nås")
+		return errors.New("Destination unreachable")
 	case 11005: // DEST_PORT_UNREACHABLE
-		return errors.New("Porten kan inte nås")
+		return errors.New("Port unreachable")
 	case 11013, 11014: // TTL_EXPIRED_TRANSIT/REASSEM
-		return errors.New("TTL gick ut på vägen")
+		return errors.New("TTL expired in transit")
 	case 11050: // GENERAL_FAILURE
-		return errors.New("Allmänt fel")
+		return errors.New("General failure")
 	}
 	return fmt.Errorf("ICMP-status %d", st)
 }

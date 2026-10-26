@@ -24,11 +24,12 @@ import (
 	"pingvakt/core/agentproto"
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/netscan"
 	"pingvakt/core/wifi"
 )
 
 // Version sätts vid bygge.
-var Version = "0.6.0"
+var Version = "0.7.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -55,16 +56,16 @@ func defaultConfigPath() string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `PingVakt-agent %s
+	fmt.Fprintf(os.Stderr, `PingVakt agent %s
 
-Användning:
-  pingvakt-agent enroll --server URL --token TOKEN [--insecure]   registrera mot servern
-  pingvakt-agent install | uninstall | start | stop | restart     hantera tjänsten
-  pingvakt-agent status                                           visa konfiguration och tjänstens status
-  pingvakt-agent run                                              kör i förgrunden (används av tjänsten)
+Usage:
+  pingvakt-agent enroll --server URL --token TOKEN [--insecure]   enroll with the server
+  pingvakt-agent install | uninstall | start | stop | restart     manage the service
+  pingvakt-agent status                                           show configuration and service status
+  pingvakt-agent run                                              run in the foreground (used by the service)
   pingvakt-agent version
 
-Gemensam flagga: --config FIL (standard %s)
+Common flag: --config FILE (default %s)
 `, Version, defaultConfigPath())
 }
 
@@ -76,15 +77,15 @@ func main() {
 	cmd := os.Args[1]
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fs.String("config", defaultConfigPath(), "konfigurationsfil")
-	server := fs.String("server", "", "serverns adress, t.ex. https://pingvakt.exempel.se")
-	token := fs.String("token", "", "agentens token från servern")
-	insecure := fs.Bool("insecure", false, "godta självsignerat certifikat (bara för test)")
+	server := fs.String("server", "", "the server address, e.g. https://pingvakt.example.com")
+	token := fs.String("token", "", "the agent's token from the server")
+	insecure := fs.Bool("insecure", false, "accept self-signed certificate (testing only)")
 	_ = fs.Parse(os.Args[2:])
 
 	svc, err := service.New(&program{cfgPath: *cfgPath}, &service.Config{
 		Name:        "pingvakt-agent",
 		DisplayName: "PingVakt Agent",
-		Description: "Mäter latens och paketförlust och rapporterar till PingVakt-servern.",
+		Description: "Measures latency and packet loss and reports to the PingVakt server.",
 		Arguments:   []string{"run", "--config", *cfgPath},
 		Option: service.KeyValue{
 			"Restart":                "always",
@@ -103,7 +104,7 @@ func main() {
 	switch cmd {
 	case "enroll":
 		if err := enroll(*cfgPath, *server, *token, *insecure); err != nil {
-			fmt.Fprintln(os.Stderr, "Fel:", err)
+			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
 	case "run":
@@ -112,27 +113,27 @@ func main() {
 		}
 	case "install", "uninstall", "start", "stop", "restart":
 		if err := service.Control(svc, cmd); err != nil {
-			fmt.Fprintf(os.Stderr, "Fel vid %s: %v\n", cmd, err)
+			fmt.Fprintf(os.Stderr, "Error during %s: %v\n", cmd, err)
 			os.Exit(1)
 		}
 		fmt.Println("OK:", cmd)
 	case "status":
 		c, err := loadConfig(*cfgPath)
 		if err != nil {
-			fmt.Println("Inte registrerad:", err)
+			fmt.Println("Not enrolled:", err)
 		} else {
 			fmt.Println("Server:", c.Server)
 		}
 		st, err := svc.Status()
 		switch {
 		case err != nil:
-			fmt.Println("Tjänst: inte installerad")
+			fmt.Println("Service: not installed")
 		case st == service.StatusRunning:
-			fmt.Println("Tjänst: körs")
+			fmt.Println("Service: running")
 		case st == service.StatusStopped:
-			fmt.Println("Tjänst: stoppad")
+			fmt.Println("Service: stopped")
 		default:
-			fmt.Println("Tjänst: okänd status")
+			fmt.Println("Service: unknown status")
 		}
 	case "version", "--version", "-v":
 		fmt.Println("pingvakt-agent", Version, runtime.GOOS+"/"+runtime.GOARCH)
@@ -152,14 +153,14 @@ func loadConfig(p string) (agentConfig, error) {
 		return c, err
 	}
 	if c.Server == "" || c.Token == "" {
-		return c, errors.New("server eller token saknas i " + p)
+		return c, errors.New("server or token missing in " + p)
 	}
 	return c, nil
 }
 
 func enroll(path, server, token string, insecure bool) error {
 	if server == "" || token == "" {
-		return errors.New("ange --server och --token")
+		return errors.New("specify --server and --token")
 	}
 	if _, err := agentproto.ReportURL(server); err != nil {
 		return err
@@ -178,7 +179,7 @@ func enroll(path, server, token string, insecure bool) error {
 		return err
 	}
 	st := up.Status()
-	fmt.Printf("Registrerad som \"%s\" hos %s / %s.\nKonfiguration sparad i %s\n", st.AgentName, st.Customer, st.Site, path)
+	fmt.Printf("Enrolled as \"%s\" at %s / %s.\nConfiguration saved in %s\n", st.AgentName, st.Customer, st.Site, path)
 	return nil
 }
 
@@ -199,7 +200,7 @@ type program struct {
 func (p *program) Start(s service.Service) error {
 	c, err := loadConfig(p.cfgPath)
 	if err != nil {
-		return fmt.Errorf("agenten är inte registrerad (%v) – kör 'pingvakt-agent enroll' först", err)
+		return fmt.Errorf("the agent is not enrolled (%v) – run 'pingvakt-agent enroll' first", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
@@ -223,7 +224,7 @@ func (p *program) Stop(s service.Service) error {
 }
 
 func run(ctx context.Context, c agentConfig, cachePath string) {
-	log.Printf("PingVakt-agent %s startar, server %s", Version, c.Server)
+	log.Printf("PingVakt agent %s starting, server %s", Version, c.Server)
 	cleanupOld()
 	mon := monitor.NewManager(monitor.DefaultSettings())
 	defer mon.Close()
@@ -231,6 +232,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	hc := hostinfo.New()
 	up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
 	up.WiFi = wifi.New().Get
+	up.Nets = netscan.Networks
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)
@@ -257,7 +259,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 			ids = append(ids, t.ID)
 		}
 		mon.Reorder(ids)
-		log.Printf("konfiguration: %d mål", len(cfg.Targets))
+		log.Printf("configuration: %d targets", len(cfg.Targets))
 	}
 	// senaste kända konfiguration – agenten mäter även om servern inte nås vid start
 	if b, err := os.ReadFile(cachePath); err == nil {
@@ -293,12 +295,12 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 			case <-tk.C:
 			}
 			st := up.Status()
-			cur := "ansluten"
+			cur := "connected"
 			if !st.Connected {
-				cur = "inte ansluten: " + st.LastError
+				cur = "not connected: " + st.LastError
 			}
 			if cur != last {
-				log.Printf("server: %s (%d mätpunkter i kö)", cur, st.Buffered)
+				log.Printf("server: %s (%d samples queued)", cur, st.Buffered)
 				last = cur
 			}
 		}
@@ -309,5 +311,5 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = up.SendAll(fctx)
-	log.Printf("agenten stoppad")
+	log.Printf("agent stopped")
 }

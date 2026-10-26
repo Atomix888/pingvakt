@@ -266,3 +266,20 @@ body.compact .grid { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(2
   .dstats { display: none; }
   .actions .btn { padding: 7px 8px; }
 }
+
+/* ---------- nätverksskanning ---------- */
+.scan-head { display: flex; gap: 8px; align-items: center; }
+.scan-head select, .scan-head input { flex: 1; min-width: 0; }
+.scan-status { margin-top: 10px; font-size: 13px; min-height: 18px; }
+.scan-bar { height: 4px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 15%, transparent); margin-top: 6px; overflow: hidden; }
+.scan-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+.scan-bar.hidden { display: none; }
+.scan-filter { width: 220px; }
+.scan-table { max-height: 52vh; overflow: auto; margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; }
+.scan-table table { width: 100%; }
+.scan-table th { position: sticky; top: 0; background: var(--panel, var(--bg)); z-index: 1; }
+.scan-table tr.monitored td { opacity: .55; }
+.scan-table tr.self td:nth-child(2)::after { content: " ★"; color: var(--accent); }
+.scan-ports { display: flex; flex-wrap: wrap; gap: 3px; }
+.scan-ports .tag, .scan-table td .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.scan-table td { white-space: nowrap; } .scan-table td:nth-child(3), .scan-table td:nth-child(5) { white-space: normal; }

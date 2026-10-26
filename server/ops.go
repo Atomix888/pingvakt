@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 )
 
@@ -163,7 +164,7 @@ func (s *Server) maintenanceFor(id string, t time.Time) (string, bool) {
 		}
 		note := m.Note
 		if note == "" {
-			note = "Servicefönster"
+			note = i18n.T("Maintenance window")
 		}
 		return note, true
 	}
@@ -247,7 +248,7 @@ func (s *Server) alertFilter(a alert.Alert, ev *alert.Event) bool {
 			_, _ = s.db.Exec(`DELETE FROM alert_acks WHERE key=?`, key)
 		}
 		if was {
-			ev.Note = "Utlösningen skickades inte"
+			ev.Note = i18n.T("The alert was not sent")
 			return false
 		}
 		return true
@@ -260,20 +261,20 @@ func (s *Server) alertFilter(a alert.Alert, ev *alert.Event) bool {
 		return false
 	}
 	if note, ok := s.maintenanceFor(ev.TargetID, time.Now()); ok {
-		return suppress("Servicefönster: " + note)
+		return suppress(i18n.T("Maintenance window: ") + note)
 	}
 	if ev.Kind == "repeat" {
 		s.ops.mu.Lock()
 		ack, acked := s.ops.acks[key]
 		s.ops.mu.Unlock()
 		if acked {
-			ev.Note = "Kvitterat av " + ack.User
+			ev.Note = i18n.T("Acknowledged by ") + ack.User
 			return false
 		}
 	}
 	if a.Condition.ForTargets() {
 		if parent, down := s.parentDown(ev.TargetID); down {
-			return suppress("Ligger bakom " + parent + " som är nere")
+			return suppress(i18n.T("Sits behind ") + parent + i18n.T(" which is down"))
 		}
 	}
 	return true
@@ -308,19 +309,19 @@ func (s *Server) handleSaveMaintenance(w http.ResponseWriter, r *http.Request) {
 	_, ok := s.customers[m.CustomerID]
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, 400, "okänd kund")
+		httpErr(w, 400, "unknown customer")
 		return
 	}
 	if m.Weekly {
 		if len(m.Days) == 0 || m.DurationMin <= 0 || m.StartMin < 0 || m.StartMin >= 1440 {
-			httpErr(w, 400, "välj veckodagar, starttid och längd")
+			httpErr(w, 400, "choose weekdays, start time and duration")
 			return
 		}
 		if m.DurationMin > 7*1440 {
 			m.DurationMin = 7 * 1440
 		}
 	} else if m.Start <= 0 || m.End <= m.Start {
-		httpErr(w, 400, "sluttiden måste vara efter starttiden")
+		httpErr(w, 400, "the end time must be after the start time")
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
@@ -338,7 +339,7 @@ func (s *Server) handleSaveMaintenance(w http.ResponseWriter, r *http.Request) {
 	s.ops.mu.Lock()
 	s.ops.maint[m.ID] = m
 	s.ops.mu.Unlock()
-	s.audit(r, "servicefönster", m.ID, "sparade servicefönster "+m.Note)
+	s.audit(r, "maintenance window", m.ID, i18n.T("saved maintenance window ")+m.Note)
 	writeJSON(w, m)
 }
 
@@ -348,7 +349,7 @@ func (s *Server) handleDeleteMaintenance(w http.ResponseWriter, r *http.Request)
 	s.ops.mu.Lock()
 	delete(s.ops.maint, id)
 	s.ops.mu.Unlock()
-	s.audit(r, "servicefönster", id, "tog bort servicefönster")
+	s.audit(r, "maintenance window", id, i18n.T("deleted maintenance window"))
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -403,7 +404,7 @@ func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 			site := s.sites[a.SiteID]
 			name, cust = s.customers[site.CustomerID].Name+" · "+site.Name+" · "+a.Name, site.CustomerID
 		} else if tid == ServerHostID {
-			name = "PingVakt-servern"
+			name = i18n.T("PingVakt server")
 		}
 		s.mu.RUnlock()
 		if !(u.Role == "admin" || (cust != "" && cust == u.CustomerID)) {
@@ -415,11 +416,11 @@ func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 			aa.Ack = &a
 		}
 		if s.ops.suppressed[k] {
-			aa.Note = "Inget larm skickades"
+			aa.Note = i18n.T("No alert was sent")
 		}
 		s.ops.mu.Unlock()
 		if n, ok := maint[tid]; ok {
-			aa.Note = "Servicefönster: " + n
+			aa.Note = i18n.T("Maintenance window: ") + n
 		}
 		out = append(out, aa)
 	}
@@ -437,7 +438,7 @@ func (s *Server) handleAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := s.activeAlerts()[in.Key]; !ok && !in.Undo {
-		httpErr(w, 404, "larmet är inte aktivt längre")
+		httpErr(w, 404, "the alert is no longer active")
 		return
 	}
 	u := userFrom(r)
@@ -454,7 +455,7 @@ func (s *Server) handleAck(w http.ResponseWriter, r *http.Request) {
 	s.ops.mu.Lock()
 	s.ops.acks[in.Key] = a
 	s.ops.mu.Unlock()
-	s.audit(r, "larm", in.Key, "kvitterade larm "+a.Note)
+	s.audit(r, "alert", in.Key, i18n.T("acknowledged alert ")+a.Note)
 	b, _ := json.Marshal(map[string]any{"type": "ack", "key": in.Key, "ack": a})
 	s.broadcastRaw("", b)
 	writeJSON(w, a)
@@ -494,7 +495,7 @@ func (s *Server) nightlyBackupLoop(stop <-chan struct{}) {
 		case <-time.After(time.Until(next)):
 		}
 		if err := s.runBackup(); err != nil {
-			log.Printf("säkerhetskopia: %v", err)
+			log.Printf("backup: %v", err)
 		}
 	}
 }
@@ -514,7 +515,7 @@ func (s *Server) runBackup() error {
 	if err := s.backupTo(p); err != nil {
 		return err
 	}
-	log.Printf("säkerhetskopia sparad: %s", p)
+	log.Printf("backup saved: %s", p)
 	files, _ := filepath.Glob(filepath.Join(dir, "pingvakt-*.db"))
 	sort.Strings(files)
 	for len(files) > keep {
@@ -550,7 +551,7 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	cleanup := false
 	if name != "" {
 		if strings.ContainsAny(name, `/\`) || !strings.HasPrefix(name, "pingvakt-") || !strings.HasSuffix(name, ".db") {
-			httpErr(w, 400, "ogiltigt filnamn")
+			httpErr(w, 400, "invalid file name")
 			return
 		}
 		path = filepath.Join(s.backupDir(), name)
@@ -565,7 +566,7 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 		cleanup = true
 		if err := s.backupTo(path); err != nil {
 			os.Remove(path)
-			httpErr(w, 500, "säkerhetskopia: "+err.Error())
+			httpErr(w, 500, "backup: "+err.Error())
 			return
 		}
 		name = "pingvakt-" + time.Now().Format("20060102-1504") + ".db"
@@ -575,11 +576,11 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		httpErr(w, 404, "filen finns inte")
+		httpErr(w, 404, "the file does not exist")
 		return
 	}
 	defer f.Close()
-	s.audit(r, "säkerhetskopia", name, "laddade ner säkerhetskopia")
+	s.audit(r, "backup", name, i18n.T("downloaded a backup"))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
 	_, _ = io.Copy(w, f)
@@ -587,7 +588,7 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 
 // audit skriver en rad i ändringsloggen för den inloggade användaren.
 func (s *Server) audit(r *http.Request, kind, id, text string) {
-	user := "okänd"
+	user := i18n.T("unknown|user")
 	if u := userFrom(r); u != nil {
 		user = u.Email
 	}

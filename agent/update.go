@@ -43,9 +43,9 @@ func (u *updater) offer(info agentproto.UpdateInfo) {
 	u.mu.Unlock()
 	defer func() { u.mu.Lock(); u.busy = false; u.mu.Unlock() }()
 
-	log.Printf("uppdatering: version %s finns på servern (kör %s) – hämtar", info.Version, Version)
+	log.Printf("update: version %s is available on the server (running %s) – downloading", info.Version, Version)
 	if err := u.install(info); err != nil {
-		log.Printf("uppdatering misslyckades: %v", err)
+		log.Printf("update failed: %v", err)
 		u.mu.Lock()
 		if u.failed == nil {
 			u.failed = map[string]time.Time{}
@@ -54,7 +54,7 @@ func (u *updater) offer(info agentproto.UpdateInfo) {
 		u.mu.Unlock()
 		return
 	}
-	log.Printf("uppdatering: version %s installerad – startar om", info.Version)
+	log.Printf("update: version %s installed – restarting", info.Version)
 	u.restart()
 }
 
@@ -82,7 +82,7 @@ func (u *updater) install(info agentproto.UpdateInfo) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return fmt.Errorf("servern svarade %d", res.StatusCode)
+		return fmt.Errorf("the server responded %d", res.StatusCode)
 	}
 	tmp := exe + ".new"
 	if runtime.GOOS == "windows" {
@@ -101,17 +101,17 @@ func (u *updater) install(info agentproto.UpdateInfo) error {
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); got != info.SHA256 || (info.Size > 0 && n != info.Size) {
 		os.Remove(tmp)
-		return errors.New("kontrollsumman stämmer inte – filen används inte")
+		return errors.New("checksum mismatch – the file is not used")
 	}
 	// kontrollera att den nya filen går att köra
 	out, err := exec.Command(tmp, "version").CombinedOutput()
 	if err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("nya versionen startar inte: %v %s", err, out)
+		return fmt.Errorf("the new version does not start: %v %s", err, out)
 	}
 	if !strings.Contains(string(out), " "+info.Version+" ") {
 		os.Remove(tmp)
-		return fmt.Errorf("filen på servern är inte version %s (%s)", info.Version, strings.TrimSpace(string(out)))
+		return fmt.Errorf("the file on the server is not version %s (%s)", info.Version, strings.TrimSpace(string(out)))
 	}
 	if runtime.GOOS == "windows" {
 		// en körande .exe kan inte skrivas över men kan byta namn

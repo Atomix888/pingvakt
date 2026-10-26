@@ -28,7 +28,7 @@ func PostWebhook(url string, ev Event) error {
 	}
 	defer res.Body.Close()
 	if res.StatusCode >= 300 {
-		return fmt.Errorf("mottagaren svarade %d", res.StatusCode)
+		return fmt.Errorf("the receiver responded %d", res.StatusCode)
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 	"pingvakt/core/probe"
 )
@@ -19,6 +20,7 @@ type UI struct {
 	Theme   string `json:"theme"`   // auto, dark, light
 	Columns int    `json:"columns"` // 0 = automatiskt
 	Density string `json:"density"` // normal, compact
+	Lang    string `json:"lang"`    // en, sv
 }
 
 // Defaults är förval för nya mål.
@@ -64,11 +66,11 @@ func Path() string { return filepath.Join(Dir(), "config.json") }
 
 // Default skapar en standardkonfiguration för första start.
 func Default() Config {
-	down := alert.Alert{ID: "down", Name: "Nere", Condition: alert.CondDown, Count: 3, Samples: 3,
+	down := alert.Alert{ID: "down", Name: i18n.T("Down"), Condition: alert.CondDown, Count: 3, Samples: 3,
 		Popup: true, Sound: true, SoundName: "alarm", Log: true, OnClear: true}
-	lat := alert.Alert{ID: "latency", Name: "Hög latens", Condition: alert.CondLatency, Threshold: 150, Count: 6, Samples: 10,
+	lat := alert.Alert{ID: "latency", Name: i18n.T("High latency"), Condition: alert.CondLatency, Threshold: 150, Count: 6, Samples: 10,
 		Popup: true, Log: true, OnClear: true}
-	loss := alert.Alert{ID: "loss", Name: "Paketförlust", Condition: alert.CondLoss, Threshold: 5, Samples: 60,
+	loss := alert.Alert{ID: "loss", Name: i18n.T("Packet loss"), Condition: alert.CondLoss, Threshold: 5, Samples: 60,
 		Popup: true, Log: true, OnClear: true}
 	for _, a := range []*alert.Alert{&down, &lat, &loss} {
 		a.Normalize()
@@ -79,7 +81,7 @@ func Default() Config {
 		Defaults: Defaults{IntervalMs: 1000, TimeoutMs: 2000, Size: 32, AlertIDs: []string{"down"}},
 		Alerts:   []alert.Alert{down, lat, loss},
 		SMTP:     alert.SMTP{Port: 587, Security: "starttls", MinMinutes: 5},
-		AlertLog: filepath.Join(Dir(), "larmlogg.txt"),
+		AlertLog: filepath.Join(Dir(), i18n.T("alertlog.txt")),
 		UI:       UI{Theme: "auto", Density: "normal"},
 	}
 	for _, h := range []struct{ host, name string }{{"1.1.1.1", "Cloudflare DNS"}, {"8.8.8.8", "Google DNS"}} {

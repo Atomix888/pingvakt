@@ -1,6 +1,25 @@
 /* PingVakt-server – webbgränssnitt */
 'use strict';
 
+/* ---------------- språk ---------------- */
+// Källtexterna är engelska; window.PV_DICT (från i18n.js) innehåller översättningen.
+function T(s, ...a) {
+  const d = window.PV_DICT || {};
+  let r = d[s];
+  if (r == null) r = String(s).replace(/\|[a-z]{1,12}$/, '');
+  return a.length ? r.replace(/\{(\d+)\}/g, (m, i) => a[i] == null ? '' : a[i]) : r;
+}
+// TE översätter meddelanden från servern/motorn, även när de har en dynamisk del på slutet.
+function TE(msg) {
+  msg = String(msg == null ? '' : msg);
+  const d = window.PV_DICT || {};
+  if (d[msg] != null) return d[msg];
+  let best = '';
+  for (const k in d) if (k.length > best.length && /[ :(]$/.test(k) && msg.startsWith(k)) best = k;
+  return best ? d[best] + msg.slice(best.length) : msg;
+}
+const LANG = () => window.PV_LANG || 'en';
+
 const $ = sel => document.querySelector(sel);
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -25,7 +44,7 @@ async function api(method, path, body) {
   let data = null;
   try { data = await res.json(); } catch (e) { /* tomt svar */ }
   if (!res.ok) {
-    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    const err = new Error(TE((data && data.error) || `HTTP ${res.status}`));
     err.status = res.status; err.data = data;
     if (res.status === 401 && path !== '/api/me' && path !== '/api/login') showLogin();
     throw err;
@@ -44,7 +63,7 @@ const S = {
   spark: {}, selected: null, range: 3600, chartData: null, chartMode: 'raw', zoomed: false, connected: false,
 };
 const SPARK_MAX = 400;
-const STATUS_TEXT = { up: 'Uppe', warn: 'Varning', down: 'Nere', paused: 'Pausad', pending: 'Väntar', offline: 'Agent offline' };
+const STATUS_TEXT = { up: T('Up'), warn: T('Warning'), down: T('Down'), paused: T('Paused'), pending: T('Pending'), offline: 'Agent offline' };
 const RANGES = [[900, '15 min'], [3600, '1 h'], [21600, '6 h'], [86400, '24 h'], [604800, '7 d'], [2592000, '30 d']];
 const INTERVALS = [500, 1000, 2000, 5000, 10000, 30000, 60000, 300000];
 const isAdmin = () => S.me && S.me.role === 'admin';
@@ -94,8 +113,8 @@ function logo() {
 }
 function showLogin() {
   if (S.es) { S.es.close(); S.es = null; }
-  const email = h('input', { type: 'email', placeholder: 'E-post', autocomplete: 'username' });
-  const pw = h('input', { type: 'password', placeholder: 'Lösenord', autocomplete: 'current-password' });
+  const email = h('input', { type: 'email', placeholder: T('Email'), autocomplete: 'username' });
+  const pw = h('input', { type: 'password', placeholder: T('Password'), autocomplete: 'current-password' });
   const err = h('div', { class: 'form-error' });
   const form = h('form', { onsubmit: async e => {
     e.preventDefault(); err.textContent = '';
@@ -105,8 +124,8 @@ function showLogin() {
       S.me = r; location.hash = ''; await boot();
     }
     catch (x) { err.textContent = x.message; }
-  } }, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, 'Logga in'));
-  authShell('Logga in', 'Logga in för att se övervakningen', form);
+  } }, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, T('Sign in')));
+  authShell(T('Sign in'), T('Sign in to view monitoring'), form);
   setTimeout(() => email.focus(), 30);
 }
 function showTotpLogin(ticket) {
@@ -115,24 +134,24 @@ function showTotpLogin(ticket) {
   const form = h('form', { onsubmit: async e => {
     e.preventDefault(); err.textContent = '';
     try { S.me = await POST('/api/login/totp', { ticket, code: code.value }); location.hash = ''; await boot(); }
-    catch (x) { err.textContent = x.message; if (x.status === 401 && /börja om/.test(x.message)) setTimeout(showLogin, 1500); }
-  } }, code, err, h('button', { class: 'btn primary', type: 'submit' }, 'Logga in'),
-    h('small', { class: 'muted', style: 'text-align:center' }, 'Ange koden från din autentiseringsapp, eller en reservkod (xxxx-xxxx).'));
-  authShell('Tvåstegsinloggning', 'Ange koden från din autentiseringsapp', form);
+    catch (x) { err.textContent = x.message; if (x.status === 401 && /start over|börja om/.test(x.message)) setTimeout(showLogin, 1500); }
+  } }, code, err, h('button', { class: 'btn primary', type: 'submit' }, T('Sign in')),
+    h('small', { class: 'muted', style: 'text-align:center' }, T('Enter the code from your authenticator app, or a backup code (xxxx-xxxx).')));
+  authShell(T('Two-factor authentication'), T('Enter the code from your authenticator app'), form);
   setTimeout(() => code.focus(), 30);
 }
 
 function showSetup() {
-  const name = h('input', { type: 'text', placeholder: 'Ditt namn' });
-  const email = h('input', { type: 'email', placeholder: 'E-post', autocomplete: 'username' });
-  const pw = h('input', { type: 'password', placeholder: 'Lösenord (minst 8 tecken)', autocomplete: 'new-password' });
+  const name = h('input', { type: 'text', placeholder: T('Your name') });
+  const email = h('input', { type: 'email', placeholder: T('Email'), autocomplete: 'username' });
+  const pw = h('input', { type: 'password', placeholder: T('Password (at least 8 characters)'), autocomplete: 'new-password' });
   const err = h('div', { class: 'form-error' });
   const form = h('form', { onsubmit: async e => {
     e.preventDefault(); err.textContent = '';
     try { S.me = await POST('/api/setup', { name: name.value, email: email.value, password: pw.value }); await boot(); }
     catch (x) { err.textContent = x.message; }
-  } }, name, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, 'Skapa administratör'));
-  authShell('Kom igång', 'Skapa det första administratörskontot', form);
+  } }, name, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, T('Create administrator')));
+  authShell(T('Get started'), T('Create the first administrator account'), form);
   setTimeout(() => name.focus(), 30);
 }
 
@@ -144,12 +163,13 @@ function renderShell() {
       h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
       h('nav', { id: 'nav' }),
       h('div', { class: 'me' },
-        h('div', { class: 'who' }, h('b', null, S.me.name || S.me.email), h('small', null, isAdmin() ? 'Administratör' : 'Kund (läsbehörighet)')),
-        h('button', { class: 'icon-btn', title: 'Konto', onclick: e => showMenu(e.currentTarget, [
-          { label: 'Byt lösenord…', action: passwordDialog },
-          { label: S.me.totp ? 'Tvåstegsinloggning (på)…' : 'Aktivera tvåstegsinloggning…', action: totpDialog },
-          { label: 'TV-läge', action: () => { location.hash = '#/tv'; } },
-          { label: 'Logga ut', action: async () => { await POST('/api/logout'); location.reload(); } },
+        h('div', { class: 'who' }, h('b', null, S.me.name || S.me.email), h('small', null, isAdmin() ? T('Administrator') : T('Customer (read-only)'))),
+        h('button', { class: 'icon-btn', title: T('Account'), onclick: e => showMenu(e.currentTarget, [
+          { label: T('Change password…'), action: passwordDialog },
+          { label: 'Language / Språk…', action: langDialog },
+          { label: S.me.totp ? T('Two-factor authentication (on)…') : T('Enable two-factor authentication…'), action: totpDialog },
+          { label: T('TV mode'), action: () => { location.hash = '#/tv'; } },
+          { label: T('Sign out'), action: async () => { await POST('/api/logout'); location.reload(); } },
         ]) }, '⋯'))),
     h('div', { class: 'mainwrap' },
       h('div', { class: 'page', id: 'page' }),
@@ -160,8 +180,8 @@ function renderShell() {
 function renderNav() {
   const route = location.hash || '#/';
   const link = (href, label, extra) => h('a', { href, class: route === href || (href !== '#/' && route.startsWith(href)) ? 'on' : '' }, label, extra || null);
-  const items = [link('#/', 'Översikt')];
-  items.push(h('div', { class: 'navhead' }, 'Kunder'));
+  const items = [link('#/', T('Overview'))];
+  items.push(h('div', { class: 'navhead' }, T('Customers')));
   for (const c of S.customers) {
     const cnt = counts(S.targets.filter(t => customerOfTarget(t) === c.id));
     const st = cnt.down ? 'down' : cnt.offline ? 'offline' : cnt.warn ? 'warn' : 'up';
@@ -170,12 +190,12 @@ function renderNav() {
     a.insertBefore(document.createTextNode(c.name), a.lastChild);
     items.push(a);
   }
-  if (isAdmin() && !S.customers.length) items.push(h('a', { href: '#/', class: 'custlink', onclick: e => { e.preventDefault(); customerDialog(); } }, '+ Ny kund'));
-  items.push(h('div', { class: 'navhead' }, 'Hantera'));
-  items.push(link('#/agents', 'Agenter'));
-  items.push(link('#/alerts', 'Larm'));
-  if (isAdmin()) { items.push(link('#/users', 'Användare')); items.push(link('#/audit', 'Ändringslogg')); items.push(link('#/settings', 'Inställningar')); }
-  items.push(link('#/tv', 'TV-läge'));
+  if (isAdmin() && !S.customers.length) items.push(h('a', { href: '#/', class: 'custlink', onclick: e => { e.preventDefault(); customerDialog(); } }, T('+ New customer')));
+  items.push(h('div', { class: 'navhead' }, T('Manage')));
+  items.push(link('#/agents', T('Agents')));
+  items.push(link('#/alerts', T('Alerts')));
+  if (isAdmin()) { items.push(link('#/users', T('Users'))); items.push(link('#/audit', T('Audit log'))); items.push(link('#/settings', T('Settings'))); }
+  items.push(link('#/tv', T('TV mode')));
   $('#nav').replaceChildren(...items);
 }
 
@@ -213,17 +233,17 @@ function renderPage() {
 }
 
 function connBadge() {
-  return h('span', { class: 'conn', id: 'connBadge' }, h('span', { class: 'dot ' + (S.connected ? 'st-up' : 'st-offline') }), S.connected ? 'Live' : 'Ansluter…');
+  return h('span', { class: 'conn', id: 'connBadge' }, h('span', { class: 'dot ' + (S.connected ? 'st-up' : 'st-offline') }), S.connected ? 'Live' : T('Connecting…'));
 }
 
 /* ---------------- översikt ---------------- */
 function renderOverview(page) {
   const all = counts(S.targets);
-  const head = h('div', { class: 'page-head' }, h('h1', null, 'Översikt'), connBadge(),
-    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => customerDialog() }, '+ Ny kund') : null));
+  const head = h('div', { class: 'page-head' }, h('h1', null, T('Overview')), connBadge(),
+    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ New customer')) : null));
   const chip = (k, label) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero'), title: label }, h('span', { class: 'dot' }), `${all[k]} ${label}`);
   const summary = h('div', { class: 'summary', style: 'margin-bottom:16px;flex-wrap:wrap' },
-    chip('up', 'uppe'), chip('warn', 'varning'), chip('down', 'nere'), chip('offline', 'offline'), chip('paused', 'pausade'));
+    chip('up', T('up')), chip('warn', T('warning')), chip('down', T('down')), chip('offline', 'offline'), chip('paused', T('paused')));
   const cards = h('div', { class: 'cards' }, ...S.customers.map(c => {
     const ts = S.targets.filter(t => customerOfTarget(t) === c.id);
     const cnt = counts(ts);
@@ -233,7 +253,7 @@ function renderOverview(page) {
     const n = (k, cls) => h('span', { class: cnt[k] ? '' : 'zero' }, h('span', { class: 'dot st-' + cls }), String(cnt[k]));
     return h('div', { class: 'card st-' + st, onclick: () => { location.hash = '#/c/' + c.id; } },
       h('h3', null, c.name),
-      h('div', { class: 'meta' }, `${plural(S.sites.filter(s => s.customerId === c.id).length, 'site', 'siter')} · ${on}/${ags.length} agenter online · ${ts.length} mål`),
+      h('div', { class: 'meta' }, T('{0} · {1}/{2} agents online · {3} targets', plural(S.sites.filter(s => s.customerId === c.id).length, T('site'), T('sites')), on, ags.length, ts.length)),
       h('div', { class: 'counts' }, n('up', 'up'), n('warn', 'warn'), n('down', 'down'), n('offline', 'offline')));
   }));
   const problems = S.targets.filter(t => ['down', 'warn', 'offline'].includes((S.stats[t.id] || {}).status))
@@ -244,23 +264,23 @@ function renderOverview(page) {
     return h('div', { class: 'row st-' + st.status, onclick: () => { location.hash = '#/c/' + c.id; setTimeout(() => openDrawer(t.id), 50); } },
       h('span', { class: 'dot' }),
       h('div', { class: 'what' }, h('b', null, displayName(t)), h('small', null, `${c ? c.name : ''} · ${site ? site.name : ''} · ${t.host}`)),
-      h('span', { class: 'pill' }, STATUS_TEXT[st.status]), h('span', { class: 'muted', style: 'min-width:90px;text-align:right' }, st.err || dur(Date.now() - st.since)));
-  }) : [h('div', { class: 'empty-ok' }, S.targets.length ? 'Inga problem just nu.' : 'Inga mål ännu.')]));
+      h('span', { class: 'pill' }, STATUS_TEXT[st.status]), h('span', { class: 'muted', style: 'min-width:90px;text-align:right' }, TE(st.err) || dur(Date.now() - st.since)));
+  }) : [h('div', { class: 'empty-ok' }, S.targets.length ? T('No problems right now.') : T('No targets yet.'))]));
   const content = [head, summary];
   if (!S.customers.length) {
-    content.push(h('div', { class: 'empty', style: 'display:block' }, h('h2', null, 'Välkommen till PingVakt-servern'),
-      h('p', null, isAdmin() ? 'Börja med att skapa en kund. Därefter lägger du till en agent på kundens nätverk och väljer vad den ska övervaka.' : 'Inga kunder är kopplade till ditt konto.'),
-      isAdmin() ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => customerDialog() }, '+ Skapa första kunden')) : null));
+    content.push(h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('Welcome to the PingVakt server')),
+      h('p', null, isAdmin() ? T('Start by creating a customer. Then add an agent on the customer\'s network and choose what it should monitor.') : T('No customers are linked to your account.')),
+      isAdmin() ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ Create the first customer'))) : null));
   } else {
-    content.push(cards, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Just nu')), plist));
+    content.push(cards, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Right now'))), plist));
   }
   if (isAdmin() && S.serverHost) {
     const sh = S.serverHost;
-    content.push(h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Servern')),
+    content.push(h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Server'))),
       h('div', { class: 'card server-card', onclick: () => hostView('_server') },
-        h('div', { class: 'meters' }, meter('CPU', sh.cpu, `${fmtPct(sh.cpu)} av ${sh.cpus} kärnor`), meter('Minne', memPct(sh), `${gb(sh.memUsed)} av ${gb(sh.memTotal)}`),
-          ...(sh.disks || []).slice(0, 3).map(d => meter('Disk ' + d.m, pct(d), `${gb(d.t - d.u)} ledigt av ${gb(d.t)}`))),
-        h('div', { class: 'meta' }, `PingVakt-server ${S.version} · upptid ${dur(sh.uptime * 1000)}`))));
+        h('div', { class: 'meters' }, meter('CPU', sh.cpu, T('{0} of {1} cores', fmtPct(sh.cpu), sh.cpus)), meter(T('Memory'), memPct(sh), T('{0} of {1}', gb(sh.memUsed), gb(sh.memTotal))),
+          ...(sh.disks || []).slice(0, 3).map(d => meter('Disk ' + d.m, pct(d), T('{0} free of {1}', gb(d.t - d.u), gb(d.t))))),
+        h('div', { class: 'meta' }, T('PingVakt server {0} · uptime {1}', S.version, dur(sh.uptime * 1000))))));
   }
   page.replaceChildren(...content);
 }
@@ -269,21 +289,21 @@ function renderOverview(page) {
 const tiles = new Map();
 function renderCustomer(page, id) {
   const c = byId(S.customers, id);
-  if (!c) { page.replaceChildren(h('p', { class: 'muted' }, 'Kunden finns inte.')); return; }
+  if (!c) { page.replaceChildren(h('p', { class: 'muted' }, T('The customer does not exist.'))); return; }
   const sites = S.sites.filter(s => s.customerId === id);
   const head = h('div', { class: 'page-head' },
     h('div', null, h('h1', null, c.name), c.notes ? h('div', { class: 'sub' }, c.notes) : null), connBadge(),
-    h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, 'Rapport'), isAdmin() ? [
-      h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, '+ Lägg till mål'),
-      h('button', { class: 'btn', onclick: () => agentDialog(id) }, '+ Ny agent'),
-      h('button', { class: 'btn', onclick: () => siteDialog(id) }, '+ Ny site'),
+    h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report')), isAdmin() ? [
+      h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, T('+ Add targets')),
+      h('button', { class: 'btn', onclick: () => agentDialog(id) }, T('+ New agent')),
+      h('button', { class: 'btn', onclick: () => siteDialog(id) }, T('+ New site')),
       h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
-        { label: 'Redigera kund…', action: () => customerDialog(c) },
-        { label: 'Servicefönster…', action: () => maintDialog(c.id) },
-        { label: 'Publik statussida…', action: () => statusPageDialog(c) },
-        { label: 'Larm för kunden…', action: () => { location.hash = '#/alerts'; } },
+        { label: T('Edit customer…'), action: () => customerDialog(c) },
+        { label: T('Maintenance windows…'), action: () => maintDialog(c.id) },
+        { label: T('Public status page…'), action: () => statusPageDialog(c) },
+        { label: T('Alert rules for customer…'), action: () => { location.hash = '#/alerts'; } },
         '-',
-        { label: 'Ta bort kund…', danger: true, action: () => deleteCustomer(c) },
+        { label: T('Delete customer…'), danger: true, action: () => deleteCustomer(c) },
       ]) }, '⋯')] : null));
   const sections = sites.map(site => {
     const ags = S.agents.filter(a => a.siteId === site.id);
@@ -291,16 +311,16 @@ function renderCustomer(page, id) {
     const grid = h('div', { class: 'grid inline' });
     for (const t of ts) { const el = buildTile(t); tiles.set(t.id, el); grid.append(el); updateTile(t); }
     const agentChips = h('div', { class: 'agents-row' }, ...ags.map(a => agentChip(a)),
-      !ags.length ? h('span', { class: 'muted' }, isAdmin() ? 'Ingen agent på den här siten ännu. ' : 'Ingen agent.') : null,
-      !ags.length && isAdmin() ? h('button', { class: 'btn sm', onclick: () => agentDialog(id, site.id) }, '+ Lägg till agent') : null);
+      !ags.length ? h('span', { class: 'muted' }, isAdmin() ? T('No agent on this site yet. ') : T('No agent.')) : null,
+      !ags.length && isAdmin() ? h('button', { class: 'btn sm', onclick: () => agentDialog(id, site.id) }, T('+ Add agent')) : null);
     return h('div', { class: 'section' },
-      h('div', { class: 'section-head' }, h('h2', null, site.name), h('span', { class: 'muted' }, `${ts.length} mål`),
+      h('div', { class: 'section-head' }, h('h2', null, site.name), h('span', { class: 'muted' }, T('{0} targets', ts.length)),
         isAdmin() ? h('div', { class: 'tools' }, h('button', { class: 'btn ghost sm', onclick: e => showMenu(e.currentTarget, [
-          { label: 'Byt namn…', action: () => siteDialog(id, site) },
-          { label: 'Ta bort site…', danger: true, action: () => deleteSite(site) },
+          { label: T('Rename…'), action: () => siteDialog(id, site) },
+          { label: T('Delete site…'), danger: true, action: () => deleteSite(site) },
         ]) }, '⋯')) : null),
       agentChips,
-      ts.length ? grid : (ags.length ? h('p', { class: 'muted' }, isAdmin() ? 'Inga mål ännu – klicka på "Lägg till mål".' : 'Inga mål.') : null));
+      ts.length ? grid : (ags.length ? h('p', { class: 'muted' }, isAdmin() ? T('No targets yet – click "Add targets".') : T('No targets.')) : null));
   });
   page.replaceChildren(head, ...sections);
   requestAnimationFrame(() => { for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
@@ -322,10 +342,10 @@ function agentChip(a) {
   const lv = S.live[a.id] || {};
   const st = !a.lastSeen && !lv.lastSeen ? 'pending' : lv.online ? 'up' : 'offline';
   const seen = lv.lastSeen || a.lastSeen;
-  const kind = a.kind === 'desktop' ? 'skrivbordsapp' : 'agent';
+  const kind = a.kind === 'desktop' ? T('desktop app') : 'agent';
   const el = h('span', { class: 'agent-chip st-' + st, 'data-agent': a.id, title: `${a.hostname || ''} ${a.os || ''} ${a.version ? 'v' + a.version : ''} ${a.ip || ''}`.trim() },
     h('span', { class: 'dot' }), h('b', null, a.name),
-    h('small', null, st === 'pending' ? 'väntar på första kontakt' : st === 'up' ? `${kind} · online` : `offline ${dur(Date.now() - seen)}`),
+    h('small', null, st === 'pending' ? T('waiting for first contact') : st === 'up' ? `${kind} · online` : `offline ${dur(Date.now() - seen)}`),
     lv.host && st === 'up' ? hostMini(lv.host) : null,
     isAdmin() ? h('button', { class: 'icon-btn', title: 'Agent', onclick: e => { e.stopPropagation(); agentMenu(a, e.currentTarget); } }, '⋯') : null);
   if (!S.maint[a.id] && Object.keys(S.active).some(k => k.endsWith('|' + a.id) && !S.acks[k])) el.classList.add('alerting');
@@ -337,16 +357,17 @@ function agentChip(a) {
 
 function agentMenu(a, anchor) {
   showMenu(anchor, [
-    { label: 'CPU, minne och disk…', action: () => hostView(a.id) },
-    { label: 'Installera / visa kommandon…', action: () => installDialog(a, null) },
-    { label: 'Ny token…', action: async () => {
-      if (!await confirmDialog('Ny token', `Den gamla token för "${a.name}" slutar fungera direkt. Agenten måste registreras om med den nya.`, 'Skapa ny token')) return;
+    { label: T('CPU, memory and disk…'), action: () => hostView(a.id) },
+    { label: T('Install / show commands…'), action: () => installDialog(a, null) },
+    { label: T('New token…'), action: async () => {
+      if (!await confirmDialog(T('New token'), T('The old token for "{0}" stops working immediately. The agent must be re-enrolled with the new one.', a.name), T('Create new token'))) return;
       const r = await POST(`/api/agents/${a.id}/token`); await afterChange(); installDialog(a, r.token);
     } },
-    { label: 'Byt namn / flytta…', action: () => editAgentDialog(a) },
+    isAdmin() && a.kind ? { label: T('Scan network…'), action: () => openScan(a) } : null,
+    { label: T('Rename / move…'), action: () => editAgentDialog(a) },
     '-',
-    { label: 'Ta bort agent…', danger: true, action: async () => {
-      if (!await confirmDialog('Ta bort agent', `Ta bort "${a.name}" och alla dess mål och mätdata?`, 'Ta bort')) return;
+    { label: T('Delete agent…'), danger: true, action: async () => {
+      if (!await confirmDialog(T('Delete agent'), T('Delete "{0}" and all its targets and measurements?', a.name), T('Delete'))) return;
       await DEL('/api/agents/' + a.id); await afterChange();
     } },
   ]);
@@ -354,16 +375,16 @@ function agentMenu(a, anchor) {
 
 /* ---------------- rutor ---------------- */
 function displayName(t) { return t.name || t.host; }
-const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', 'HTTP(S) (webbsida)'], ['dns', 'DNS (namnuppslag)']];
+const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', T('HTTP(S) (web page)')], ['dns', T('DNS (name lookup)')]];
 function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : t.kind === 'http' ? (/^http:/.test(t.host) ? 'HTTP' : 'HTTPS') : t.kind === 'dns' ? 'DNS' + (t.dnsServer ? ' @' + t.dnsServer : '') : 'ICMP'; }
-function certText(d) { return d < 0 ? 'utgånget' : d + ' d'; }
+function certText(d) { return d < 0 ? T('expired') : d + ' d'; }
 function warnFor(t) { return t.warnMs > 0 ? t.warnMs : (S.monitor.warnMs || 0); }
 
 function buildTile(t) {
   const el = h('div', { class: 'tile st-pending', 'data-id': t.id },
     h('div', { class: 'tile-head' }, h('span', { class: 'dot' }),
       h('div', { class: 'names' }, h('div', { class: 'name' }), h('div', { class: 'host' })),
-      isAdmin() ? h('button', { class: 'icon-btn menu-btn', title: 'Meny' }, '⋯') : null),
+      isAdmin() ? h('button', { class: 'icon-btn menu-btn', title: T('Menu') }, '⋯') : null),
     h('div', { class: 'tile-main' }, h('span', { class: 'lat' }, '–'), h('span', { class: 'unit' }, 'ms'), h('span', { class: 'state-text' })),
     h('canvas', { class: 'spark' }), h('div', { class: 'tile-stats' }));
   el.addEventListener('click', e => {
@@ -377,11 +398,11 @@ function buildTile(t) {
 function targetMenu(id, anchor) {
   const t = byId(S.targets, id);
   if (!t) return;
-  const items = [{ label: 'Visa graf', action: () => openDrawer(id) }, { label: 'Redigera…', action: () => editTargetDialog(id) }];
+  const items = [{ label: T('Show graph'), action: () => openDrawer(id) }, { label: T('Edit…'), action: () => editTargetDialog(id) }];
   if (t.source !== 'agent') {
-    items.push({ label: t.paused ? 'Starta' : 'Pausa', action: () => togglePause(t) });
-    items.push('-', { label: 'Ta bort', danger: true, action: async () => {
-      if (!await confirmDialog('Ta bort mål', `Ta bort ${displayName(t)} och dess mätdata?`, 'Ta bort')) return;
+    items.push({ label: t.paused ? T('Start') : T('Pause'), action: () => togglePause(t) });
+    items.push('-', { label: T('Delete'), danger: true, action: async () => {
+      if (!await confirmDialog(T('Delete target'), T('Delete {0} and its measurements?', displayName(t)), T('Delete'))) return;
       await DEL('/api/targets/' + id); await afterChange();
     } });
   }
@@ -411,15 +432,15 @@ function updateTile(t) {
   el.querySelector('.host').textContent = `${t.host}${addr} · ${kindText(t)}${a ? ' · ' + a.name : ''}`;
   const lat = el.querySelector('.lat');
   const lost = st.window > 0 && st.last < 0;
-  lat.textContent = status === 'paused' || status === 'offline' ? '–' : st.window ? (lost ? 'förlorad' : fmtMs(st.last)) : '…';
+  lat.textContent = status === 'paused' || status === 'offline' ? '–' : st.window ? (lost ? T('lost') : fmtMs(st.last)) : '…';
   lat.classList.toggle('lost', lost && status !== 'offline');
   el.querySelector('.unit').style.visibility = (!st.window || lost || status === 'paused' || status === 'offline') ? 'hidden' : '';
   tileText(el, st);
   el.querySelector('.tile-stats').replaceChildren(...[
-    h('span', null, h('i', null, 'snitt'), fmtMs(st.avg)),
+    h('span', null, h('i', null, T('avg')), fmtMs(st.avg)),
     h('span', null, h('i', null, 'max'), fmtMs(st.max)),
     h('span', null, h('i', null, 'jitter'), fmtMs(st.jitter)),
-    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
+    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, T('loss')), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
     t.kind === 'http' && st.httpStatus ? h('span', { class: st.httpStatus >= 400 ? 'bad' : '' }, h('i', null, 'HTTP'), String(st.httpStatus)) : null,
     t.kind === 'http' && st.certDays >= 0 ? h('span', { class: st.certDays < 14 ? 'bad' : '' }, h('i', null, 'cert'), certText(st.certDays)) : null].filter(Boolean));
   drawSpark(el.querySelector('canvas'), S.spark[t.id] || [], warnFor(t));
@@ -428,22 +449,22 @@ function updateTile(t) {
 function tileText(el, st) {
   let txt;
   switch (st.status) {
-    case 'up': txt = 'Uppe ' + dur(Date.now() - st.since); break;
-    case 'down': txt = (st.err || 'Nere') + ' · ' + dur(Date.now() - st.since); break;
-    case 'warn': txt = st.consecLost ? (st.err || 'Paket förlorat') : st.loss > (S.monitor.warnLossPct || 0) ? `Förlust ${st.loss}%` : 'Hög latens'; break;
-    case 'paused': txt = 'Pausad'; break;
-    case 'offline': txt = 'Agenten är offline'; break;
-    default: txt = 'Väntar på data…';
+    case 'up': txt = T('Up ') + dur(Date.now() - st.since); break;
+    case 'down': txt = (TE(st.err) || T('Down')) + ' · ' + dur(Date.now() - st.since); break;
+    case 'warn': txt = st.consecLost ? (TE(st.err) || T('Packet lost')) : st.loss > (S.monitor.warnLossPct || 0) ? T('Loss {0}%', st.loss) : T('High latency'); break;
+    case 'paused': txt = T('Paused'); break;
+    case 'offline': txt = T('Agent is offline'); break;
+    default: txt = T('Waiting for data…');
   }
   const tid = el.dataset.id, t = byId(S.targets, tid);
   const mn = t && maintNote(t);
   if (mn) txt = '🔧 ' + mn;
   else if (t && t.dependsOn && st.status === 'down') {
     const p = byId(S.targets, t.dependsOn);
-    if (p && (S.stats[p.id] || {}).status === 'down') txt = 'Bakom ' + displayName(p) + ' (nere)';
+    if (p && (S.stats[p.id] || {}).status === 'down') txt = T('Behind ') + displayName(p) + T(' (down)');
   }
   const e = el.querySelector('.state-text');
-  e.textContent = txt; e.title = st.err || txt;
+  e.textContent = txt; e.title = TE(st.err) || txt;
 }
 function maintNote(t) { return S.maint[t.id] || S.maint[t.agentId] || ''; }
 
@@ -528,6 +549,7 @@ function connectLive() {
     else if (m.type === 'ack') { S.acks[m.key] = m.ack; if (S.view.name === 'alerts') renderPage(); }
     else if (m.type === 'alert') onAlert(m.event);
     else if (m.type === 'trace') onTrace(m.trace);
+    else if (m.type === 'scan') onScan(m.scan);
   };
 }
 function updateConn() { const b = $('#connBadge'); if (b) b.replaceWith(connBadge()); }
@@ -564,7 +586,7 @@ let navT = 0;
 function renderNavThrottled() { const n = Date.now(); if (n - navT > 5000) { navT = n; renderNav(); } }
 
 function onAlert(ev) {
-  const title = { fire: 'Larm', repeat: 'Larm pågår', clear: 'Larm upphört', test: 'Testlarm' }[ev.kind] || 'Larm';
+  const title = { fire: T('Alerts'), repeat: T('Alert ongoing'), clear: T('Alert cleared'), test: T('Test alert') }[ev.kind] || T('Alerts');
   if (ev.suppressed) return;
   if (ev.popup || ev.kind === 'test') toast({ kind: ev.kind, title: `${title}: ${ev.targetName}`, text: `${ev.alertName} – ${ev.detail}`, time: ev.time, sticky: ev.kind === 'fire', target: byId(S.targets, ev.targetId) ? ev.targetId : null,
     ackKey: isAdmin() && (ev.kind === 'fire' || ev.kind === 'repeat') ? ev.alertId + '|' + ev.targetId : null });
@@ -588,10 +610,10 @@ async function openDrawer(id) {
       h('span', { class: 'dot' }), h('div', { class: 'names' }, h('div', { class: 'name', id: 'dName' }), h('div', { class: 'host', id: 'dHost' })),
       h('div', { class: 'ranges', id: 'dRanges' }, ...RANGES.map(([sec, label]) => h('button', { 'data-r': sec, onclick: () => { S.range = sec; loadChart(); } }, label))),
       h('div', { class: 'drawer-actions' },
-        isAdmin() ? h('button', { class: 'btn ghost sm', onclick: () => editTargetDialog(S.selected) }, 'Redigera') : null,
+        isAdmin() ? h('button', { class: 'btn ghost sm', onclick: () => editTargetDialog(S.selected) }, T('Edit')) : null,
         h('button', { class: 'btn ghost sm', onclick: () => traceDialog(S.selected) }, 'Traceroute'),
-        h('button', { class: 'btn ghost sm', onclick: () => { const to = Date.now(); location.href = `/api/targets/${S.selected}/export.csv?from=${to - S.range * 1000}&to=${to}`; } }, 'Exportera CSV'),
-        h('button', { class: 'icon-btn', title: 'Stäng (Esc)', onclick: closeDrawer }, '✕'))),
+        h('button', { class: 'btn ghost sm', onclick: () => { const to = Date.now(); location.href = `/api/targets/${S.selected}/export.csv?from=${to - S.range * 1000}&to=${to}`; } }, T('Export CSV')),
+        h('button', { class: 'icon-btn', title: T('Close (Esc)'), onclick: closeDrawer }, '✕'))),
     h('div', { class: 'drawer-body' }, h('div', { class: 'dstats', id: 'dStats' }), h('div', { class: 'chart', id: 'dChart' })));
   const grip = $('#drawerGrip');
   grip.addEventListener('mousedown', e => {
@@ -620,7 +642,7 @@ function updateDrawerHead() {
   $('#dHead').className = 'drawer-head st-' + (st.status || 'pending');
   $('#dName').textContent = displayName(t);
   const a = agentOf(t.agentId);
-  $('#dHost').textContent = `${t.host}${st.addr && st.addr !== t.host ? ' → ' + st.addr : ''} · ${kindText(t)} · ${a ? a.name : ''} · var ${t.intervalMs >= 1000 ? t.intervalMs / 1000 + ' s' : t.intervalMs + ' ms'}`;
+  $('#dHost').textContent = T('{0}{1} · {2} · {3} · every {4}', t.host, st.addr && st.addr !== t.host ? ' → ' + st.addr : '', kindText(t), a ? a.name : '', t.intervalMs >= 1000 ? t.intervalMs / 1000 + ' s' : t.intervalMs + ' ms');
   document.querySelectorAll('#dRanges button').forEach(b => b.classList.toggle('on', +b.dataset.r === S.range));
   renderDrawerStats();
 }
@@ -638,9 +660,9 @@ function renderDrawerStats() {
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
     let jit = 0; for (let i = 1; i < vals.length; i++) jit += Math.abs(vals[i] - vals[i - 1]); jit = vals.length > 1 ? jit / (vals.length - 1) : NaN;
     const pct = p => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : NaN;
-    rows = [row('Paket', String(n)), row('Förlorade', `${lost} (${n ? +(lost * 100 / n).toFixed(2) : 0}%)`), row('Snitt', fmtMs(avg) + ' ms'),
+    rows = [row(T('Packets'), String(n)), row(T('Lost'), `${lost} (${n ? +(lost * 100 / n).toFixed(2) : 0}%)`), row(T('Avg'), fmtMs(avg) + ' ms'),
       row('Min', fmtMs(sorted[0]) + ' ms'), row('Max', fmtMs(sorted[sorted.length - 1]) + ' ms'), row('Median', fmtMs(pct(.5)) + ' ms'),
-      row('95:e pct', fmtMs(pct(.95)) + ' ms'), row('Jitter', fmtMs(jit) + ' ms')];
+      row(T('95th pct'), fmtMs(pct(.95)) + ' ms'), row('Jitter', fmtMs(jit) + ' ms')];
   } else {
     const n = S.chartN || [];
     let tot = 0, lostTot = 0, sum = 0, okN = 0, mn = Infinity, mx = -Infinity;
@@ -650,12 +672,12 @@ function renderDrawerStats() {
       if (d[2][i] != null) mn = Math.min(mn, d[2][i]);
       if (d[3][i] != null) mx = Math.max(mx, d[3][i]);
     }
-    rows = [row('Paket', String(tot)), row('Förlorade', `${lostTot} (${tot ? +(lostTot * 100 / tot).toFixed(2) : 0}%)`),
-      row('Snitt', fmtMs(okN ? sum / okN : NaN) + ' ms'), row('Min', fmtMs(isFinite(mn) ? mn : NaN) + ' ms'), row('Max', fmtMs(isFinite(mx) ? mx : NaN) + ' ms'),
-      row('Upplösning', S.chartBucket >= 3600000 ? S.chartBucket / 3600000 + ' h' : S.chartBucket / 60000 + ' min')];
+    rows = [row(T('Packets'), String(tot)), row(T('Lost'), `${lostTot} (${tot ? +(lostTot * 100 / tot).toFixed(2) : 0}%)`),
+      row(T('Avg'), fmtMs(okN ? sum / okN : NaN) + ' ms'), row('Min', fmtMs(isFinite(mn) ? mn : NaN) + ' ms'), row('Max', fmtMs(isFinite(mx) ? mx : NaN) + ' ms'),
+      row(T('Resolution'), S.chartBucket >= 3600000 ? S.chartBucket / 3600000 + ' h' : S.chartBucket / 60000 + ' min')];
   }
-  $('#dStats').replaceChildren(h('dl', null, row('Status', STATUS_TEXT[st.status] || '–'), row('Sedan', st.since ? dur(Date.now() - st.since) : '–'),
-    row('Senaste', st.last >= 0 ? fmtMs(st.last) + ' ms' : 'förlorad'), ...rows), ...(st.err ? [h('div', { class: 'err' }, st.err)] : []));
+  $('#dStats').replaceChildren(h('dl', null, row('Status', STATUS_TEXT[st.status] || '–'), row(T('Since'), st.since ? dur(Date.now() - st.since) : '–'),
+    row(T('Last'), st.last >= 0 ? fmtMs(st.last) + ' ms' : T('lost')), ...rows), ...(st.err ? [h('div', { class: 'err' }, TE(st.err))] : []));
 }
 
 async function loadChart() {
@@ -738,15 +760,15 @@ function rebuildChart() {
   const axis = { stroke: c.muted, grid: { stroke: c.border, width: 1 }, ticks: { stroke: c.border, width: 1 }, font: '11px ' + getComputedStyle(document.body).fontFamily };
   const val = (u, v, si, idx) => idx == null ? '–' : v == null ? '–' : fmtMs(v) + ' ms';
   const series = raw ? [
-    { label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
-    { label: 'Latens', stroke: c.accent, width: 1.5, fill: hexA(c.accent, .12), points: { show: false }, spanGaps: false, value: (u, v, si, idx) => idx == null ? '–' : v == null ? 'förlorad' : fmtMs(v) + ' ms' },
-    { label: 'Förlorad', scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null ? '–' : v ? 'ja' : 'nej' },
+    { label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
+    { label: T('Latency'), stroke: c.accent, width: 1.5, fill: hexA(c.accent, .12), points: { show: false }, spanGaps: false, value: (u, v, si, idx) => idx == null ? '–' : v == null ? T('lost') : fmtMs(v) + ' ms' },
+    { label: T('Lost|one'), scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null ? '–' : v ? T('yes') : T('no') },
   ] : [
-    { label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
-    { label: 'Snitt', stroke: c.accent, width: 1.6, points: { show: false }, value: val },
+    { label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
+    { label: T('Avg'), stroke: c.accent, width: 1.6, points: { show: false }, value: val },
     { label: 'Min', stroke: hexA(c.accent, .35), width: 1, points: { show: false }, value: val },
     { label: 'Max', stroke: hexA(c.accent, .35), width: 1, points: { show: false }, value: val },
-    { label: 'Förlust', scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null || v == null ? '–' : (+v).toFixed(2) + ' %' },
+    { label: T('Loss'), scale: 'loss', stroke: c.lost, width: 0, points: { show: false }, paths: () => null, value: (u, v, si, idx) => idx == null || v == null ? '–' : (+v).toFixed(2) + ' %' },
   ];
   const opts = {
     width: box.clientWidth - 14, height: Math.max(120, box.clientHeight - 40),
@@ -768,12 +790,12 @@ window.addEventListener('resize', () => { resizeChart(); for (const t of S.targe
 
 /* ---------------- rapporter ---------------- */
 function reportDialog(c) {
-  const period = select([['last-month', 'Förra månaden'], ['this-month', 'Den här månaden'], ['last-week', 'Förra veckan'], ['this-week', 'Den här veckan'], ['last-30', 'Senaste 30 dagarna'], ['custom', 'Välj datum…']], 'last-month');
+  const period = select([['last-month', T('Last month')], ['this-month', T('This month')], ['last-week', T('Last week')], ['this-week', T('This week')], ['last-30', T('Last 30 days')], ['custom', T('Choose dates…')]], 'last-month');
   const pad = n => String(n).padStart(2, '0');
   const d0 = new Date(Date.now() - 7 * 864e5), d1 = new Date();
   const fromD = h('input', { type: 'date', value: `${d0.getFullYear()}-${pad(d0.getMonth() + 1)}-${pad(d0.getDate())}` });
   const toD = h('input', { type: 'date', value: `${d1.getFullYear()}-${pad(d1.getMonth() + 1)}-${pad(d1.getDate())}` });
-  const custom = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field('Från', fromD), field('Till och med', toD));
+  const custom = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field(T('From'), fromD), field(T('To (inclusive)'), toD));
   period.onchange = () => { custom.style.display = period.value === 'custom' ? '' : 'none'; };
   const range = () => {
     if (period.value !== 'custom') return { period: period.value };
@@ -782,28 +804,28 @@ function reportDialog(c) {
   const url = dl => { const r = range(); const q = new URLSearchParams({ period: r.period }); if (r.from) { q.set('from', r.from); q.set('to', r.to); } if (dl) q.set('download', '1'); return `/api/customers/${c.id}/report.pdf?${q}`; };
   const fields = [field('Period', period, null, true), custom,
     h('div', { class: 'field full' }, h('div', { class: 'row' },
-      h('button', { class: 'btn primary', onclick: () => window.open(url(false), '_blank') }, 'Visa PDF'),
-      h('button', { class: 'btn', onclick: () => { location.href = url(true); } }, 'Ladda ner'))),
-    h('small', { class: 'field full' }, 'Rapporten visar tillgänglighet, nertid, paketförlust och latens per mål, grafer per dygn, agenternas CPU, minne och disk, servicefönster och larmhändelser.')];
+      h('button', { class: 'btn primary', onclick: () => window.open(url(false), '_blank') }, T('View PDF')),
+      h('button', { class: 'btn', onclick: () => { location.href = url(true); } }, T('Download')))),
+    h('small', { class: 'field full' }, T('The report shows availability, downtime, packet loss and latency per target, daily graphs, the agents\' CPU, memory and disk, maintenance windows and alert events.'))];
   if (isAdmin()) {
-    const to = h('input', { type: 'text', value: c.reportTo || '', placeholder: 'kund@exempel.se, du@dittforetag.se' });
-    const freq = select([['', 'Av'], ['weekly', 'Varje vecka (måndag morgon, förra veckan)'], ['monthly', 'Varje månad (den 1:a, förra månaden)']], c.reportFreq || '');
+    const to = h('input', { type: 'text', value: c.reportTo || '', placeholder: T('customer@example.com, you@yourcompany.com') });
+    const freq = select([['', T('Off')], ['weekly', T('Weekly (Monday morning, previous week)')], ['monthly', T('Monthly (on the 1st, previous month)')]], c.reportFreq || '');
     const res = h('span');
-    fields.push(h('div', { class: 'section-title' }, 'Skicka med e-post'), field('Mottagare', to, null, true), field('Automatiskt', freq, null, true),
+    fields.push(h('div', { class: 'section-title' }, T('Send by email')), field(T('Recipients'), to, null, true), field(T('Automatic'), freq, null, true),
       h('div', { class: 'field full' }, h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: async () => {
           await PUT('/api/customers/' + c.id, Object.assign({}, c, { reportTo: to.value, reportFreq: freq.value }));
-          res.className = 'form-ok'; res.textContent = 'Sparat.'; await loadState();
-        } }, 'Spara inställning'),
+          res.className = 'form-ok'; res.textContent = T('Saved.'); await loadState();
+        } }, T('Save setting')),
         h('button', { class: 'btn', onclick: async () => {
-          res.className = ''; res.replaceChildren(h('span', { class: 'spin' }), ' Skickar…');
+          res.className = ''; res.replaceChildren(h('span', { class: 'spin' }), T(' Sending…'));
           const r = range();
-          try { await POST(`/api/customers/${c.id}/report/send`, { to: to.value, period: r.period, from: r.from || 0, toT: r.to || 0 }); res.className = 'form-ok'; res.textContent = 'Rapporten skickades.'; }
+          try { await POST(`/api/customers/${c.id}/report/send`, { to: to.value, period: r.period, from: r.from || 0, toT: r.to || 0 }); res.className = 'form-ok'; res.textContent = T('The report was sent.'); }
           catch (e) { res.className = 'form-error'; res.textContent = e.message; }
-        } }, 'Skicka nu'), res)),
-      h('small', { class: 'field full' }, 'Kräver att e-post är inställt under Inställningar.'));
+        } }, T('Send now')), res)),
+      h('small', { class: 'field full' }, T('Requires email to be configured under Settings.')));
   }
-  modal({ title: `Rapport – ${c.name}`, body: h('div', { class: 'form' }, ...fields) });
+  modal({ title: T('Report – {0}', c.name), body: h('div', { class: 'form' }, ...fields) });
 }
 
 /* ---------------- statussida ---------------- */
@@ -813,16 +835,16 @@ function statusPageDialog(c) {
     const cc = byId(S.customers, c.id) || c;
     const link = cc.statusKey ? `${S.serverUrl}/status/${cc.statusKey}` : '';
     body.replaceChildren(h('div', { class: 'form' },
-      h('p', { class: 'field full', style: 'margin:0' }, 'En publik sida som visar kundens mål med status och tillgänglighet (24 h och 30 d) – utan inloggning, IP-adresser eller detaljer. Länken är hemlig; dela den med kunden.'),
-      link ? field('Länk', copyBox(link), null, true) : h('p', { class: 'muted field full' }, 'Statussidan är avstängd.'),
+      h('p', { class: 'field full', style: 'margin:0' }, T('A public page showing the customer\'s targets with status and availability (24 h and 30 d) – no sign-in, IP addresses or details. The link is secret; share it with the customer.')),
+      link ? field(T('Link'), copyBox(link), null, true) : h('p', { class: 'muted field full' }, T('The status page is turned off.')),
       h('div', { class: 'field full' }, h('div', { class: 'row' },
-        link ? h('a', { class: 'btn', href: link, target: '_blank' }, 'Öppna') : null,
-        h('button', { class: 'btn' + (link ? '' : ' primary'), onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: true }); await loadState(); render(); } }, link ? 'Skapa ny länk' : 'Slå på statussidan'),
-        link ? h('button', { class: 'btn danger', onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: false }); await loadState(); render(); } }, 'Stäng av') : null)),
-      link ? h('small', { class: 'field full' }, 'En ny länk gör att den gamla slutar fungera.') : null));
+        link ? h('a', { class: 'btn', href: link, target: '_blank' }, T('Open')) : null,
+        h('button', { class: 'btn' + (link ? '' : ' primary'), onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: true }); await loadState(); render(); } }, link ? T('Create new link') : T('Turn on status page')),
+        link ? h('button', { class: 'btn danger', onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: false }); await loadState(); render(); } }, T('Turn off')) : null)),
+      link ? h('small', { class: 'field full' }, T('A new link makes the old one stop working.')) : null));
   };
   render();
-  modal({ title: `Statussida – ${c.name}`, wide: true, body });
+  modal({ title: T('Status page – {0}', c.name), wide: true, body });
 }
 
 /* ---------------- tvåstegsinloggning ---------------- */
@@ -830,48 +852,48 @@ async function totpDialog() {
   const me = await GET('/api/me'); S.me = me;
   if (me.totp) {
     const pw = h('input', { type: 'password', autocomplete: 'current-password' });
-    formDialog({ title: 'Tvåstegsinloggning är på', saveLabel: 'Stäng av', fields: [
-      h('p', { class: 'field full', style: 'margin:0' }, 'Du loggar in med lösenord och en kod från din autentiseringsapp. Ange ditt lösenord för att stänga av.'),
-      field('Lösenord', pw, null, true)],
-      onSave: async () => { await POST('/api/me/totp/disable', { password: pw.value }); S.me.totp = false; renderShell(); renderPage(); toast({ kind: 'info', title: 'Tvåstegsinloggning avstängd' }); } });
+    formDialog({ title: T('Two-factor authentication is on'), saveLabel: T('Turn off'), fields: [
+      h('p', { class: 'field full', style: 'margin:0' }, T('You sign in with your password and a code from your authenticator app. Enter your password to turn it off.')),
+      field(T('Password'), pw, null, true)],
+      onSave: async () => { await POST('/api/me/totp/disable', { password: pw.value }); S.me.totp = false; renderShell(); renderPage(); toast({ kind: 'info', title: T('Two-factor authentication turned off') }); } });
     return;
   }
   const setup = await POST('/api/me/totp/setup');
   const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456' });
   const err = h('span', { class: 'form-error' });
   const body = h('div', { class: 'form' },
-    h('p', { class: 'field full', style: 'margin:0' }, 'Skanna QR-koden med en autentiseringsapp (t.ex. Microsoft Authenticator, Google Authenticator, 1Password eller Bitwarden) och ange koden som visas.'),
-    h('div', { class: 'field', style: 'align-items:center' }, h('img', { src: setup.qr, width: 200, height: 200, alt: 'QR-kod', style: 'background:#fff;border-radius:8px;padding:6px' })),
-    h('div', { class: 'field' }, h('span', null, 'Eller ange nyckeln manuellt'), h('code', { style: 'word-break:break-all' }, setup.secret),
-      h('span', { style: 'margin-top:12px' }, 'Kod från appen'), code));
-  const close = modal({ title: 'Aktivera tvåstegsinloggning', body,
-    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
+    h('p', { class: 'field full', style: 'margin:0' }, T('Scan the QR code with an authenticator app (e.g. Microsoft Authenticator, Google Authenticator, 1Password or Bitwarden) and enter the code shown.')),
+    h('div', { class: 'field', style: 'align-items:center' }, h('img', { src: setup.qr, width: 200, height: 200, alt: T('QR code'), style: 'background:#fff;border-radius:8px;padding:6px' })),
+    h('div', { class: 'field' }, h('span', null, T('Or enter the key manually')), h('code', { style: 'word-break:break-all' }, setup.secret),
+      h('span', { style: 'margin-top:12px' }, T('Code from the app')), code));
+  const close = modal({ title: T('Enable two-factor authentication'), body,
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, T('Cancel')),
       h('button', { class: 'btn primary', onclick: async () => {
         err.textContent = '';
         try {
           const r = await POST('/api/me/totp/enable', { code: code.value });
           close(); S.me.totp = true; renderShell(); renderPage();
-          modal({ title: 'Spara dina reservkoder', body: h('div', null,
-            h('p', null, 'Om du tappar telefonen kan du logga in med en av dessa koder (varje kod fungerar en gång). Spara dem på ett säkert ställe – de visas bara nu.'),
+          modal({ title: T('Save your backup codes'), body: h('div', null,
+            h('p', null, T('If you lose your phone you can sign in with one of these codes (each code works once). Keep them somewhere safe – they are only shown now.')),
             copyBox(r.recovery.join('  '))) });
         } catch (e) { err.textContent = e.message; }
-      } }, 'Aktivera')] });
+      } }, T('Enable'))] });
 }
 
 /* ---------------- ändringslogg ---------------- */
 async function renderAudit(page) {
-  const q = h('input', { type: 'search', placeholder: 'Sök på användare, typ eller text…', style: 'width:300px' });
+  const q = h('input', { type: 'search', placeholder: T('Search by user, type or text…'), style: 'width:300px' });
   const box = h('div');
   const load = async () => {
     const list = await GET('/api/audit?q=' + encodeURIComponent(q.value));
     box.replaceChildren(list.length ? h('table', { class: 'tbl' },
-      h('thead', null, h('tr', null, ...['Tid', 'Användare', 'Typ', 'Händelse', 'IP'].map(x => h('th', null, x)))),
-      h('tbody', null, ...list.map(a => h('tr', null, h('td', { class: 'mono' }, dateTime(a.t)), h('td', null, a.user), h('td', null, a.kind),
-        h('td', null, a.text), h('td', { class: 'mono muted' }, a.ip))))) : h('p', { class: 'muted' }, 'Inga händelser.'));
+      h('thead', null, h('tr', null, ...[T('Time'), T('Users'), T('Type'), T('Event'), 'IP'].map(x => h('th', null, x)))),
+      h('tbody', null, ...list.map(a => h('tr', null, h('td', { class: 'mono' }, dateTime(a.t)), h('td', null, a.user), h('td', null, T(a.kind)),
+        h('td', null, a.text), h('td', { class: 'mono muted' }, a.ip))))) : h('p', { class: 'muted' }, T('No events.')));
   };
   let tm; q.oninput = () => { clearTimeout(tm); tm = setTimeout(load, 300); };
-  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, 'Ändringslogg'), h('div', { class: 'tools' }, q)), box,
-    h('p', { class: 'ro-note', style: 'margin-top:12px' }, 'Inloggningar och alla ändringar av kunder, agenter, mål, larm, användare och inställningar. Sparas lika länge som minutvärdena.'));
+  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, T('Audit log')), h('div', { class: 'tools' }, q)), box,
+    h('p', { class: 'ro-note', style: 'margin-top:12px' }, T('Sign-ins and all changes to customers, agents, targets, alerts, users and settings. Kept as long as the minute values.')));
   await load();
 }
 
@@ -885,16 +907,16 @@ function renderTV(page) {
     const st = cnt.down ? 'down' : cnt.offline ? 'offline' : cnt.warn ? 'warn' : 'up';
     return h('div', { class: 'tv-card st-' + st, onclick: () => { location.hash = '#/c/' + c.id; } },
       h('div', { class: 'tv-name' }, h('span', { class: 'dot' }), c.name),
-      h('div', { class: 'tv-counts' }, ...[['up', 'uppe'], ['warn', 'varning'], ['down', 'nere'], ['offline', 'offline']].filter(([k]) => cnt[k] || k === 'up').map(([k, l]) => h('span', { class: 'st-' + k }, h('b', null, String(cnt[k])), ' ' + l))));
+      h('div', { class: 'tv-counts' }, ...[['up', T('up')], ['warn', T('warning')], ['down', T('down')], ['offline', 'offline']].filter(([k]) => cnt[k] || k === 'up').map(([k, l]) => h('span', { class: 'st-' + k }, h('b', null, String(cnt[k])), ' ' + l))));
   });
   const problems = S.targets.filter(t => ['down', 'offline', 'warn'].includes((S.stats[t.id] || {}).status) && !maintNote(t))
     .sort((a, b) => ({ down: 0, offline: 1, warn: 2 })[S.stats[a.id].status] - ({ down: 0, offline: 1, warn: 2 })[S.stats[b.id].status]).slice(0, 14);
   page.replaceChildren(h('div', { class: 'tv' },
     h('div', { class: 'tv-head' }, h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
-      h('div', { class: 'tv-sum' }, ...[['up', 'uppe'], ['warn', 'varning'], ['down', 'nere'], ['offline', 'offline']].map(([k, l]) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero') }, h('span', { class: 'dot' }), `${all[k]} ${l}`))),
-      clockEl, h('button', { class: 'btn ghost', onclick: () => { location.hash = '#/'; } }, 'Avsluta')),
+      h('div', { class: 'tv-sum' }, ...[['up', T('up')], ['warn', T('warning')], ['down', T('down')], ['offline', 'offline']].map(([k, l]) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero') }, h('span', { class: 'dot' }), `${all[k]} ${l}`))),
+      clockEl, h('button', { class: 'btn ghost', onclick: () => { location.hash = '#/'; } }, T('Exit'))),
     h('div', { class: 'tv-grid' }, ...cards),
-    h('div', { class: 'tv-problems' }, h('h2', null, problems.length ? 'Just nu' : 'Allt fungerar'),
+    h('div', { class: 'tv-problems' }, h('h2', null, problems.length ? T('Right now') : T('All systems working')),
       ...problems.map(t => { const st = S.stats[t.id]; const a = agentOf(t.agentId); const site = a && siteOf(a.siteId); const c = site && byId(S.customers, site.customerId);
         return h('div', { class: 'tv-row st-' + st.status }, h('span', { class: 'dot' }), h('b', null, displayName(t)), h('span', { class: 'muted' }, `${c ? c.name : ''} · ${site ? site.name : ''}`),
           h('span', { class: 'tv-since' }, `${STATUS_TEXT[st.status]} ${dur(Date.now() - st.since)}`)); }))));
@@ -903,8 +925,8 @@ function renderTV(page) {
 /* ---------------- kvittering och servicefönster ---------------- */
 function ackAlert(key) {
   return new Promise(resolve => {
-    const note = h('input', { type: 'text', placeholder: 'Valfri kommentar, t.ex. "Tekniker på väg"' });
-    formDialog({ title: 'Kvittera larm', saveLabel: 'Kvittera', fields: [field('Kommentar', note, 'Larmet upprepas inte medan det är kvitterat. Kvitteringen tas bort när larmet upphör.', true)],
+    const note = h('input', { type: 'text', placeholder: T('Optional comment, e.g. "Technician on the way"') });
+    formDialog({ title: T('Acknowledge alert'), saveLabel: T('Acknowledge'), fields: [field(T('Comment'), note, T('The alert is not repeated while acknowledged. The acknowledgement is removed when the alert clears.'), true)],
       onSave: async () => { const a = await POST('/api/alerts/ack', { key, note: note.value }); S.acks[key] = a; resolve(true); } });
   });
 }
@@ -915,23 +937,23 @@ async function maintDialog(customerId) {
   const sites = S.sites.filter(s => s.customerId === customerId);
   const ags = S.agents.filter(a => customerOfAgent(a) === customerId);
   const tgs = S.targets.filter(t => customerOfTarget(t) === customerId);
-  const scope = select([['', 'Hela kunden'], ...sites.map(s => ['s:' + s.id, 'Site: ' + s.name]), ...ags.map(a => ['a:' + a.id, 'Agent: ' + a.name]), ...tgs.map(t => ['t:' + t.id, 'Mål: ' + displayName(t)])], '');
-  const type = select([['once', 'En gång'], ['weekly', 'Varje vecka']], 'once');
+  const scope = select([['', T('Entire customer')], ...sites.map(s => ['s:' + s.id, 'Site: ' + s.name]), ...ags.map(a => ['a:' + a.id, 'Agent: ' + a.name]), ...tgs.map(t => ['t:' + t.id, T('Target: ') + displayName(t)])], '');
+  const type = select([['once', T('Once')], ['weekly', T('Weekly')]], 'once');
   const pad = n => String(n).padStart(2, '0');
   const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const start = h('input', { type: 'datetime-local', value: local(new Date()) });
   const end = h('input', { type: 'datetime-local', value: local(new Date(Date.now() + 2 * 3600e3)) });
   const days = new Set([6]);
-  const dayNames = [[1, 'Mån'], [2, 'Tis'], [3, 'Ons'], [4, 'Tor'], [5, 'Fre'], [6, 'Lör'], [0, 'Sön']];
+  const dayNames = [[1, T('Mon')], [2, T('Tue')], [3, T('Wed')], [4, T('Thu')], [5, T('Fri')], [6, T('Sat')], [0, T('Sun')]];
   const dayBox = h('div', { class: 'checks' }, ...dayNames.map(([d, n]) => check(n, days.has(d), e => e.target.checked ? days.add(d) : days.delete(d))));
   const wStart = h('input', { type: 'time', value: '22:00' });
   const wDur = num(4, 0.25, 168, 0.25);
-  const note = h('input', { type: 'text', placeholder: 't.ex. Uppgradering av switchar' });
-  const once = h('div', { class: 'form', style: 'grid-column:1/-1' }, field('Start', start), field('Slut', end));
-  const weekly = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field('Dagar', dayBox, null, true), field('Starttid', wStart), field('Längd (timmar)', wDur));
+  const note = h('input', { type: 'text', placeholder: T('e.g. Switch upgrade') });
+  const once = h('div', { class: 'form', style: 'grid-column:1/-1' }, field('Start', start), field(T('End'), end));
+  const weekly = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field(T('Days'), dayBox, null, true), field(T('Start time'), wStart), field(T('Duration (hours)'), wDur));
   type.onchange = () => { once.style.display = type.value === 'once' ? '' : 'none'; weekly.style.display = type.value === 'weekly' ? '' : 'none'; };
   const err = h('span', { class: 'form-error' });
-  const scopeText = m => m.targetId ? 'Mål: ' + displayName(byId(S.targets, m.targetId) || { host: '?' }) : m.agentId ? 'Agent: ' + ((agentOf(m.agentId) || {}).name || '?') : m.siteId ? 'Site: ' + ((siteOf(m.siteId) || {}).name || '?') : 'Hela kunden';
+  const scopeText = m => m.targetId ? T('Target: ') + displayName(byId(S.targets, m.targetId) || { host: '?' }) : m.agentId ? 'Agent: ' + ((agentOf(m.agentId) || {}).name || '?') : m.siteId ? 'Site: ' + ((siteOf(m.siteId) || {}).name || '?') : T('Entire customer');
   const when = m => {
     if (!m.weekly) return `${dateTime(m.start)} – ${dateTime(m.end)}`;
     const ds = dayNames.filter(([d]) => (m.days || []).includes(d)).map(x => x[1]).join(', ');
@@ -940,14 +962,14 @@ async function maintDialog(customerId) {
   const load = async () => {
     const all = (await GET('/api/maintenance')).filter(x => x.window.customerId === customerId);
     listBox.replaceChildren(all.length ? h('table', { class: 'tbl' }, h('tbody', null, ...all.map(x => h('tr', null,
-      h('td', null, x.active ? h('span', { class: 'pill st-warn' }, h('span', { class: 'dot' }), 'Pågår') : x.expired ? h('span', { class: 'muted' }, 'Passerat') : h('span', { class: 'muted' }, 'Planerat')),
-      h('td', null, h('b', null, x.window.note || 'Servicefönster'), h('div', { class: 'muted' }, scopeText(x.window))),
+      h('td', null, x.active ? h('span', { class: 'pill st-warn' }, h('span', { class: 'dot' }), T('Ongoing')) : x.expired ? h('span', { class: 'muted' }, T('Past')) : h('span', { class: 'muted' }, T('Planned'))),
+      h('td', null, h('b', null, x.window.note || T('Maintenance windows')), h('div', { class: 'muted' }, scopeText(x.window))),
       h('td', null, when(x.window)),
-      h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm danger', onclick: async () => { await DEL('/api/maintenance/' + x.window.id); await load(); } }, 'Ta bort') : null))))) :
-      h('p', { class: 'muted' }, 'Inga servicefönster.'));
+      h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm danger', onclick: async () => { await DEL('/api/maintenance/' + x.window.id); await load(); } }, T('Delete')) : null))))) :
+      h('p', { class: 'muted' }, T('No maintenance windows.')));
   };
-  const form = isAdmin() ? h('div', { class: 'form', style: 'margin-top:14px' }, h('div', { class: 'section-title' }, 'Nytt servicefönster'),
-    field('Gäller', scope), field('Typ', type), once, weekly, field('Anteckning', note, null, true),
+  const form = isAdmin() ? h('div', { class: 'form', style: 'margin-top:14px' }, h('div', { class: 'section-title' }, T('New maintenance window')),
+    field(T('Applies to'), scope), field(T('Type'), type), once, weekly, field(T('Note'), note, null, true),
     h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: async () => {
       err.textContent = '';
       const [k, id] = scope.value.split(':');
@@ -955,9 +977,9 @@ async function maintDialog(customerId) {
       if (body.weekly) { const [hh, mm] = wStart.value.split(':').map(Number); Object.assign(body, { days: [...days], startMin: hh * 60 + mm, durationMin: Math.round(+wDur.value * 60) }); }
       else Object.assign(body, { start: new Date(start.value).getTime(), end: new Date(end.value).getTime() });
       try { await POST('/api/maintenance', body); note.value = ''; await load(); } catch (e) { err.textContent = e.message; }
-    } }, 'Lägg till'), err)),
-    h('small', { class: 'field full' }, 'Under ett servicefönster skickas inga larm (e-post, webhook, popup). Händelserna sparas ändå i händelseloggen.')) : null;
-  modal({ title: `Servicefönster – ${c ? c.name : ''}`, wide: true, body: h('div', null, listBox, form) });
+    } }, T('Add')), err)),
+    h('small', { class: 'field full' }, T('During a maintenance window no alerts are sent (email, webhook, popup). Events are still saved in the event log.'))) : null;
+  modal({ title: T('Maintenance windows – {0}', c ? c.name : ''), wide: true, body: h('div', null, listBox, form) });
   await load();
 }
 
@@ -996,11 +1018,11 @@ function hostView(id) {
   const ranges = h('div', { class: 'ranges' }, ...HOST_RANGES.map(([sec, label]) => h('button', { 'data-r': sec, onclick: () => { S.hostView.range = S.hostRange = sec; loadHostCharts(); } }, label)));
   const charts = h('div', { class: 'hostcharts' },
     h('div', null, h('h4', null, 'CPU'), h('div', { class: 'hchart', id: 'hcCpu' })),
-    h('div', null, h('h4', null, 'Minne'), h('div', { class: 'hchart', id: 'hcMem' })),
+    h('div', null, h('h4', null, T('Memory')), h('div', { class: 'hchart', id: 'hcMem' })),
     h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })),
     h('div', { class: 'full', id: 'hvWifi' }));
-  const title = isSrv ? 'PingVakt-servern' : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
-  modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, 'Historik'), h('div', { class: 'tools' }, ranges)), charts),
+  const title = isSrv ? T('PingVakt server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
+  modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, T('History')), h('div', { class: 'tools' }, ranges)), charts),
     onClose: () => { S.hostView = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
   refreshHostView();
   loadHostCharts();
@@ -1015,14 +1037,14 @@ function refreshHostView() {
   const m = lv.host;
   const fact = (k, v) => h('div', null, h('small', null, k), h('b', null, v || '–'));
   $('#hvFacts').replaceChildren(...[
-    isSrv ? fact('Version', S.version) : fact('Status', lv.online ? 'Online' : (lv.lastSeen || a.lastSeen) ? 'Offline' : 'Ej ansluten'),
-    isSrv ? null : fact('Värd', a.hostname), isSrv ? null : fact('System', a.os), isSrv ? null : fact('IP', a.ip), isSrv ? null : fact('Agentversion', a.version),
-    m ? fact('CPU-kärnor', String(m.cpus)) : null, m ? fact('Minne', gb(m.memTotal)) : null, m ? fact('Upptid', dur(m.uptime * 1000)) : null,
-    m && m.load1 ? fact('Last (1 min)', String(m.load1)) : null,
-    isSrv ? null : fact('Senast sedd', (lv.lastSeen || a.lastSeen) ? dateTime(lv.lastSeen || a.lastSeen) : 'aldrig')].filter(Boolean));
-  $('#hvNow').replaceChildren(...(m ? [meter('CPU', m.cpu, `${m.cpus} kärnor`), meter('Minne', memPct(m), `${gb(m.memUsed)} av ${gb(m.memTotal)}`),
-    ...(m.disks || []).map(d => meter('Disk ' + d.m, pct(d), `${gb(d.t - d.u)} ledigt av ${gb(d.t)}`))]
-    : [h('p', { class: 'muted' }, a && a.kind === 'desktop' ? 'Skrivbordsappen rapporterar inte CPU, minne och disk.' : 'Inga värden ännu – agenten rapporterar CPU, minne och disk från version 0.3.')]));
+    isSrv ? fact('Version', S.version) : fact('Status', lv.online ? 'Online' : (lv.lastSeen || a.lastSeen) ? 'Offline' : T('Not connected')),
+    isSrv ? null : fact(T('Host'), a.hostname), isSrv ? null : fact('System', a.os), isSrv ? null : fact('IP', a.ip), isSrv ? null : fact(T('Agent version'), a.version),
+    m ? fact(T('CPU cores'), String(m.cpus)) : null, m ? fact(T('Memory'), gb(m.memTotal)) : null, m ? fact(T('Uptime'), dur(m.uptime * 1000)) : null,
+    m && m.load1 ? fact(T('Load (1 min)'), String(m.load1)) : null,
+    isSrv ? null : fact(T('Last seen'), (lv.lastSeen || a.lastSeen) ? dateTime(lv.lastSeen || a.lastSeen) : T('never'))].filter(Boolean));
+  $('#hvNow').replaceChildren(...(m ? [meter('CPU', m.cpu, T('{0} cores', m.cpus)), meter(T('Memory'), memPct(m), T('{0} of {1}', gb(m.memUsed), gb(m.memTotal))),
+    ...(m.disks || []).map(d => meter('Disk ' + d.m, pct(d), T('{0} free of {1}', gb(d.t - d.u), gb(d.t))))]
+    : [h('p', { class: 'muted' }, a && a.kind === 'desktop' ? T('The desktop app does not report CPU, memory and disk.') : T('No values yet – the agent reports CPU, memory and disk from version 0.3.'))]));
   document.querySelectorAll('.modal .ranges button').forEach(b => b.classList.toggle('on', +b.dataset.r === hv.range));
 }
 
@@ -1043,20 +1065,20 @@ async function loadHostCharts() {
   const mk = (box, series, data) => {
     const el = $(box); if (!el) return;
     el.replaceChildren();
-    if (!x.length) { el.append(h('p', { class: 'muted' }, 'Ingen historik för perioden.')); return; }
+    if (!x.length) { el.append(h('p', { class: 'muted' }, T('No history for the period.'))); return; }
     const u = new uPlot({
       width: el.clientWidth || 400, height: 170,
       scales: { x: { time: true, range: () => [from / 1000, to / 1000] }, y: { range: [0, 100] } },
       axes: [Object.assign({}, axis, { values: (u, sp) => sp.map(v => timeLabel(v, hv.range)) }), Object.assign({}, axis, { size: 44, values: (u, sp) => sp.map(v => v + '%') })],
-      series: [{ label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') }, ...series],
+      series: [{ label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') }, ...series],
       legend: { live: true }, cursor: { drag: { x: false, y: false } },
     }, [x, ...data], el);
     hostCharts.push(u);
   };
   const pal = [c.accent, '#8b7cf6', '#f2b33d', '#5b9cf5', '#e46aa8', '#3ccf7a', '#ef8a50', '#9aa5b1'];
-  mk('#hcCpu', [{ label: 'Snitt', stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: pv, points: pts },
+  mk('#hcCpu', [{ label: T('Avg'), stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: pv, points: pts },
     { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
-  mk('#hcMem', [{ label: `Använt${hs.memTotal ? ' av ' + gb(hs.memTotal) : ''}`, stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
+  mk('#hcMem', [{ label: T('Used{0}', hs.memTotal ? T(' of ') + gb(hs.memTotal) : ''), stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
   renderWifi(res, from, to, axis, hv);
   mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
 }
@@ -1066,12 +1088,12 @@ const rssiLevel = v => v == null ? '' : v >= -67 ? 'ok' : v >= -75 ? 'high' : 'b
 function wifiFacts(w) {
   const fact = (k, v, cls) => h('div', null, h('small', null, k), h('b', { class: cls || '' }, v || '–'));
   const snr = w.noise ? w.rssi - w.noise : null;
-  const band = w.freq >= 5925 ? '6 GHz' : w.freq >= 4900 ? '5 GHz' : w.freq ? '2,4 GHz' : '';
-  return h('div', { class: 'facts' }, fact('Nätverk (SSID)', w.ssid || 'dolt'), fact('Åtkomstpunkt (BSSID)', w.bssid),
-    fact('Signal', w.rssi + ' dBm', 'lvl-' + rssiLevel(w.rssi)), fact('Brus', w.noise ? w.noise + ' dBm' : 'okänt'),
+  const band = w.freq >= 5925 ? '6 GHz' : w.freq >= 4900 ? '5 GHz' : w.freq ? T('2.4 GHz') : '';
+  return h('div', { class: 'facts' }, fact(T('Network (SSID)'), w.ssid || T('hidden')), fact(T('Access point (BSSID)'), w.bssid),
+    fact('Signal', w.rssi + ' dBm', 'lvl-' + rssiLevel(w.rssi)), fact(T('Noise'), w.noise ? w.noise + ' dBm' : T('unknown')),
     fact('SNR', snr != null ? snr + ' dB' : '–', snr == null ? '' : snr >= 25 ? 'lvl-ok' : snr >= 15 ? 'lvl-high' : 'lvl-bad'),
-    fact('Kanal', w.ch ? `${w.ch} (${band}${w.width ? ', ' + w.width + ' MHz' : ''})` : '–'),
-    fact('Hastighet', w.tx ? `${Math.round(w.tx)}${w.rx ? ' / ' + Math.round(w.rx) : ''} Mbit/s` : '–'), w.std ? fact('Standard', w.std) : null);
+    fact(T('Channel'), w.ch ? `${w.ch} (${band}${w.width ? ', ' + w.width + ' MHz' : ''})` : '–'),
+    fact(T('Speed'), w.tx ? `${Math.round(w.tx)}${w.rx ? ' / ' + Math.round(w.rx) : ''} Mbit/s` : '–'), w.std ? fact('Standard', w.std) : null);
 }
 function renderWifi(res, from, to, axis, hv) {
   const box = $('#hvWifi');
@@ -1080,17 +1102,17 @@ function renderWifi(res, from, to, axis, hv) {
   if (!wh.t.length && !wl) { box.replaceChildren(); return; }
   const roams = wh.roams || [];
   const chartBox = h('div', { class: 'hchart' });
-  box.replaceChildren(...[h('h4', null, 'Wi-Fi'), wl ? wifiFacts(wl) : h('p', { class: 'muted' }, 'Inte ansluten till Wi-Fi just nu.'),
-    h('div', { class: 'wifi-legend muted' }, `${roams.length} roaming${roams.length === 1 ? '' : 'ar'} under perioden`, roams.length ? ' – markerade med streck i grafen' : ''),
+  box.replaceChildren(...[h('h4', null, 'Wi-Fi'), wl ? wifiFacts(wl) : h('p', { class: 'muted' }, T('Not connected to Wi-Fi right now.')),
+    h('div', { class: 'wifi-legend muted' }, T('{0} roam{1} during the period', roams.length, roams.length === 1 ? '' : T('s')), roams.length ? T(' – marked with dashed lines in the graph') : ''),
     chartBox,
-    roams.length ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, 'Tid'), h('th', null, 'Från'), h('th', null, 'Till'), h('th', null, 'Signal före → efter'))),
+    roams.length ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, T('Time')), h('th', null, T('From')), h('th', null, T('To')), h('th', null, T('Signal before → after')))),
       h('tbody', null, ...roams.slice(-20).reverse().map(r => h('tr', null, h('td', { class: 'mono' }, dateTime(r.t)),
         h('td', { class: 'mono' }, `${r.from} (k ${r.fromCh})`), h('td', { class: 'mono' }, `${r.to} (k ${r.toCh})`),
         h('td', { class: 'mono' }, `${r.fromRssi} → ${r.toRssi} dBm`))))) : null,
-    wh.aps && wh.aps.length > 1 ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, 'Åtkomstpunkt'), h('th', null, 'SSID'), h('th', null, 'Kanal'), h('th', null, 'Tid'), h('th', null, 'Snittsignal'))),
+    wh.aps && wh.aps.length > 1 ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, T('Access point')), h('th', null, 'SSID'), h('th', null, T('Channel')), h('th', null, T('Time')), h('th', null, T('Avg signal')))),
       h('tbody', null, ...wh.aps.map(a => h('tr', null, h('td', { class: 'mono' }, a.bssid), h('td', null, a.ssid || '–'), h('td', { class: 'mono' }, String(a.ch || '–')),
         h('td', { class: 'mono' }, dur(a.minutes * 60000)), h('td', { class: 'mono lvl-' + rssiLevel(a.rssi) }, a.rssi + ' dBm'))))) : null].filter(Boolean));
-  if (!wh.t.length) { chartBox.append(h('p', { class: 'muted' }, 'Ingen historik för perioden.')); return; }
+  if (!wh.t.length) { chartBox.append(h('p', { class: 'muted' }, T('No history for the period.'))); return; }
   const c = css();
   const x = wh.t.map(t => t / 1000);
   const pv = (u, v) => v == null ? '–' : Math.round(v) + ' dBm';
@@ -1100,10 +1122,10 @@ function renderWifi(res, from, to, axis, hv) {
     width: chartBox.clientWidth || 600, height: 190,
     scales: { x: { time: true, range: () => [from / 1000, to / 1000] }, y: { range: (u, mn, mx) => [Math.min(-90, Math.floor((mn || -90) / 10) * 10), Math.max(-30, Math.ceil((mx || -30) / 10) * 10)] } },
     axes: [Object.assign({}, axis, { values: (u, sp) => sp.map(v => timeLabel(v, hv.range)) }), Object.assign({}, axis, { size: 70, values: (u, sp) => sp.map(v => v + ' dBm') })],
-    series: [{ label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
+    series: [{ label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
       { label: 'Signal', stroke: '#3ccf7a', width: 1.6, fill: 'rgba(60,207,122,.10)', value: pv, points: pts },
-      { label: 'Lägsta', stroke: 'rgba(60,207,122,.45)', width: 1, value: pv, points: pts },
-      { label: 'Brus', stroke: '#9aa5b1', width: 1, dash: [4, 3], value: pv, points: pts }],
+      { label: T('Lowest'), stroke: 'rgba(60,207,122,.45)', width: 1, value: pv, points: pts },
+      { label: T('Noise'), stroke: '#9aa5b1', width: 1, dash: [4, 3], value: pv, points: pts }],
     legend: { live: true }, cursor: { drag: { x: false, y: false } },
     hooks: { draw: [u => {
       const ctx = u.ctx; ctx.save(); ctx.strokeStyle = '#f2b33d'; ctx.lineWidth = 1.5 * devicePixelRatio; ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
@@ -1122,8 +1144,8 @@ function traceDialog(id) {
   const body = h('div', { class: 'trace-view' });
   traceView = { id, body, runs: [], show: null };
   modal({ title: `Traceroute – ${displayName(t)}`, wide: true, body,
-    foot: [h('div', { class: 'left muted' }, `Körs från ${(agentOf(t.agentId) || {}).name || 'agenten'}`),
-      h('button', { class: 'btn primary', onclick: () => runTrace(id) }, 'Kör traceroute')],
+    foot: [h('div', { class: 'left muted' }, T('Runs from {0}', (agentOf(t.agentId) || {}).name || T('the agent'))),
+      h('button', { class: 'btn primary', onclick: () => runTrace(id) }, T('Run traceroute'))],
     onClose: () => { traceView = null; } });
   loadTraces(id, true);
 }
@@ -1159,118 +1181,146 @@ function renderTrace() {
   const run = v.runs.find(x => x.id === v.show) || v.runs[0];
   const prevHops = new Set(run && run.prevPath ? run.prevPath.split('>') : []);
   let main;
-  if (!run) main = h('p', { class: 'muted' }, 'Ingen traceroute körd ännu.');
-  else if (run.pending) main = h('p', { class: 'muted' }, h('span', { class: 'spinner' }), ' Väntar på agenten… (svaret kommer inom några sekunder till ett par minuter)');
+  if (!run) main = h('p', { class: 'muted' }, T('No traceroute run yet.'));
+  else if (run.pending) main = h('p', { class: 'muted' }, h('span', { class: 'spinner' }), T(' Waiting for the agent… (the answer arrives within seconds to a couple of minutes)'));
   else main = h('div', null,
-    run.err ? h('p', { class: 'form-error' }, run.err) : null,
-    run.changed ? h('div', { class: 'notice' }, 'Vägen ändrades vid den här körningen. Nya hopp är markerade.') : null,
-    h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'Adress'), h('th', null, 'Namn'), h('th', null, 'Svarstid'))),
+    run.err ? h('p', { class: 'form-error' }, TE(run.err)) : null,
+    run.changed ? h('div', { class: 'notice' }, T('The path changed in this run. New hops are highlighted.')) : null,
+    h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, T('Address')), h('th', null, T('Name')), h('th', null, T('Response time')))),
       h('tbody', null, ...(run.hops || []).map(hp => h('tr', { class: run.changed && hp.addr && hp.addr !== '*' && !prevHops.has(hp.addr) ? 'hop-new' : '' },
         h('td', { class: 'mono' }, String(hp.n)), h('td', { class: 'mono' }, hp.addr || '*'), h('td', null, hp.name || ''),
         h('td', { class: 'mono' }, hp.rtt >= 0 ? fmtMs(hp.rtt) + ' ms' : '–'))))),
-    h('small', { class: 'muted' }, `${dateTime(run.t)} · ${run.auto ? 'automatisk' : 'manuell'} · ${(run.hops || []).length} hopp${run.end ? ' · tog ' + dur(run.end - run.t) : ''}`));
+    h('small', { class: 'muted' }, T('{0} · {1} · {2} hops{3}', dateTime(run.t), run.auto ? T('automatic') : T('manual'), (run.hops || []).length, run.end ? T(' · took ') + dur(run.end - run.t) : '')));
   const hist = v.runs.filter(r => !r.pending);
-  const side = h('div', { class: 'trace-hist' }, h('h4', null, t.traceMin ? `Vägbevakning var ${t.traceMin} min` : 'Tidigare körningar'),
-    t.traceMin ? null : h('small', { class: 'muted' }, 'Slå på vägbevakning under Redigera för att larma när vägen ändras.'),
+  const side = h('div', { class: 'trace-hist' }, h('h4', null, t.traceMin ? T('Path monitoring every {0} min', t.traceMin) : T('Previous runs')),
+    t.traceMin ? null : h('small', { class: 'muted' }, T('Turn on path monitoring under Edit to get alerts when the path changes.')),
     hist.length ? h('ul', null, ...hist.slice(0, 30).map(r => h('li', { class: (r.id === (run && run.id) ? 'on ' : '') + (r.changed ? 'changed' : ''), onclick: () => { v.show = r.id; renderTrace(); } },
-      h('span', { class: 'mono' }, dateTime(r.t)), r.changed ? h('b', null, ' vägändring') : r.err ? h('span', { class: 'muted' }, ' fel') : h('span', { class: 'muted' }, ` ${(r.hops || []).length} hopp`)))) : null);
+      h('span', { class: 'mono' }, dateTime(r.t)), r.changed ? h('b', null, T(' path change')) : r.err ? h('span', { class: 'muted' }, T(' error')) : h('span', { class: 'muted' }, T(' {0} hops', (r.hops || []).length))))) : null);
   v.body.replaceChildren(h('div', { class: 'trace-grid' }, main, side));
+}
+
+/* ---------------- nätverksskanning ---------------- */
+let scanView = null;
+async function openScan(a) {
+  let info;
+  try { info = await GET(`/api/agents/${a.id}/scan`); } catch (e) { toast({ kind: 'error', title: T('Scan network'), text: e.message }); return; }
+  const cust = customerOfAgent(a);
+  const known = new Set(S.targets.filter(t => customerOfTarget(t) === cust).map(t => t.host));
+  const v = scanView = { agentId: a.id, runId: null, ctl: null };
+  v.ctl = scanDialog({
+    title: T('Scan network – {0}', a.name), sub: T('The scan runs from the agent "{0}" on the customer\'s network.', a.name), networks: info.networks, known, live: false,
+    start: async cidr => { const r = await POST(`/api/agents/${a.id}/scan`, { cidr }); v.runId = r.id; },
+    stop: () => { v.runId = null; },
+    add: a.kind === 'desktop' ? null : async list => {
+      const names = {}; for (const d of list) names[d.ip] = d.name || (d.vendor && d.vendor !== 'Private address' ? d.vendor : '');
+      await POST('/api/targets', { agentId: a.id, hosts: list.map(d => d.ip).join(','), kind: 'icmp', port: 0, group: '', names });
+      await afterChange();
+    },
+    onClose: () => { if (scanView === v) scanView = null; },
+  });
+  const last = (info.runs || []).find(r => !r.pending);
+  if (last) v.ctl.show(last);
+}
+function onScan(run) {
+  const v = scanView;
+  if (!v || v.agentId !== run.agentId || v.runId !== run.id) return;
+  v.ctl.done(run.devices, run.err ? TE(run.err) : '');
 }
 
 /* ---------------- agenter ---------------- */
 function renderAgents(page) {
-  const head = h('div', { class: 'page-head' }, h('h1', null, 'Agenter'), h('span', { class: 'sub' }, `${S.agents.length} st`), connBadge());
-  if (!S.agents.length) { page.replaceChildren(head, h('p', { class: 'muted' }, 'Inga agenter ännu. Öppna en kund och klicka på "Ny agent".')); return; }
+  const head = h('div', { class: 'page-head' }, h('h1', null, T('Agents')), h('span', { class: 'sub' }, `${S.agents.length} st`), connBadge());
+  if (!S.agents.length) { page.replaceChildren(head, h('p', { class: 'muted' }, T('No agents yet. Open a customer and click "New agent".'))); return; }
   const rows = S.agents.slice().sort((a, b) => (customerName(a) + a.name).localeCompare(customerName(b) + b.name, 'sv')).map(a => {
     const lv = S.live[a.id] || {}, seen = lv.lastSeen || a.lastSeen;
     const st = !seen ? 'pending' : lv.online ? 'up' : 'offline';
     const site = siteOf(a.siteId);
     return h('tr', { class: 'clickable', onclick: e => { if (!e.target.closest('button,a')) hostView(a.id); } },
-      h('td', null, h('span', { class: 'pill st-' + st }, h('span', { class: 'dot' }), st === 'up' ? 'Online' : st === 'offline' ? 'Offline' : 'Ej ansluten')),
-      h('td', null, h('b', null, a.name), h('div', { class: 'muted' }, a.kind === 'desktop' ? 'Skrivbordsapp' : a.kind === 'agent' ? 'Agent' : '–')),
+      h('td', null, h('span', { class: 'pill st-' + st }, h('span', { class: 'dot' }), st === 'up' ? 'Online' : st === 'offline' ? 'Offline' : T('Not connected'))),
+      h('td', null, h('b', null, a.name), h('div', { class: 'muted' }, a.kind === 'desktop' ? T('Desktop app') : a.kind === 'agent' ? 'Agent' : '–')),
       h('td', null, h('a', { href: '#/c/' + (site ? site.customerId : '') }, customerName(a)), h('div', { class: 'muted' }, site ? site.name : '')),
       h('td', { class: 'mono' }, a.hostname || '–', h('div', { class: 'muted' }, a.os || '')),
-      h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' + (a.kind === 'agent' && a.version && a.version !== S.version.replace(/-.*$/, '') && st === 'up' ? ' lvl-high' : ''), title: a.kind === 'agent' && a.version !== S.version.replace(/-.*$/, '') ? 'Uppdateras automatiskt till ' + S.version : '' }, a.version || '–'),
-      h('td', null, seen ? dateTime(seen) : 'aldrig'),
+      h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' + (a.kind === 'agent' && a.version && a.version !== S.version.replace(/-.*$/, '') && st === 'up' ? ' lvl-high' : ''), title: a.kind === 'agent' && a.version !== S.version.replace(/-.*$/, '') ? T('Updates automatically to ') + S.version : '' }, a.version || '–'),
+      h('td', null, seen ? dateTime(seen) : T('never')),
       ...hostCells(lv.host, st === 'up'),
-      h('td', { class: 'mono ' + (lv.wifi && st === 'up' ? 'lvl-' + rssiLevel(lv.wifi.rssi) : 'muted'), title: lv.wifi ? `${lv.wifi.ssid || ''} ${lv.wifi.bssid || ''} kanal ${lv.wifi.ch || '?'}` : 'Inte ansluten via Wi-Fi' }, lv.wifi ? lv.wifi.rssi + ' dBm' : '–'),
+      h('td', { class: 'mono ' + (lv.wifi && st === 'up' ? 'lvl-' + rssiLevel(lv.wifi.rssi) : 'muted'), title: lv.wifi ? `${lv.wifi.ssid || ''} ${lv.wifi.bssid || ''} ${T('channel')} ${lv.wifi.ch || '?'}` : T('Not connected via Wi-Fi') }, lv.wifi ? lv.wifi.rssi + ' dBm' : '–'),
       h('td', null, String(S.targets.filter(t => t.agentId === a.id).length)),
       h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'icon-btn', onclick: e => agentMenu(a, e.currentTarget) }, '⋯') : null));
   });
   page.replaceChildren(head, h('table', { class: 'tbl' },
-    h('thead', null, h('tr', null, ...['Status', 'Namn', 'Kund / site', 'Värd', 'IP', 'Version', 'Senast sedd', 'CPU', 'Minne', 'Disk', 'Wi-Fi', 'Mål', ''].map(x => h('th', null, x)))),
+    h('thead', null, h('tr', null, ...['Status', T('Name'), T('Customer / site'), T('Host'), 'IP', 'Version', T('Last seen'), 'CPU', T('Memory'), 'Disk', 'Wi-Fi', T('Targets'), ''].map(x => h('th', null, x)))),
     h('tbody', null, ...rows)));
 }
 function customerName(a) { const s = siteOf(a.siteId); const c = s && byId(S.customers, s.customerId); return c ? c.name : ''; }
 
 /* ---------------- larm ---------------- */
 async function renderAlerts(page) {
-  const head = h('div', { class: 'page-head' }, h('h1', null, 'Larm'),
-    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => ruleDialog(null) }, '+ Ny larmregel') : null));
-  const groups = [['', 'Gäller alla kunder'], ...S.customers.map(c => [c.id, c.name])];
+  const head = h('div', { class: 'page-head' }, h('h1', null, T('Alerts')),
+    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => ruleDialog(null) }, T('+ New alert rule')) : null));
+  const groups = [['', T('Applies to all customers')], ...S.customers.map(c => [c.id, c.name])];
   const ruleTables = groups.map(([cid, label]) => {
     const rs = S.rules.filter(r => (r.customerId || '') === cid);
     if (!rs.length && (cid !== '' || !isAdmin())) return null;
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
-      rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'Villkor', 'Åtgärder', 'Mål', ''].map(x => h('th', null, x)))),
+      rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('Condition'), T('Actions'), T('Targets'), ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? 'alla HTTPS-mål' : r.condition === 'path' ? 'mål med vägbevakning' : !['down', 'latency', 'loss'].includes(r.condition) ? 'alla agenter' : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
-          h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, 'Redigera') : null)))))
-        : h('p', { class: 'muted' }, 'Inga regler.'));
+          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, T('Edit')) : null)))))
+        : h('p', { class: 'muted' }, T('No rules.')));
   }).filter(Boolean);
-  const evBox = h('div', null, h('p', { class: 'muted' }, 'Hämtar…'));
-  const actBox = h('div', null, h('p', { class: 'muted' }, 'Hämtar…'));
+  const evBox = h('div', null, h('p', { class: 'muted' }, T('Loading…')));
+  const actBox = h('div', null, h('p', { class: 'muted' }, T('Loading…')));
   GET('/api/alerts/active').then(list => {
     actBox.replaceChildren(list.length ? h('table', { class: 'tbl' },
-      h('thead', null, h('tr', null, ...['Sedan', 'Larm', 'Gäller', 'Status', ''].map(x => h('th', null, x)))),
+      h('thead', null, h('tr', null, ...[T('Since'), T('Alert'), T('Applies to'), 'Status', ''].map(x => h('th', null, x)))),
       h('tbody', null, ...list.map(a => h('tr', null,
         h('td', { class: 'mono' }, dateTime(a.since), h('div', { class: 'muted' }, dur(Date.now() - a.since))),
         h('td', null, h('b', null, a.ruleName)), h('td', null, a.targetName),
-        h('td', null, a.ack ? h('span', { class: 'pill' }, `Kvitterat av ${a.ack.user} ${clock(a.ack.t)}${a.ack.note ? ' – ' + a.ack.note : ''}`) : a.note ? h('span', { class: 'pill' }, a.note) : h('span', { class: 'pill st-down' }, h('span', { class: 'dot' }), 'Okvitterat')),
-        h('td', { class: 'actions' }, isAdmin() ? (a.ack ? h('button', { class: 'btn sm', onclick: async () => { await POST('/api/alerts/ack', { key: a.key, undo: true }); delete S.acks[a.key]; renderPage(); } }, 'Ångra') :
-          h('button', { class: 'btn sm primary', onclick: async () => { await ackAlert(a.key); renderPage(); } }, 'Kvittera')) : null)))))
-      : h('p', { class: 'muted' }, 'Inga aktiva larm.'));
+        h('td', null, a.ack ? h('span', { class: 'pill' }, T('Acknowledged by {0} {1}{2}', a.ack.user, clock(a.ack.t), a.ack.note ? ' – ' + a.ack.note : '')) : a.note ? h('span', { class: 'pill' }, a.note) : h('span', { class: 'pill st-down' }, h('span', { class: 'dot' }), T('Unacknowledged'))),
+        h('td', { class: 'actions' }, isAdmin() ? (a.ack ? h('button', { class: 'btn sm', onclick: async () => { await POST('/api/alerts/ack', { key: a.key, undo: true }); delete S.acks[a.key]; renderPage(); } }, T('Undo')) :
+          h('button', { class: 'btn sm primary', onclick: async () => { await ackAlert(a.key); renderPage(); } }, T('Acknowledge'))) : null)))))
+      : h('p', { class: 'muted' }, T('No active alerts.')));
   }).catch(e => actBox.replaceChildren(h('p', { class: 'form-error' }, e.message)));
-  page.replaceChildren(head, h('div', { class: 'section', style: 'margin-top:0' }, h('div', { class: 'section-head' }, h('h2', null, 'Aktiva larm')), actBox), ...ruleTables, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, 'Senaste händelser')), evBox));
+  page.replaceChildren(head, h('div', { class: 'section', style: 'margin-top:0' }, h('div', { class: 'section-head' }, h('h2', null, T('Active alerts'))), actBox), ...ruleTables, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Recent events'))), evBox));
   try {
     const evs = await GET('/api/events?limit=300');
-    const kt = { fire: 'Utlöst', repeat: 'Pågår', clear: 'Upphört', test: 'Test' };
+    const kt = { fire: T('Fired'), repeat: T('Ongoing'), clear: T('Cleared'), test: 'Test' };
     evBox.replaceChildren(evs.length ? h('table', { class: 'tbl' },
-      h('thead', null, h('tr', null, ...['Tid', 'Händelse', 'Mål', 'Larm', 'Detalj'].map(x => h('th', null, x)))),
+      h('thead', null, h('tr', null, ...[T('Time'), T('Event'), T('Target'), T('Alert'), T('Detail')].map(x => h('th', null, x)))),
       h('tbody', null, ...evs.map(e => h('tr', null, h('td', { class: 'mono' }, dateTime(e.time)), h('td', null, h('span', { class: 'tag ' + e.kind }, kt[e.kind] || e.kind)),
         h('td', null, e.targetName), h('td', null, e.alertName), h('td', null, e.detail)))))
-      : h('p', { class: 'muted' }, 'Inga larmhändelser ännu.'));
+      : h('p', { class: 'muted' }, T('No alert events yet.')));
   } catch (e) { evBox.replaceChildren(h('p', { class: 'form-error' }, e.message)); }
 }
 function describe(a) {
-  if (a.condition === 'latency') return `Latens > ${a.threshold} ms, ${a.count} av ${a.samples}`;
-  if (a.condition === 'loss') return `Förlust > ${a.threshold} % (senaste ${a.samples})`;
+  if (a.condition === 'latency') return T('Latency > {0} ms, {1} of {2}', a.threshold, a.count, a.samples);
+  if (a.condition === 'loss') return T('Loss > {0} % (last {1})', a.threshold, a.samples);
   if (a.condition === 'offline') return 'Agent offline';
-  if (a.condition === 'cpu') return `CPU > ${a.threshold} % i ${a.samples} min`;
-  if (a.condition === 'mem') return `Minne > ${a.threshold} % i ${a.samples} min`;
+  if (a.condition === 'cpu') return T('CPU > {0} % for {1} min', a.threshold, a.samples);
+  if (a.condition === 'mem') return T('Memory > {0} % for {1} min', a.threshold, a.samples);
   if (a.condition === 'disk') return `Disk > ${a.threshold} % full`;
-  if (a.condition === 'rssi') return `Wi-Fi-signal < ${a.threshold} dBm i ${a.samples} min`;
-  if (a.condition === 'path') return 'Vägen till målet ändras';
-  if (a.condition === 'cert') return `Certifikat går ut inom ${a.threshold} dagar`;
-  return `Nere: ${a.count} av ${a.samples} förlorade`;
+  if (a.condition === 'rssi') return T('Wi-Fi signal < {0} dBm for {1} min', a.threshold, a.samples);
+  if (a.condition === 'path') return T('Path to target changes');
+  if (a.condition === 'cert') return T('Certificate expires within {0} days', a.threshold);
+  return T('Down: {0} of {1} lost', a.count, a.samples);
 }
 function actionsText(r) {
   const a = [];
-  if (r.email) a.push('e-post'); if (r.webhook) a.push('webhook'); if (r.popup) a.push('popup'); if (r.sound) a.push('ljud');
+  if (r.email) a.push(T('email')); if (r.webhook) a.push('webhook'); if (r.popup) a.push('popup'); if (r.sound) a.push(T('sound'));
   return a.join(', ') || '–';
 }
 
 /* ---------------- användare ---------------- */
 async function renderUsers(page) {
-  const head = h('div', { class: 'page-head' }, h('h1', null, 'Användare'), h('div', { class: 'tools' }, h('button', { class: 'btn primary', onclick: () => userDialog(null) }, '+ Ny användare')));
+  const head = h('div', { class: 'page-head' }, h('h1', null, T('Users')), h('div', { class: 'tools' }, h('button', { class: 'btn primary', onclick: () => userDialog(null) }, T('+ New user'))));
   const box = h('div');
-  page.replaceChildren(head, box, h('p', { class: 'ro-note', style: 'margin-top:12px' }, 'Kundanvändare ser bara sin egen kund och kan inte ändra något.'));
+  page.replaceChildren(head, box, h('p', { class: 'ro-note', style: 'margin-top:12px' }, T('Customer users only see their own customer and cannot change anything.')));
   const us = await GET('/api/users');
-  box.replaceChildren(h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'E-post', 'Roll', 'Kund', 'Tvåsteg', ''].map(x => h('th', null, x)))),
+  box.replaceChildren(h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('Email'), T('Role'), T('Customer'), T('2FA'), ''].map(x => h('th', null, x)))),
     h('tbody', null, ...us.map(u => h('tr', null, h('td', null, u.name || '–'), h('td', null, u.email),
-      h('td', null, u.role === 'admin' ? 'Administratör' : 'Kund (läs)'), h('td', null, u.customerId ? ((byId(S.customers, u.customerId) || {}).name || '–') : '–'),
-      h('td', null, u.totp ? h('span', { class: 'pill st-up' }, h('span', { class: 'dot' }), 'På') : h('span', { class: 'muted' }, 'Av')),
-      h('td', { class: 'actions' }, h('button', { class: 'btn sm', onclick: () => userDialog(u) }, 'Redigera')))))));
+      h('td', null, u.role === 'admin' ? T('Administrator') : T('Customer (read)')), h('td', null, u.customerId ? ((byId(S.customers, u.customerId) || {}).name || '–') : '–'),
+      h('td', null, u.totp ? h('span', { class: 'pill st-up' }, h('span', { class: 'dot' }), T('On')) : h('span', { class: 'muted' }, T('Off'))),
+      h('td', { class: 'actions' }, h('button', { class: 'btn sm', onclick: () => userDialog(u) }, T('Edit'))))))));
 }
 
 /* ---------------- inställningar ---------------- */
@@ -1278,67 +1328,72 @@ async function renderSettings(page) {
   const st = await GET('/api/settings');
   GET('/api/backups').then(b => {
     const box = $('#backupList'); if (!box) return;
-    box.replaceChildren(h('span', null, 'Sparade kopior'), b.files.length ? h('div', { class: 'checks', style: 'flex-direction:column' }, ...b.files.map(f =>
-      h('a', { href: '/api/backup?file=' + encodeURIComponent(f.name) }, `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`))) : h('small', null, 'Inga ännu.'),
-      h('small', null, `Mapp: ${b.dir}. Återställ genom att stoppa servern och ersätta pingvakt.db med en kopia.`));
+    box.replaceChildren(h('span', null, T('Saved copies')), b.files.length ? h('div', { class: 'checks', style: 'flex-direction:column' }, ...b.files.map(f =>
+      h('a', { href: '/api/backup?file=' + encodeURIComponent(f.name) }, `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`))) : h('small', null, T('None yet.')),
+      h('small', null, T('Folder: {0}. Restore by stopping the server and replacing pingvakt.db with a copy.', b.dir)));
   }).catch(() => {});
   const pub = h('input', { type: 'text', value: st.publicUrl, placeholder: S.serverUrl });
-  const repName = h('input', { type: 'text', value: st.reportName || '', placeholder: 'Ditt företagsnamn' });
+  const lang = select([['en', 'English'], ['sv', 'Svenska']], st.language || 'en');
+  const repName = h('input', { type: 'text', value: st.reportName || '', placeholder: T('Your company name') });
   const rep = num(st.reportSec, 2, 300), raw = num(st.rawDays, 1, 365), agg = num(st.aggDays, 7, 3650);
   const autoUpd = h('input', { type: 'checkbox', checked: !st.noAutoUpdate });
   const backupKeep = num(st.backupKeep, 0, 365);
   const m = st.monitor;
   const win = num(m.statsWindow, 5, 3600), warnMs = num(m.warnMs, 0, 10000), warnLoss = num(m.warnLossPct, 0, 100, .5), downAfter = num(m.downAfter, 1, 100);
   const sm = st.smtp;
-  const sHost = h('input', { type: 'text', value: sm.host, placeholder: 'smtp.exempel.se' }), sPort = num(sm.port || 587, 1, 65535);
-  const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', 'Ingen kryptering (25)']], sm.security || 'starttls');
-  const sUser = h('input', { type: 'text', value: sm.username }), sPass = h('input', { type: 'password', placeholder: st.hasPassword ? '•••••••• (sparat – lämna tomt för att behålla)' : '', autocomplete: 'new-password' });
-  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'pingvakt@exempel.se' }), sMin = num(sm.minMinutes ?? 5, 0, 1440);
+  const sHost = h('input', { type: 'text', value: sm.host, placeholder: 'smtp.example.com' }), sPort = num(sm.port || 587, 1, 65535);
+  const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', T('No encryption (25)')]], sm.security || 'starttls');
+  const sUser = h('input', { type: 'text', value: sm.username }), sPass = h('input', { type: 'password', placeholder: st.hasPassword ? T('•••••••• (saved – leave empty to keep)') : '', autocomplete: 'new-password' });
+  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'pingvakt@example.com' }), sMin = num(sm.minMinutes ?? 5, 0, 1440);
   sSec.onchange = () => { sPort.value = { starttls: 587, tls: 465, none: 25 }[sSec.value]; };
   const smtpVal = () => ({ host: sHost.value.trim(), port: +sPort.value, security: sSec.value, username: sUser.value.trim(), password: sPass.value, from: sFrom.value.trim(), minMinutes: +sMin.value });
-  const testTo = h('input', { type: 'email', placeholder: 'mottagare@exempel.se' }), testRes = h('span');
+  const testTo = h('input', { type: 'email', placeholder: 'recipient@example.com' }), testRes = h('span');
   const msg = h('span');
-  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, 'Inställningar')),
+  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, T('Settings'))),
     h('div', { class: 'modal', style: 'width:auto;max-width:860px;max-height:none' }, h('div', { class: 'modal-body', style: 'padding-top:16px' }, h('div', { class: 'form' },
       h('div', { class: 'section-title' }, 'Server'),
-      field('Publik adress', pub, 'Används i installationskommandon och mejl. Tomt = adressen du surfar på', true),
-      field('Företagsnamn på rapporter och statussidor', repName, null, true),
-      field('Agenter rapporterar var (sekunder)', rep), h('span'),
-      field('Spara rådata (dagar)', raw, 'Varje enskild ping'), field('Spara minutvärden (dagar)', agg, 'Snitt/min/max/förlust per minut'),
-      h('div', { class: 'field full' }, h('label', { class: 'check' }, autoUpd, 'Uppdatera agenterna automatiskt när servern får en ny version')),
-      h('div', { class: 'section-title' }, 'Säkerhetskopior'),
-      field('Spara nattliga kopior (antal)', backupKeep, 'Tas varje natt 03:15. 0 = av.'),
-      h('div', { class: 'field' }, h('span', null, 'Ladda ner'), h('div', { class: 'row' }, h('a', { class: 'btn', href: '/api/backup' }, 'Ladda ner säkerhetskopia nu'))),
+      field(T('Default language'), lang, T('For users, reports and status pages that have no language of their own, and for alert texts and emails.')),
+      h('span'),
+      field(T('Public address'), pub, T('Used in install commands and emails. Empty = the address you are browsing'), true),
+      field(T('Company name on reports and status pages'), repName, null, true),
+      field(T('Agents report every (seconds)'), rep), h('span'),
+      field(T('Keep raw data (days)'), raw, T('Every single ping')), field(T('Keep minute values (days)'), agg, T('Avg/min/max/loss per minute')),
+      h('div', { class: 'field full' }, h('label', { class: 'check' }, autoUpd, T('Update agents automatically when the server gets a new version'))),
+      h('div', { class: 'section-title' }, T('Backups')),
+      field(T('Keep nightly copies (count)'), backupKeep, T('Taken every night at 03:15. 0 = off.')),
+      h('div', { class: 'field' }, h('span', null, T('Download')), h('div', { class: 'row' }, h('a', { class: 'btn', href: '/api/backup' }, T('Download backup now')))),
       h('div', { class: 'field full', id: 'backupList' }),
-      h('div', { class: 'section-title' }, 'Mätning (skickas till agenterna)'),
-      field('Statistikfönster (mätpunkter)', win), field('Nere efter (förlorade i rad)', downAfter),
-      field('Varningsgräns latens (ms)', warnMs), field('Varningsgräns förlust (%)', warnLoss),
-      h('div', { class: 'section-title' }, 'E-post för larm'),
-      field('SMTP-server', sHost), field('Säkerhet', sSec), field('Port', sPort), field('Avsändare', sFrom),
-      field('Användarnamn', sUser), field('Lösenord', sPass), field('Max ett mejl per larm var (minuter)', sMin),
-      h('div', { class: 'field full' }, h('span', null, 'Testa e-post'), h('div', { class: 'row' }, testTo, h('button', { class: 'btn', onclick: async () => {
-        testRes.className = ''; testRes.replaceChildren(h('span', { class: 'spin' }), ' Skickar…');
-        try { await POST('/api/settings/test-email', { to: testTo.value, smtp: smtpVal(), newPassword: sPass.value !== '' }); testRes.className = 'form-ok'; testRes.textContent = 'Testmejlet skickades.'; }
+      h('div', { class: 'section-title' }, T('Measurement (sent to the agents)')),
+      field(T('Statistics window (samples)'), win), field(T('Down after (lost in a row)'), downAfter),
+      field(T('Latency warning threshold (ms)'), warnMs), field(T('Loss warning threshold (%)'), warnLoss),
+      h('div', { class: 'section-title' }, T('Email for alerts')),
+      field(T('SMTP server'), sHost), field(T('Security'), sSec), field('Port', sPort), field(T('Sender'), sFrom),
+      field(T('Username'), sUser), field(T('Password'), sPass), field(T('At most one email per alert every (minutes)'), sMin),
+      h('div', { class: 'field full' }, h('span', null, T('Test email')), h('div', { class: 'row' }, testTo, h('button', { class: 'btn', onclick: async () => {
+        testRes.className = ''; testRes.replaceChildren(h('span', { class: 'spin' }), T(' Sending…'));
+        try { await POST('/api/settings/test-email', { to: testTo.value, smtp: smtpVal(), newPassword: sPass.value !== '' }); testRes.className = 'form-ok'; testRes.textContent = T('The test email was sent.'); }
         catch (e) { testRes.className = 'form-error'; testRes.textContent = e.message; }
-      } }, 'Skicka testmejl')), testRes))),
-    h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, `PingVakt-server ${S.version}`)),
+      } }, T('Send test email'))), testRes))),
+    h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('PingVakt server {0}', S.version))),
       h('button', { class: 'btn primary', onclick: async () => {
         msg.className = ''; msg.textContent = '';
         try {
-          await PUT('/api/settings', { publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
+          const langChanged = lang.value !== (st.language || 'en');
+          await PUT('/api/settings', { language: lang.value, publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
             noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value, reportName: repName.value.trim(),
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
             smtp: smtpVal(), newPassword: sPass.value !== '' });
-          msg.className = 'form-ok'; msg.textContent = 'Sparat.'; await loadState();
+          msg.className = 'form-ok'; msg.textContent = T('Saved.'); await loadState();
+          if (langChanged && !S.me.lang) location.reload();
         } catch (e) { msg.className = 'form-error'; msg.textContent = e.message; }
-      } }, 'Spara'))));
+      } }, T('Save')))));
 }
 
 /* ---------------- dialoger ---------------- */
 function modal({ title, body, foot, wide, onClose }) {
   const close = () => { bd.remove(); onClose && onClose(); };
   const bd = h('div', { class: 'backdrop' }, h('div', { class: 'modal' + (wide ? ' wide' : ''), role: 'dialog', 'aria-label': title },
-    h('div', { class: 'modal-head' }, h('h3', null, title), h('button', { class: 'icon-btn', title: 'Stäng', onclick: close }, '✕')),
+    h('div', { class: 'modal-head' }, h('h3', null, title), h('button', { class: 'icon-btn', title: T('Close'), onclick: close }, '✕')),
     h('div', { class: 'modal-body' }, body), foot ? h('div', { class: 'modal-foot' }, foot) : null));
   bd._close = close;
   bd.addEventListener('mousedown', e => { if (e.target === bd) close(); });
@@ -1351,7 +1406,7 @@ function confirmDialog(title, text, okLabel) {
     let done = false;
     const fin = v => { if (!done) { done = true; resolve(v); close(); } };
     const close = modal({ title, body: h('p', null, text),
-      foot: [h('button', { class: 'btn', onclick: () => fin(false) }, 'Avbryt'), h('button', { class: 'btn primary', onclick: () => fin(true) }, okLabel || 'OK')],
+      foot: [h('button', { class: 'btn', onclick: () => fin(false) }, T('Cancel')), h('button', { class: 'btn primary', onclick: () => fin(true) }, okLabel || 'OK')],
       onClose: () => { if (!done) { done = true; resolve(false); } } });
   });
 }
@@ -1362,8 +1417,8 @@ const num = (value, min, max, step) => h('input', { type: 'number', value, min, 
 function formDialog({ title, fields, onSave, saveLabel, wide }) {
   const err = h('span', { class: 'form-error' });
   const close = modal({ title, wide, body: h('div', { class: 'form' }, ...fields),
-    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
-      h('button', { class: 'btn primary', onclick: async () => { err.textContent = ''; try { await onSave(); close(); } catch (e) { err.textContent = e.message; } } }, saveLabel || 'Spara')] });
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, T('Cancel')),
+      h('button', { class: 'btn primary', onclick: async () => { err.textContent = ''; try { await onSave(); close(); } catch (e) { err.textContent = e.message; } } }, saveLabel || T('Save'))] });
   return close;
 }
 
@@ -1377,79 +1432,89 @@ async function afterChange() {
   else if (keep) closeDrawer();
 }
 
+function langDialog() {
+  const lang = select([['', T('Server default')], ['en', 'English'], ['sv', 'Svenska']], S.me.lang || '');
+  formDialog({ title: 'Language / Språk', saveLabel: T('Save'), fields: [field('Language / Språk', lang, null, true)],
+    onSave: async () => { await PUT('/api/me/lang', { lang: lang.value }); location.reload(); } });
+}
+
 function customerDialog(c) {
-  const name = h('input', { type: 'text', value: c ? c.name : '', placeholder: 'Kundens namn' });
-  const notes = h('input', { type: 'text', value: c ? c.notes : '', placeholder: 'Valfri anteckning, t.ex. kontaktperson' });
-  formDialog({ title: c ? 'Redigera kund' : 'Ny kund', fields: [field('Namn', name, null, true), field('Anteckning', notes, null, true),
-    c ? null : h('small', { class: 'field full' }, 'En första site ("Huvudkontor") skapas automatiskt.')],
+  const name = h('input', { type: 'text', value: c ? c.name : '', placeholder: T('Customer name') });
+  const notes = h('input', { type: 'text', value: c ? c.notes : '', placeholder: T('Optional note, e.g. contact person') });
+  const lang = select([['', T('Server default')], ...[['en', 'English'], ['sv', 'Svenska']]], c ? c.lang || '' : '');
+  formDialog({ title: c ? T('Edit customer') : T('New customer'), fields: [field(T('Name'), name, null, true), field(T('Note'), notes, null, true),
+    field(T('Language for reports and status page'), lang),
+    c ? null : h('small', { class: 'field full' }, T('A first site ("Head office") is created automatically.'))],
     onSave: async () => {
-      const r = c ? await PUT('/api/customers/' + c.id, { name: name.value, notes: notes.value }) : await POST('/api/customers', { name: name.value, notes: notes.value });
+      const body = Object.assign({}, c || {}, { name: name.value, notes: notes.value, lang: lang.value });
+      const r = c ? await PUT('/api/customers/' + c.id, body) : await POST('/api/customers', body);
       await afterChange(); if (!c) location.hash = '#/c/' + r.id;
     } });
 }
 async function deleteCustomer(c) {
-  if (!await confirmDialog('Ta bort kund', `Ta bort "${c.name}" med alla siter, agenter, mål, mätdata, larmregler och kundanvändare? Det går inte att ångra.`, 'Ta bort')) return;
+  if (!await confirmDialog(T('Delete customer'), T('Delete "{0}" with all sites, agents, targets, measurements, alert rules and customer users? This cannot be undone.', c.name), T('Delete'))) return;
   await DEL('/api/customers/' + c.id); location.hash = '#/'; await afterChange();
 }
 function siteDialog(customerId, site) {
-  const name = h('input', { type: 'text', value: site ? site.name : '', placeholder: 't.ex. Lager Borås' });
-  formDialog({ title: site ? 'Byt namn på site' : 'Ny site', fields: [field('Namn', name, null, true)],
+  const name = h('input', { type: 'text', value: site ? site.name : '', placeholder: T('e.g. Warehouse Borås') });
+  formDialog({ title: site ? T('Rename site') : T('New site'), fields: [field(T('Name'), name, null, true)],
     onSave: async () => { site ? await PUT('/api/sites/' + site.id, { name: name.value }) : await POST('/api/sites', { customerId, name: name.value }); await afterChange(); } });
 }
 async function deleteSite(site) {
-  if (!await confirmDialog('Ta bort site', `Ta bort "${site.name}" med dess agenter, mål och mätdata?`, 'Ta bort')) return;
+  if (!await confirmDialog(T('Delete site'), T('Delete "{0}" with its agents, targets and measurements?', site.name), T('Delete'))) return;
   await DEL('/api/sites/' + site.id); await afterChange();
 }
 function agentDialog(customerId, siteId) {
   const sites = S.sites.filter(s => s.customerId === customerId);
   const site = select(sites.map(s => [s.id, s.name]), siteId || (sites[0] || {}).id);
-  const name = h('input', { type: 'text', placeholder: 't.ex. Raspberry Pi i serverrummet' });
-  formDialog({ title: 'Ny agent', saveLabel: 'Skapa agent', fields: [field('Site', site, null, true), field('Namn', name, null, true),
-    h('small', { class: 'field full' }, 'Efter att agenten skapats visas en token och färdiga installationskommandon. Samma token kan användas i skrivbordsappen (Inställningar → Server).')],
+  const name = h('input', { type: 'text', placeholder: T('e.g. Raspberry Pi in the server room') });
+  formDialog({ title: T('New agent'), saveLabel: T('Create agent'), fields: [field('Site', site, null, true), field(T('Name'), name, null, true),
+    h('small', { class: 'field full' }, T('After the agent is created, a token and ready-made install commands are shown. The same token can be used in the desktop app (Settings → Server).'))],
     onSave: async () => { const r = await POST('/api/agents', { siteId: site.value, name: name.value }); await afterChange(); installDialog(r.agent, r.token); } });
 }
 function editAgentDialog(a) {
   const cust = customerOfAgent(a);
   const name = h('input', { type: 'text', value: a.name });
   const site = select(S.sites.filter(s => s.customerId === cust).map(s => [s.id, s.name]), a.siteId);
-  formDialog({ title: 'Redigera agent', fields: [field('Namn', name, null, true), field('Site', site, null, true)],
+  formDialog({ title: T('Edit agent'), fields: [field(T('Name'), name, null, true), field('Site', site, null, true)],
     onSave: async () => { await PUT('/api/agents/' + a.id, { name: name.value, siteId: site.value }); await afterChange(); } });
 }
 function copyBox(text) {
-  const b = h('button', { class: 'btn sm', onclick: async () => { try { await navigator.clipboard.writeText(text); b.textContent = 'Kopierat'; setTimeout(() => { b.textContent = 'Kopiera'; }, 1500); } catch (e) { /* ignorera */ } } }, 'Kopiera');
+  const b = h('button', { class: 'btn sm', onclick: async () => { try { await navigator.clipboard.writeText(text); b.textContent = T('Copied'); setTimeout(() => { b.textContent = T('Copy'); }, 1500); } catch (e) { /* ignorera */ } } }, T('Copy'));
   return h('div', { class: 'codebox' }, text, b);
 }
 function installDialog(a, token) {
   const url = S.serverUrl;
   const tok = token || '<TOKEN>';
   const body = h('div', { class: 'form' },
-    token ? h('div', { class: 'notice field full' }, 'Token visas bara nu. Kopiera den eller kör kommandot direkt. Den kan bytas ut senare via agentens meny ("Ny token").')
-      : h('div', { class: 'notice field full' }, 'Token visas bara när den skapas. Skapa en ny token via agentens meny om du behöver installera om.'),
+    token ? h('div', { class: 'notice field full' }, T('The token is only shown now. Copy it or run the command directly. It can be replaced later from the agent\'s menu ("New token").'))
+      : h('div', { class: 'notice field full' }, T('The token is only shown when it is created. Create a new token from the agent\'s menu if you need to reinstall.')),
     token ? field('Token', copyBox(token), null, true) : null,
-    field('Linux (även Raspberry Pi) och macOS – i terminalen', copyBox(`curl -fsSL ${url}/install.sh | sudo sh -s -- --token ${tok}`), null, true),
-    field('Windows – i PowerShell som administratör', copyBox(`& ([scriptblock]::Create((irm ${url}/install.ps1))) -Token ${tok}`), null, true),
-    field('Skrivbordsappen PingVakt', h('div', null, 'Inställningar → Server: ange adressen ', h('code', null, url), ' och token.'), null, true),
-    h('small', { class: 'field full' }, 'Agenten ansluter utåt till servern via HTTPS – inga portar behöver öppnas hos kunden. Agentfilerna hämtas från den här servern.'));
-  modal({ title: `Installera agenten "${a.name}"`, wide: true, body, foot: [h('button', { class: 'btn primary', onclick: e => e.target.closest('.backdrop')._close() }, 'Klar')] });
+    field(T('Linux (including Raspberry Pi) and macOS – in the terminal'), copyBox(`curl -fsSL ${url}/install.sh | sudo sh -s -- --token ${tok}`), null, true),
+    field(T('Windows – in PowerShell as administrator'), copyBox(`& ([scriptblock]::Create((irm ${url}/install.ps1))) -Token ${tok}`), null, true),
+    field(T('The PingVakt desktop app'), h('div', null, T('Settings → Server: enter the address '), h('code', null, url), T(' and the token.')), null, true),
+    h('small', { class: 'field full' }, T('The agent connects outbound to the server over HTTPS – no ports need to be opened at the customer. The agent files are downloaded from this server.')));
+  modal({ title: T('Install the agent "{0}"', a.name), wide: true, body, foot: [h('button', { class: 'btn primary', onclick: e => e.target.closest('.backdrop')._close() }, T('Done'))] });
 }
 
 function addTargetsDialog(customerId) {
   const ags = S.agents.filter(a => customerOfAgent(a) === customerId && a.kind !== 'desktop');
-  if (!ags.length) { toast({ kind: 'info', title: 'Ingen agent', text: 'Skapa en agent först – det är agenten som mäter mot målen.' }); return agentDialog(customerId); }
+  if (!ags.length) { toast({ kind: 'info', title: T('No agent'), text: T('Create an agent first – the agent is what measures the targets.') }); return agentDialog(customerId); }
   const agent = select(ags.map(a => [a.id, `${a.name} (${(siteOf(a.siteId) || {}).name || ''})`]), ags[0].id);
-  const hosts = h('textarea', { rows: 4, placeholder: '192.168.1.1, 10.0.0.1\nskrivare.lokal\nwebb.kund.se:443', spellcheck: 'false' });
+  const hosts = h('textarea', { rows: 4, placeholder: '192.168.1.1, 10.0.0.1\nprinter.local\nweb.customer.com:443', spellcheck: 'false' });
   const kind = select(KINDS, 'icmp');
   const port = num(443, 1, 65535);
-  const group = h('input', { type: 'text', placeholder: 'Valfritt, t.ex. Accesspunkter' });
-  const kw = h('input', { type: 'text', placeholder: 'Valfritt – t.ex. Logga in' });
-  const dns = h('input', { type: 'text', placeholder: 'Tomt = agentens vanliga DNS, t.ex. 8.8.8.8' });
-  const pf = field('Port', port), kf = field('Text som måste finnas', kw), df = field('DNS-server', dns);
+  const group = h('input', { type: 'text', placeholder: T('Optional, e.g. Access points') });
+  const kw = h('input', { type: 'text', placeholder: T('Optional – e.g. Sign in') });
+  const dns = h('input', { type: 'text', placeholder: T('Empty = the agent\'s normal DNS, e.g. 8.8.8.8') });
+  const pf = field('Port', port), kf = field(T('Required text'), kw), df = field(T('DNS server'), dns);
   kind.onchange = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; kf.style.display = kind.value === 'http' ? '' : 'none'; df.style.display = kind.value === 'dns' ? '' : 'none';
-    hosts.placeholder = { http: 'https://webb.kund.se\nhttps://intranät.lokal/login', dns: 'kund.se\nmail.kund.se' }[kind.value] || '192.168.1.1, 10.0.0.1\nskrivare.lokal\nwebb.kund.se:443'; };
+    hosts.placeholder = { http: T('https://web.customer.com\nhttps://intranet.local/login'), dns: T('customer.com\nmail.customer.com') }[kind.value] || '192.168.1.1, 10.0.0.1\nprinter.local\nweb.customer.com:443'; };
   kind.onchange();
-  formDialog({ title: 'Lägg till mål', saveLabel: 'Lägg till', fields: [field('Agent som mäter', agent, null, true),
-    field('Värdar', hosts, 'En eller flera, separerade med komma eller radbrytning. Skriv värd:port för TCP.', true),
-    field('Mättyp', kind), pf, kf, df, field('Grupp', group, null, true)],
+  formDialog({ title: T('Add targets'), saveLabel: T('Add'), fields: [field(T('Measuring agent'), agent, null, true),
+    field(T('Hosts'), hosts, T('One or more, separated by commas or line breaks. Write host:port for TCP.'), true),
+    h('div', { class: 'field full' }, h('button', { class: 'btn sm', type: 'button', onclick: e => { const ag = ags.find(x => x.id === agent.value); e.target.closest('.backdrop')._close(); if (ag) openScan(ag); } }, T('Find devices with a network scan…'))),
+    field(T('Check type'), kind), pf, kf, df, field(T('Group'), group, null, true)],
     onSave: async () => { await POST('/api/targets', { agentId: agent.value, hosts: hosts.value, kind: kind.value, port: +port.value, group: group.value, keyword: kw.value.trim(), dnsServer: dns.value.trim() }); await afterChange(); } });
 }
 
@@ -1461,34 +1526,34 @@ function editTargetDialog(id) {
   const host = h('input', { type: 'text', value: t.host, disabled: fromApp });
   const name = h('input', { type: 'text', value: t.name, disabled: fromApp });
   const kind = select(KINDS, t.kind); kind.disabled = fromApp;
-  const kw = h('input', { type: 'text', value: t.keyword || '', disabled: fromApp, placeholder: 'Valfritt' });
-  const dns = h('input', { type: 'text', value: t.dnsServer || '', disabled: fromApp, placeholder: 'Tomt = agentens vanliga DNS' });
+  const kw = h('input', { type: 'text', value: t.keyword || '', disabled: fromApp, placeholder: T('Optional') });
+  const dns = h('input', { type: 'text', value: t.dnsServer || '', disabled: fromApp, placeholder: T('Empty = the agent\'s normal DNS') });
   const port = num(t.port || 443, 1, 65535); port.disabled = fromApp;
   const interval = select(INTERVALS.map(v => [v, v >= 60000 ? `${v / 60000} min` : v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs); interval.disabled = fromApp;
   const timeout = num(t.timeoutMs, 100, 60000, 100); timeout.disabled = fromApp;
   const size = num(t.size, 1, 65000); size.disabled = fromApp;
-  const ipMode = select([['auto', 'Automatiskt'], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode); ipMode.disabled = fromApp;
+  const ipMode = select([['auto', T('Automatic')], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode); ipMode.disabled = fromApp;
   const group = h('input', { type: 'text', value: t.group || '', disabled: fromApp });
-  const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: `Globalt (${S.monitor.warnMs} ms)` });
+  const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: T('Global ({0} ms)', S.monitor.warnMs) });
   const ags = S.agents.filter(a => customerOfAgent(a) === cust && a.kind !== 'desktop');
   const agent = select(ags.map(a => [a.id, a.name]), t.agentId); agent.disabled = fromApp;
-  const traceMin = select([[0, 'Av'], [5, 'Var 5:e minut'], [15, 'Var 15:e minut'], [30, 'Var 30:e minut'], [60, 'Varje timme']], t.traceMin || 0);
-  const depends = select([['', '– inget –'], ...S.targets.filter(x => x.id !== t.id && customerOfTarget(x) === cust).map(x => [x.id, `${displayName(x)} (${x.host})`])], t.dependsOn || '');
+  const traceMin = select([[0, T('Off')], [5, T('Every 5 minutes')], [15, T('Every 15 minutes')], [30, T('Every 30 minutes')], [60, T('Every hour')]], t.traceMin || 0);
+  const depends = select([['', T('– none –')], ...S.targets.filter(x => x.id !== t.id && customerOfTarget(x) === cust).map(x => [x.id, `${displayName(x)} (${x.host})`])], t.dependsOn || '');
   const sel = new Set(t.alertIds || []);
   const rules = S.rules.filter(r => ['down', 'latency', 'loss'].includes(r.condition) && (!r.customerId || r.customerId === cust));
-  const pf = field('Port', port), kf = field('Text som måste finnas', kw), df = field('DNS-server', dns), sf = field('Paketstorlek (byte)', size), ipf = field('IP-version', ipMode);
+  const pf = field('Port', port), kf = field(T('Required text'), kw), df = field(T('DNS server'), dns), sf = field(T('Packet size (bytes)'), size), ipf = field(T('IP version'), ipMode);
   const syncKind = () => { const k = kind.value; pf.style.display = k === 'tcp' ? '' : 'none'; kf.style.display = k === 'http' ? '' : 'none'; df.style.display = k === 'dns' ? '' : 'none';
     sf.style.display = k === 'icmp' ? '' : 'none'; ipf.style.display = k === 'http' || k === 'dns' ? 'none' : ''; }; kind.onchange = syncKind; syncKind();
-  formDialog({ title: 'Redigera mål', fields: [
-    fromApp ? h('div', { class: 'notice field full' }, 'Målet kommer från en skrivbordsapp. Värd och mätinställningar ändras i appen – här väljer du larm och varningsgräns.') : null,
-    field('Värd / adress', host), field('Namn', name), field('Mättyp', kind), pf, kf, df, fromApp ? null : field('Agent', agent),
-    field('Intervall', interval), field('Tidsgräns (ms)', timeout), sf, ipf,
-    field('Grupp', group), field('Varningsgräns latens (ms)', warn, 'Tomt = globalt värde'),
-    field('Vägbevakning', traceMin, 'Kör traceroute regelbundet från agenten och larmar när vägen till målet ändras (regel "Vägen ändras").', true),
-    field('Beror på', depends, 'Larm skickas inte för det här målet när målet det ligger bakom är nere – du får ett larm i stället för många.', true),
-    h('div', { class: 'section-title' }, 'Larm'),
+  formDialog({ title: T('Edit target'), fields: [
+    fromApp ? h('div', { class: 'notice field full' }, T('This target comes from a desktop app. Host and measurement settings are changed in the app – here you choose alerts and the warning threshold.')) : null,
+    field(T('Host / address'), host), field(T('Name'), name), field(T('Check type'), kind), pf, kf, df, fromApp ? null : field('Agent', agent),
+    field(T('Interval'), interval), field(T('Timeout (ms)'), timeout), sf, ipf,
+    field(T('Group'), group), field(T('Latency warning threshold (ms)'), warn, T('Empty = global value')),
+    field(T('Path monitoring'), traceMin, T('Runs traceroute regularly from the agent and alerts when the path to the target changes (rule "Path changes").'), true),
+    field(T('Depends on'), depends, T('No alerts are sent for this target when the target it sits behind is down – you get one alert instead of many.'), true),
+    h('div', { class: 'section-title' }, T('Alerts')),
     h('div', { class: 'field full' }, rules.length ? h('div', { class: 'checks' }, ...rules.map(r => check(r.name, sel.has(r.id), e => e.target.checked ? sel.add(r.id) : sel.delete(r.id))))
-      : h('small', null, 'Inga larmregler finns för kunden.'))],
+      : h('small', null, T('There are no alert rules for the customer.')))],
     onSave: async () => {
       Object.assign(t, { host: host.value.trim(), name: name.value.trim(), kind: kind.value, port: +port.value || 0, intervalMs: +interval.value, timeoutMs: +timeout.value,
         size: +size.value, ipMode: ipMode.value, keyword: kw.value.trim(), dnsServer: dns.value.trim(), group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel], agentId: agent.value || t.agentId, dependsOn: depends.value, traceMin: +traceMin.value });
@@ -1498,27 +1563,27 @@ function editTargetDialog(id) {
 
 function ruleDialog(rule) {
   const r = rule ? JSON.parse(JSON.stringify(rule)) : { id: '', name: '', condition: 'down', threshold: 0, count: 3, samples: 3, popup: true, sound: false, soundName: 'alarm', email: false, emailTo: '', webhook: false, hookUrl: '', repeatMin: 0, onClear: true, customerId: S.view.name === 'customer' ? S.view.id : '' };
-  const name = h('input', { type: 'text', value: r.name, placeholder: 'Namn på regeln' });
-  const cust = select([['', 'Alla kunder'], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
-  const cond = select([['down', 'Nere – förlorade paket'], ['latency', 'Hög latens'], ['loss', 'Paketförlust i procent'], ['offline', 'Agent offline'],
-    ['cpu', 'Agentens CPU hög'], ['mem', 'Agentens minne högt'], ['disk', 'Agentens disk full'], ['rssi', 'Agentens Wi-Fi-signal svag'], ['cert', 'HTTPS-certifikat går ut'], ['path', 'Vägen (traceroute) ändras']], r.condition);
+  const name = h('input', { type: 'text', value: r.name, placeholder: T('Rule name') });
+  const cust = select([['', T('All customers')], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
+  const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')], ['offline', 'Agent offline'],
+    ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')]], r.condition);
   const thr = num(r.threshold, -120, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
   const condRow = h('div', { class: 'field full' });
   const syncCond = () => {
     const c = cond.value;
-    if (c === 'down') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'förlorade av de senaste'), smp, h('span', null, 'paketen')));
-    if (c === 'latency') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, cnt, h('span', null, 'av de senaste'), smp, h('span', null, 'över'), thr, h('span', null, 'ms')));
-    if (c === 'loss') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Förlust över'), thr, h('span', null, '% av de senaste'), smp, h('span', null, 'paketen')));
-    if (c === 'cpu' || c === 'mem') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, c === 'cpu' ? 'CPU över' : 'Minne över'), thr, h('span', null, '% i'), smp, h('span', null, 'minuter i sträck')),
-      h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
-    if (c === 'disk') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Någon disk mer än'), thr, h('span', null, '% full')),
-      h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
-    if (c === 'rssi') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Signal under'), thr, h('span', null, 'dBm i'), smp, h('span', null, 'minuter i sträck')),
-      h('small', null, 'Gäller alla agenter och skrivbordsappar hos kunden som är anslutna via Wi-Fi. −67 dBm räcker för samtal och video, under −75 dBm blir det ofta problem.'));
-    if (c === 'path') condRow.replaceChildren(h('small', null, 'Utlöses när traceroute visar en ny väg två gånger i rad. Slå på "Vägbevakning" på målen som ska bevakas.'));
-    if (c === 'cert') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Certifikatet går ut inom'), thr, h('span', null, 'dagar')),
-      h('small', null, 'Gäller alla HTTPS-mål hos kunden.'));
-    if (c === 'offline') condRow.replaceChildren(h('small', null, `Utlöses när en agent inte har rapporterat på ${Math.max(30, S.reportSec * 3)} sekunder. Gäller alla agenter hos kunden.`));
+    if (c === 'down') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, cnt, h('span', null, T('lost of the last')), smp, h('span', null, T('packets'))));
+    if (c === 'latency') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, cnt, h('span', null, T('of the last')), smp, h('span', null, T('over')), thr, h('span', null, 'ms')));
+    if (c === 'loss') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Loss over')), thr, h('span', null, T('% of the last')), smp, h('span', null, T('packets'))));
+    if (c === 'cpu' || c === 'mem') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, c === 'cpu' ? T('CPU over') : T('Memory over')), thr, h('span', null, T('% for')), smp, h('span', null, T('minutes in a row'))),
+      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the PingVakt server itself')) + '.'));
+    if (c === 'disk') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Any disk more than')), thr, h('span', null, '% full')),
+      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the PingVakt server itself')) + '.'));
+    if (c === 'rssi') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Signal below')), thr, h('span', null, T('dBm for')), smp, h('span', null, T('minutes in a row'))),
+      h('small', null, T('Applies to all agents and desktop apps of the customer connected via Wi-Fi. −67 dBm is enough for calls and video; below −75 dBm problems are common.')));
+    if (c === 'path') condRow.replaceChildren(h('small', null, T('Triggers when traceroute shows a new path twice in a row. Turn on "Path monitoring" on the targets to watch.')));
+    if (c === 'cert') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Certificate expires within')), thr, h('span', null, T('days'))),
+      h('small', null, T('Applies to all HTTPS targets of the customer.')));
+    if (c === 'offline') condRow.replaceChildren(h('small', null, T('Triggers when an agent has not reported for {0} seconds. Applies to all agents of the customer.', Math.max(30, S.reportSec * 3))));
   };
   cond.onchange = () => {
     const c = cond.value;
@@ -1532,9 +1597,9 @@ function ruleDialog(rule) {
   };
   cust.addEventListener('change', syncCond);
   syncCond();
-  const emailTo = h('input', { type: 'text', value: r.emailTo, placeholder: 'en@exempel.se, två@exempel.se' });
-  const hook = h('input', { type: 'text', value: r.hookUrl, placeholder: 'https://… (Teams, Slack, egen tjänst)' });
-  const sound = select([['beep', 'Pip'], ['alarm', 'Larm'], ['chime', 'Klocka']], r.soundName || 'alarm');
+  const emailTo = h('input', { type: 'text', value: r.emailTo, placeholder: T('one@example.com, two@example.com') });
+  const hook = h('input', { type: 'text', value: r.hookUrl, placeholder: T('https://… (Teams, Slack, your own service)') });
+  const sound = select([['beep', T('Beep')], ['alarm', T('Alerts')], ['chime', T('Chime')]], r.soundName || 'alarm');
   const repeat = num(r.repeatMin, 0, 1440);
   const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear };
   const box = (label, key) => check(label, flags[key], e => { flags[key] = e.target.checked; });
@@ -1542,50 +1607,50 @@ function ruleDialog(rule) {
     emailTo: emailTo.value, hookUrl: hook.value.trim(), soundName: sound.value, repeatMin: +repeat.value }, flags);
   const testRes = h('span');
   const err = h('span', { class: 'form-error' });
-  const close = modal({ title: rule ? 'Redigera larmregel' : 'Ny larmregel', wide: true,
-    body: h('div', { class: 'form' }, field('Namn', name), field('Gäller', cust), field('Typ', cond, null, true), condRow,
-      h('div', { class: 'section-title' }, 'Åtgärder'),
+  const close = modal({ title: rule ? T('Edit alert rule') : T('New alert rule'), wide: true,
+    body: h('div', { class: 'form' }, field(T('Name'), name), field(T('Applies to'), cust), field(T('Type'), cond, null, true), condRow,
+      h('div', { class: 'section-title' }, T('Actions')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
-        h('div', { class: 'row' }, box('Skicka e-post till', 'email'), emailTo),
+        h('div', { class: 'row' }, box(T('Send email to'), 'email'), emailTo),
         h('div', { class: 'row' }, box('Webhook', 'webhook'), hook),
-        box('Popup i webbläsaren för den som har PingVakt öppet', 'popup'),
-        h('div', { class: 'row' }, box('Ljud i webbläsaren', 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')))),
-      h('div', { class: 'section-title' }, 'När'),
+        box(T('Popup in the browser for anyone with PingVakt open'), 'popup'),
+        h('div', { class: 'row' }, box(T('Sound in the browser'), 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')))),
+      h('div', { class: 'section-title' }, T('When')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
-        h('div', { class: 'row' }, h('span', null, 'Upprepa var'), repeat, h('span', null, 'minut medan larmet pågår (0 = nej)')),
-        box('Meddela även när larmet upphör', 'onClear'))),
+        h('div', { class: 'row' }, h('span', null, T('Repeat every')), repeat, h('span', null, T('minutes while the alert is active (0 = no)'))),
+        box(T('Also notify when the alert clears'), 'onClear'))),
       rule && ['down', 'latency', 'loss'].includes(cond.value) ? h('div', { class: 'field full' }, h('div', { class: 'row' },
-        h('span', { class: 'muted', style: 'flex:1' }, 'Koppla regeln till målen:'),
-        h('button', { class: 'btn sm', onclick: async () => assign(true) }, 'Koppla till alla mål'),
-        h('button', { class: 'btn sm', onclick: async () => assign(false) }, 'Koppla bort från alla'))) : null),
+        h('span', { class: 'muted', style: 'flex:1' }, T('Attach the rule to targets:')),
+        h('button', { class: 'btn sm', onclick: async () => assign(true) }, T('Attach to all targets')),
+        h('button', { class: 'btn sm', onclick: async () => assign(false) }, T('Detach from all')))) : null),
     foot: [h('div', { class: 'left' }, err, testRes,
-      h('button', { class: 'btn', onclick: async () => { err.textContent = ''; testRes.textContent = ''; try { await POST('/api/rules/test', collect()); testRes.className = 'form-ok'; testRes.textContent = 'Test skickat.'; } catch (e) { err.textContent = e.message; } } }, 'Testa'),
-      rule ? h('button', { class: 'btn danger', onclick: async () => { if (!await confirmDialog('Ta bort regel', `Ta bort "${rule.name}"?`, 'Ta bort')) return; await DEL('/api/rules/' + rule.id); close(); await afterChange(); } }, 'Ta bort') : null),
-      h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
-      h('button', { class: 'btn primary', onclick: async () => { err.textContent = ''; try { await POST('/api/rules', collect()); close(); await afterChange(); } catch (e) { err.textContent = e.message; } } }, 'Spara')] });
+      h('button', { class: 'btn', onclick: async () => { err.textContent = ''; testRes.textContent = ''; try { await POST('/api/rules/test', collect()); testRes.className = 'form-ok'; testRes.textContent = T('Test sent.'); } catch (e) { err.textContent = e.message; } } }, T('Test')),
+      rule ? h('button', { class: 'btn danger', onclick: async () => { if (!await confirmDialog(T('Delete rule'), T('Delete "{0}"?', rule.name), T('Delete'))) return; await DEL('/api/rules/' + rule.id); close(); await afterChange(); } }, T('Delete')) : null),
+      h('button', { class: 'btn', onclick: () => close() }, T('Cancel')),
+      h('button', { class: 'btn primary', onclick: async () => { err.textContent = ''; try { await POST('/api/rules', collect()); close(); await afterChange(); } catch (e) { err.textContent = e.message; } } }, T('Save'))] });
   async function assign(on) {
     collect(); await POST('/api/rules', r);
     const ids = S.targets.filter(t => !r.customerId || customerOfTarget(t) === r.customerId).map(t => t.id);
     const res = await POST(`/api/rules/${r.id}/assign`, { targetIds: ids, on });
-    testRes.className = 'form-ok'; testRes.textContent = `${res.changed} mål uppdaterade.`; await loadState();
+    testRes.className = 'form-ok'; testRes.textContent = T('{0} targets updated.', res.changed); await loadState();
   }
 }
 
 function userDialog(u) {
   const email = h('input', { type: 'email', value: u ? u.email : '' }), name = h('input', { type: 'text', value: u ? u.name : '' });
-  const role = select([['admin', 'Administratör (allt)'], ['viewer', 'Kund (läsbehörighet)']], u ? u.role : 'viewer');
+  const role = select([['admin', T('Administrator (everything)')], ['viewer', T('Customer (read-only)')]], u ? u.role : 'viewer');
   const cust = select(S.customers.map(c => [c.id, c.name]), u ? u.customerId : (S.customers[0] || {}).id);
-  const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? 'Lämna tomt för att behålla' : 'Minst 8 tecken' });
-  const cf = field('Kund', cust); const sync = () => { cf.style.display = role.value === 'viewer' ? '' : 'none'; }; role.onchange = sync; sync();
-  const fields = [field('E-post', email), field('Namn', name), field('Roll', role), cf, field('Lösenord', pw, null, true)];
+  const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? T('Leave empty to keep') : T('At least 8 characters') });
+  const cf = field(T('Customer'), cust); const sync = () => { cf.style.display = role.value === 'viewer' ? '' : 'none'; }; role.onchange = sync; sync();
+  const fields = [field(T('Email'), email), field(T('Name'), name), field(T('Role'), role), cf, field(T('Password'), pw, null, true)];
   if (u && u.totp) fields.push(h('div', { class: 'field full' }, h('button', { class: 'btn', onclick: async e => {
-    if (!await confirmDialog('Återställ tvåstegsinloggning', `${u.email} kan då logga in med bara lösenordet och behöver aktivera tvåstegsinloggning igen.`, 'Återställ')) return;
+    if (!await confirmDialog(T('Reset two-factor authentication'), T('{0} can then sign in with just the password and needs to enable two-factor authentication again.', u.email), T('Reset'))) return;
     await POST(`/api/users/${u.id}/totp/reset`); e.target.closest('.backdrop')._close(); renderPage();
-  } }, 'Återställ tvåstegsinloggning')));
+  } }, T('Reset two-factor authentication'))));
   if (u && u.id !== S.me.id) fields.push(h('div', { class: 'field full' }, h('button', { class: 'btn danger', onclick: async e => {
-    if (!await confirmDialog('Ta bort användare', `Ta bort ${u.email}?`, 'Ta bort')) return; await DEL('/api/users/' + u.id); e.target.closest('.backdrop')._close(); renderPage();
-  } }, 'Ta bort användaren')));
-  formDialog({ title: u ? 'Redigera användare' : 'Ny användare', fields, onSave: async () => {
+    if (!await confirmDialog(T('Delete user'), T('Delete {0}?', u.email), T('Delete'))) return; await DEL('/api/users/' + u.id); e.target.closest('.backdrop')._close(); renderPage();
+  } }, T('Delete the user'))));
+  formDialog({ title: u ? T('Edit user') : T('New user'), fields, onSave: async () => {
     const body = { email: email.value, name: name.value, role: role.value, customerId: role.value === 'viewer' ? cust.value : '', password: pw.value };
     u ? await PUT('/api/users/' + u.id, body) : await POST('/api/users', body);
     renderPage();
@@ -1594,8 +1659,8 @@ function userDialog(u) {
 
 function passwordDialog() {
   const cur = h('input', { type: 'password', autocomplete: 'current-password' }), nw = h('input', { type: 'password', autocomplete: 'new-password' });
-  formDialog({ title: 'Byt lösenord', fields: [field('Nuvarande lösenord', cur, null, true), field('Nytt lösenord', nw, 'Minst 8 tecken', true)],
-    onSave: async () => { await POST('/api/me/password', { current: cur.value, new: nw.value }); toast({ kind: 'info', title: 'Lösenordet är bytt' }); } });
+  formDialog({ title: T('Change password'), fields: [field(T('Current password'), cur, null, true), field(T('New password'), nw, T('At least 8 characters'), true)],
+    onSave: async () => { await POST('/api/me/password', { current: cur.value, new: nw.value }); toast({ kind: 'info', title: T('The password has been changed') }); } });
 }
 
 /* ---------------- meny, toast, ljud ---------------- */
@@ -1603,7 +1668,7 @@ let openMenuEl = null;
 function closeMenu() { if (openMenuEl) { openMenuEl.remove(); openMenuEl = null; } }
 function showMenu(anchor, items) {
   closeMenu();
-  const m = h('div', { class: 'menu' }, ...items.map(it => it === '-' ? h('hr') : h('button', { class: it.danger ? 'danger' : '', onclick: () => { closeMenu(); it.action(); } }, it.label)));
+  const m = h('div', { class: 'menu' }, ...items.filter(Boolean).map(it => it === '-' ? h('hr') : h('button', { class: it.danger ? 'danger' : '', onclick: () => { closeMenu(); it.action(); } }, it.label)));
   document.body.append(m);
   const r = anchor.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
   m.style.left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8)) + 'px';
@@ -1620,11 +1685,11 @@ document.addEventListener('keydown', e => {
 
 function toast({ kind = 'info', title, text, time, sticky, target, ackKey }) {
   const box = $('#toasts');
-  const close = h('button', { class: 'icon-btn', title: 'Stäng', style: 'grid-row:1;grid-column:3' }, '✕');
+  const close = h('button', { class: 'icon-btn', title: T('Close'), style: 'grid-row:1;grid-column:3' }, '✕');
   const el = h('div', { class: 'toast k-' + kind, style: 'grid-template-columns:1fr auto auto' }, h('b', null, title), h('span', { class: 't-time' }, clock(time || Date.now())), close,
     text ? h('div', { class: 't-text' }, text) : null);
   close.onclick = e => { e.stopPropagation(); el.remove(); };
-  if (ackKey) el.append(h('div', { style: 'grid-column:1/-1;margin-top:6px' }, h('button', { class: 'btn sm', onclick: async e => { e.stopPropagation(); await ackAlert(ackKey); el.remove(); } }, 'Kvittera')));
+  if (ackKey) el.append(h('div', { style: 'grid-column:1/-1;margin-top:6px' }, h('button', { class: 'btn sm', onclick: async e => { e.stopPropagation(); await ackAlert(ackKey); el.remove(); } }, T('Acknowledge'))));
   if (target) { el.style.cursor = 'pointer'; el.onclick = () => { openDrawer(target); el.remove(); }; }
   box.prepend(el);
   while (box.children.length > 6) box.lastChild.remove();

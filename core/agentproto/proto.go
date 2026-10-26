@@ -12,6 +12,7 @@ import (
 
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/netscan"
 	"pingvakt/core/trace"
 	"pingvakt/core/wifi"
 )
@@ -33,17 +34,21 @@ type Command struct {
 
 // CommandResult är svaret på ett Command.
 type CommandResult struct {
-	ID       string      `json:"id"`
-	Kind     string      `json:"kind"`
-	TargetID string      `json:"targetId,omitempty"`
-	Start    int64       `json:"start"`
-	End      int64       `json:"end"`
-	Hops     []trace.Hop `json:"hops,omitempty"`
-	Err      string      `json:"err,omitempty"`
+	ID       string           `json:"id"`
+	Kind     string           `json:"kind"`
+	TargetID string           `json:"targetId,omitempty"`
+	Start    int64            `json:"start"`
+	End      int64            `json:"end"`
+	Hops     []trace.Hop      `json:"hops,omitempty"`
+	Devices  []netscan.Device `json:"devices,omitempty"` // nätverksskanning
+	Err      string           `json:"err,omitempty"`
 }
 
-// CmdTrace är kommandot för traceroute.
-const CmdTrace = "trace"
+// Kommandon.
+const (
+	CmdTrace = "trace" // traceroute mot Host
+	CmdScan  = "scan"  // nätverksskanning av Host (t.ex. 192.168.1.0/24)
+)
 
 // Kind för klienten.
 const (
@@ -79,6 +84,7 @@ type Report struct {
 	Samples          []Sample          `json:"samples"`
 	Host             *hostinfo.Metrics `json:"host,omitempty"` // CPU, minne och disk (agenter)
 	WiFi             *wifi.Info        `json:"wifi,omitempty"` // trådlös anslutning (om datorn har en)
+	Nets             []netscan.Network `json:"nets,omitempty"` // datorns nät (skickas när de ändras)
 }
 
 // Config är det servern bestämmer för en agent.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
+	"net/http"
 	"os"
 	goruntime "runtime"
 	"sort"
@@ -17,14 +18,16 @@ import (
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
 	"pingvakt/core/config"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
+	"pingvakt/core/netscan"
 	"pingvakt/core/probe"
 	"pingvakt/core/trace"
 	"pingvakt/core/wifi"
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.6.0"
+var Version = "0.7.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.
@@ -42,6 +45,7 @@ type App struct {
 
 	tmu         sync.Mutex
 	traceCancel context.CancelFunc
+	scanCancel  context.CancelFunc
 
 	umu      sync.Mutex
 	up       *agentproto.Uploader
@@ -57,13 +61,14 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	cfg, err := config.Load(a.cfgPath)
 	if err != nil {
-		runtime.LogErrorf(ctx, "konfiguration: %v", err)
+		runtime.LogErrorf(ctx, "configuration: %v", err)
 	}
 	a.cfg = cfg
+	i18n.SetLang(cfg.UI.Lang)
 	a.mon = monitor.NewManager(cfg.Settings)
 	a.mailer = alert.NewMailer(cfg.SMTP)
 	a.mailer.OnError = func(err error) {
-		runtime.EventsEmit(a.ctx, "error", "E-post kunde inte skickas: "+err.Error())
+		runtime.EventsEmit(a.ctx, "error", i18n.T("Email could not be sent: ")+err.Error())
 	}
 	a.eng = alert.NewEngine(a.mon, a.mailer, cfg.AlertLog, func(ev alert.Event) {
 		runtime.EventsEmit(a.ctx, "alert", ev)
@@ -120,7 +125,7 @@ func (a *App) startServerLink(l config.ServerLink) {
 	host, _ := os.Hostname()
 	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
 		Info:         agentproto.AgentInfo{Version: Version, Hostname: host, OS: goruntime.GOOS + "/" + goruntime.GOARCH, Kind: agentproto.KindDesktop},
-		LocalTargets: a.mon.Targets, WiFi: wifiCollector.Get}
+		LocalTargets: a.mon.Targets, WiFi: wifiCollector.Get, Nets: netscan.Networks}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.up, a.upCancel = up, cancel
 	go func() {
@@ -178,7 +183,7 @@ func (a *App) linkFrom(in ServerInput) config.ServerLink {
 func (a *App) TestServer(in ServerInput) (agentproto.Status, error) {
 	l := a.linkFrom(in)
 	if l.Token == "" {
-		return agentproto.Status{}, errors.New("ange token från servern")
+		return agentproto.Status{}, errors.New("enter the token from the server")
 	}
 	host, _ := os.Hostname()
 	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
@@ -200,7 +205,7 @@ func (a *App) SaveServer(in ServerInput) error {
 			return err
 		}
 		if l.Token == "" {
-			return errors.New("ange token från servern")
+			return errors.New("enter the token from the server")
 		}
 	}
 	a.mu.Lock()
@@ -306,7 +311,7 @@ func (a *App) AddHosts(text string, in AddInput) ([]monitor.Target, error) {
 		added = append(added, a.mon.Upsert(t))
 	}
 	if len(added) == 0 {
-		return nil, errors.New("ange minst ett värdnamn eller en IP-adress")
+		return nil, errors.New("enter at least one host name or IP address")
 	}
 	return added, a.save()
 }
@@ -319,7 +324,7 @@ func parseHostToken(tok string, in AddInput) (string, probe.Kind, int) {
 func (a *App) SaveTarget(t monitor.Target) (monitor.Target, error) {
 	h, k, p := parseHostToken(t.Host, AddInput{Kind: t.Kind, Port: t.Port})
 	if h == "" {
-		return t, errors.New("ogiltig värd")
+		return t, errors.New("invalid host")
 	}
 	t.Host = h
 	if k == probe.KindHTTP || t.Kind == probe.KindTCP {
@@ -402,6 +407,7 @@ func (a *App) SaveSettings(in SettingsInput) error {
 	a.cfg.AlertLog = strings.TrimSpace(in.AlertLog)
 	a.cfg.UI = in.UI
 	a.mu.Unlock()
+	i18n.SetLang(in.UI.Lang)
 	a.mon.SetSettings(in.Settings)
 	a.mailer.SetConfig(in.SMTP)
 	a.eng.SetLogPath(in.AlertLog)
@@ -486,10 +492,10 @@ func (a *App) TestEmail(to string, smtp alert.SMTP, newPassword bool) error {
 	}
 	rcpt := alert.SplitAddresses(to)
 	if len(rcpt) == 0 {
-		return errors.New("ange en mottagaradress")
+		return errors.New("enter a recipient address")
 	}
 	return alert.Send(smtp, rcpt, "[PingVakt] Testmejl",
-		"Det här är ett testmejl från PingVakt.\r\n\r\nOm du läser detta fungerar e-postinställningarna.\r\n")
+		i18n.T("This is a test email from PingVakt.\r\n\r\nIf you are reading this, the email settings work.\r\n"))
 }
 
 // AlertHistory returnerar senaste larmhändelser.
@@ -510,7 +516,7 @@ func (a *App) StartTrace(host string) error {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			msg = err.Error()
 			if errors.Is(err, context.DeadlineExceeded) {
-				msg = "Traceroute tog för lång tid och avbröts"
+				msg = i18n.T("Traceroute took too long and was cancelled")
 			}
 		}
 		runtime.EventsEmit(a.ctx, "trace:done", msg)
@@ -528,11 +534,56 @@ func (a *App) StopTrace() {
 	a.tmu.Unlock()
 }
 
+// Networks returnerar datorns nät att skanna.
+func (a *App) Networks() []netscan.Network {
+	n := netscan.Networks()
+	if n == nil {
+		n = []netscan.Network{}
+	}
+	return n
+}
+
+// StartScan skannar ett nät. Förlopp skickas som "scan:progress" och
+// resultatet som "scan:done" ({devices, err}).
+func (a *App) StartScan(cidr string) error {
+	if _, err := netscan.Hosts(cidr); err != nil {
+		return err
+	}
+	a.StopScan()
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Minute)
+	a.tmu.Lock()
+	a.scanCancel = cancel
+	a.tmu.Unlock()
+	go func() {
+		defer cancel()
+		ds, err := netscan.Scan(ctx, cidr, netscan.Options{}, nil, func(p netscan.Progress) { runtime.EventsEmit(a.ctx, "scan:progress", p) })
+		msg := ""
+		if err != nil && !errors.Is(err, context.Canceled) {
+			msg = err.Error()
+		}
+		if ds == nil {
+			ds = []netscan.Device{}
+		}
+		runtime.EventsEmit(a.ctx, "scan:done", map[string]any{"devices": ds, "err": msg})
+	}()
+	return nil
+}
+
+// StopScan avbryter pågående skanning.
+func (a *App) StopScan() {
+	a.tmu.Lock()
+	if a.scanCancel != nil {
+		a.scanCancel()
+		a.scanCancel = nil
+	}
+	a.tmu.Unlock()
+}
+
 // ExportCSV sparar historiken för angivna mål till en CSV-fil som användaren väljer.
 func (a *App) ExportCSV(ids []string, sinceMs int64) (string, error) {
 	name := "pingvakt-" + time.Now().Format("2006-01-02-1504") + ".csv"
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title: "Exportera mätdata", DefaultFilename: name,
+		Title: i18n.T("Export measurements"), DefaultFilename: name,
 		Filters: []runtime.FileFilter{{DisplayName: "CSV (*.csv)", Pattern: "*.csv"}},
 	})
 	if err != nil || path == "" {
@@ -552,8 +603,11 @@ func (a *App) writeCSV(path string, ids []string, sinceMs int64) error {
 	defer f.Close()
 	_, _ = f.Write([]byte{0xEF, 0xBB, 0xBF}) // BOM så att Excel läser åäö rätt
 	w := csv.NewWriter(f)
-	w.Comma = ';'
-	_ = w.Write([]string{"Tid", "Mål", "Värd", "Typ", "Latens (ms)", "Förlorad"})
+	sv := i18n.Lang() == "sv" // svenskt Excel vill ha semikolon och decimalkomma
+	if sv {
+		w.Comma = ';'
+	}
+	_ = w.Write([]string{i18n.T("Time"), i18n.T("Target"), i18n.T("Host"), i18n.T("Type"), i18n.T("Latency (ms)"), i18n.T("Lost")})
 	type row struct {
 		t    int64
 		cols []string
@@ -570,7 +624,10 @@ func (a *App) writeCSV(path string, ids []string, sinceMs int64) error {
 		}
 		kind := t.KindLabel()
 		for _, s := range a.mon.History(id, sinceMs) {
-			lat, lost := strings.Replace(strconv.FormatFloat(float64(s.RTT), 'f', 3, 32), ".", ",", 1), "0"
+			lat, lost := strconv.FormatFloat(float64(s.RTT), 'f', 3, 32), "0"
+			if sv {
+				lat = strings.Replace(lat, ".", ",", 1)
+			}
 			if s.Lost() {
 				lat, lost = "", "1"
 			}
@@ -591,7 +648,7 @@ func (a *App) OpenPath(p string) {
 		return
 	}
 	if _, err := os.Stat(p); err != nil {
-		runtime.EventsEmit(a.ctx, "error", "Filen finns inte ännu: "+p)
+		runtime.EventsEmit(a.ctx, "error", i18n.T("The file does not exist yet: ")+p)
 		return
 	}
 	runtime.BrowserOpenURL(a.ctx, "file://"+toURLPath(p))
@@ -603,4 +660,22 @@ func toURLPath(p string) string {
 		p = "/" + p
 	}
 	return p
+}
+
+// serveI18n skickar språk och ordbok till gränssnittet (/i18n.js).
+func (a *App) serveI18n(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/i18n.js" {
+		http.NotFound(w, r)
+		return
+	}
+	a.mu.Lock()
+	lang, loaded := a.cfg.UI.Lang, a.mon != nil
+	a.mu.Unlock()
+	if !loaded {
+		if c, err := config.Load(a.cfgPath); err == nil {
+			lang = c.UI.Lang
+		}
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	_, _ = w.Write(i18n.Script(i18n.Norm(lang, "en")))
 }

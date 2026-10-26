@@ -16,6 +16,7 @@ import (
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 	"pingvakt/core/probe"
 )
@@ -39,7 +40,7 @@ func httpErr(w http.ResponseWriter, code int, msg string) {
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(io.LimitReader(r.Body, 2<<20))
 	if err := dec.Decode(v); err != nil {
-		httpErr(w, http.StatusBadRequest, "ogiltig JSON: "+err.Error())
+		httpErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return false
 	}
 	return true
@@ -67,6 +68,10 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/export.csv", need(false, s.handleExport))
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
 	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
+	mux.HandleFunc("GET /i18n.js", s.handleI18n)
+	mux.HandleFunc("GET /api/agents/{id}/scan", need(true, s.handleScanInfo))
+	mux.HandleFunc("POST /api/agents/{id}/scan", need(true, s.handleStartScan))
+	mux.HandleFunc("PUT /api/me/lang", need(false, s.handleMyLang))
 	mux.HandleFunc("POST /api/targets/{id}/trace", need(false, s.handleStartTrace))
 	mux.HandleFunc("GET /api/targets/{id}/traces", need(false, s.handleTraces))
 	mux.HandleFunc("POST "+agentproto.ResultPath, s.handleCommandResult)
@@ -255,7 +260,7 @@ func (s *Server) publicURL(r *http.Request) string {
 func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
-		httpErr(w, 500, "strömning stöds inte")
+		httpErr(w, 500, "streaming not supported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -297,7 +302,7 @@ func (s *Server) targetVisible(r *http.Request, id string) (*Target, bool) {
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, ok := s.targetVisible(r, id); !ok {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
@@ -323,7 +328,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	t, ok := s.targetVisible(r, id)
 	if !ok {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
@@ -349,11 +354,21 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="pingvakt-%s-%s.csv"`, safeFile(name), time.Now().Format("20060102-1504")))
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
+	lang := s.userLang(r)
+	L := func(x string) string { return i18n.TL(lang, x) }
 	cw := csv.NewWriter(w)
-	cw.Comma = ';'
-	num := func(v float64) string { return strings.Replace(strconv.FormatFloat(v, 'f', 3, 64), ".", ",", 1) }
+	if lang == "sv" {
+		cw.Comma = ';' // svenskt Excel
+	}
+	num := func(v float64) string {
+		f := strconv.FormatFloat(v, 'f', 3, 64)
+		if lang == "sv" {
+			f = strings.Replace(f, ".", ",", 1)
+		}
+		return f
+	}
 	if h.Mode == "raw" {
-		_ = cw.Write([]string{"Tid", "Mål", "Värd", "Latens (ms)", "Förlorad"})
+		_ = cw.Write([]string{L("Time"), L("Target"), L("Host"), L("Latency (ms)"), L("Lost")})
 		for i, ts := range h.T {
 			lat, lost := num(h.R[i]), "0"
 			if h.R[i] < 0 {
@@ -362,7 +377,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			_ = cw.Write([]string{time.UnixMilli(ts).Format("2006-01-02 15:04:05.000"), name, t.Host, lat, lost})
 		}
 	} else {
-		_ = cw.Write([]string{"Tid", "Mål", "Värd", "Snitt (ms)", "Min (ms)", "Max (ms)", "Förlust (%)", "Antal paket"})
+		_ = cw.Write([]string{L("Time"), L("Target"), L("Host"), L("Avg (ms)"), "Min (ms)", "Max (ms)", L("Loss (%)"), L("Packet count")})
 		f := func(p *float64) string {
 			if p == nil {
 				return ""
@@ -413,15 +428,18 @@ func (s *Server) handleSaveCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" {
-		httpErr(w, 400, "namn saknas")
+		httpErr(w, 400, "name missing")
 		return
 	}
 	c.ReportTo = strings.TrimSpace(c.ReportTo)
 	if c.ReportFreq != "weekly" && c.ReportFreq != "monthly" {
 		c.ReportFreq = ""
 	}
+	if c.Lang != "" {
+		c.Lang = i18n.Norm(c.Lang, "")
+	}
 	if id := r.PathValue("id"); id != "" {
-		_, err := s.db.Exec(`UPDATE customers SET name=?, notes=?, report_to=?, report_freq=? WHERE id=?`, c.Name, c.Notes, c.ReportTo, c.ReportFreq, id)
+		_, err := s.db.Exec(`UPDATE customers SET name=?, notes=?, report_to=?, report_freq=?, lang=? WHERE id=?`, c.Name, c.Notes, c.ReportTo, c.ReportFreq, c.Lang, id)
 		if err != nil {
 			httpErr(w, 500, err.Error())
 			return
@@ -429,14 +447,14 @@ func (s *Server) handleSaveCustomer(w http.ResponseWriter, r *http.Request) {
 		c.ID = id
 	} else {
 		c.ID, c.Created = newID(), now()
-		if _, err := s.db.Exec(`INSERT INTO customers(id,name,notes,created,report_to,report_freq) VALUES(?,?,?,?,?,?)`, c.ID, c.Name, c.Notes, c.Created, c.ReportTo, c.ReportFreq); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO customers(id,name,notes,created,report_to,report_freq,lang) VALUES(?,?,?,?,?,?,?)`, c.ID, c.Name, c.Notes, c.Created, c.ReportTo, c.ReportFreq, c.Lang); err != nil {
 			httpErr(w, 500, err.Error())
 			return
 		}
 		// en första site skapas direkt
-		_, _ = s.db.Exec(`INSERT INTO sites(id,customer_id,name,created) VALUES(?,?,?,?)`, newID(), c.ID, "Huvudkontor", now())
+		_, _ = s.db.Exec(`INSERT INTO sites(id,customer_id,name,created) VALUES(?,?,?,?)`, newID(), c.ID, i18n.T("Head office"), now())
 	}
-	s.audit(r, "kund", c.ID, "sparade kunden "+c.Name)
+	s.audit(r, "customer", c.ID, i18n.T("saved the customer ")+c.Name)
 	s.afterChange(w, c)
 }
 
@@ -452,7 +470,7 @@ func (s *Server) handleDeleteCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.db.Exec(`DELETE FROM alerts WHERE customer_id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM users WHERE customer_id=? AND role='viewer'`, id)
-	s.audit(r, "kund", id, "tog bort kunden "+s.customers[id].Name)
+	s.audit(r, "customer", id, i18n.T("deleted the customer ")+s.customers[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -475,7 +493,7 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 	}
 	x.Name = strings.TrimSpace(x.Name)
 	if x.Name == "" {
-		httpErr(w, 400, "namn saknas")
+		httpErr(w, 400, "name missing")
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
@@ -489,7 +507,7 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 		_, ok := s.customers[x.CustomerID]
 		s.mu.RUnlock()
 		if !ok {
-			httpErr(w, 400, "okänd kund")
+			httpErr(w, 400, "unknown customer")
 			return
 		}
 		x.ID, x.Created = newID(), now()
@@ -498,7 +516,7 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.audit(r, "site", x.ID, "sparade siten "+x.Name)
+	s.audit(r, "site", x.ID, i18n.T("saved the site ")+x.Name)
 	s.afterChange(w, x)
 }
 
@@ -519,7 +537,7 @@ func (s *Server) handleDeleteSite(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "site", id, "tog bort siten "+s.sites[id].Name)
+	s.audit(r, "site", id, i18n.T("deleted the site ")+s.sites[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -547,7 +565,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	_, ok := s.sites[in.SiteID]
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, 400, "okänd site")
+		httpErr(w, 400, "unknown site")
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
@@ -560,7 +578,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "agent", a.ID, "skapade agenten "+a.Name)
+	s.audit(r, "agent", a.ID, i18n.T("created the agent ")+a.Name)
 	s.afterChange(w, agentWithToken{a, tok})
 }
 
@@ -574,7 +592,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "agent", id, "ändrade agenten "+in.Name)
+	s.audit(r, "agent", id, i18n.T("changed the agent ")+in.Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -587,7 +605,7 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "agent", id, "tog bort agenten "+s.agents[id].Name)
+	s.audit(r, "agent", id, i18n.T("deleted the agent ")+s.agents[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -600,10 +618,10 @@ func (s *Server) handleNewToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		httpErr(w, 404, "agenten finns inte")
+		httpErr(w, 404, "the agent does not exist")
 		return
 	}
-	s.audit(r, "agent", id, "skapade ny token")
+	s.audit(r, "agent", id, i18n.T("created a new token"))
 	s.afterChange(w, map[string]string{"token": tok})
 }
 
@@ -611,7 +629,7 @@ func (s *Server) handleNewToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
-		httpErr(w, http.StatusUnauthorized, "token saknas")
+		httpErr(w, http.StatusUnauthorized, "token missing")
 		return
 	}
 	h := hashToken(strings.TrimPrefix(auth, "Bearer "))
@@ -619,14 +637,14 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	agentID, ok := s.tokens[h]
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, http.StatusUnauthorized, "okänd token")
+		httpErr(w, http.StatusUnauthorized, "unknown token")
 		return
 	}
 	var body io.Reader = io.LimitReader(r.Body, 64<<20)
 	if r.Header.Get("Content-Encoding") == "gzip" {
 		gz, err := gzip.NewReader(body)
 		if err != nil {
-			httpErr(w, 400, "ogiltig gzip")
+			httpErr(w, 400, "invalid gzip")
 			return
 		}
 		defer gz.Close()
@@ -634,13 +652,13 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 	var rep agentproto.Report
 	if err := json.NewDecoder(body).Decode(&rep); err != nil {
-		httpErr(w, 400, "ogiltig rapport: "+err.Error())
+		httpErr(w, 400, "invalid report: "+err.Error())
 		return
 	}
 	resp, err := s.Ingest(r.Context(), agentID, clientIP(r), rep)
 	if err != nil {
 		if errors.Is(err, errNotFound) {
-			httpErr(w, http.StatusUnauthorized, "agenten finns inte")
+			httpErr(w, http.StatusUnauthorized, "the agent does not exist")
 			return
 		}
 		httpErr(w, 500, err.Error())
@@ -652,13 +670,14 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 // ---------- mål ----------
 
 type addTargetsIn struct {
-	AgentID string     `json:"agentId"`
-	Hosts   string     `json:"hosts"`
-	Kind    probe.Kind `json:"kind"`
-	Port    int        `json:"port"`
-	Group   string     `json:"group"`
-	Keyword string     `json:"keyword"`
-	DNS     string     `json:"dnsServer"`
+	AgentID string            `json:"agentId"`
+	Hosts   string            `json:"hosts"`
+	Kind    probe.Kind        `json:"kind"`
+	Port    int               `json:"port"`
+	Group   string            `json:"group"`
+	Keyword string            `json:"keyword"`
+	DNS     string            `json:"dnsServer"`
+	Names   map[string]string `json:"names"` // värd -> namn (t.ex. från nätverksskanningen)
 }
 
 func (s *Server) agentEditable(id string) (*Agent, error) {
@@ -666,10 +685,10 @@ func (s *Server) agentEditable(id string) (*Agent, error) {
 	defer s.mu.RUnlock()
 	a, ok := s.agents[id]
 	if !ok {
-		return nil, errors.New("okänd agent")
+		return nil, errors.New("unknown agent")
 	}
 	if a.Kind == agentproto.KindDesktop {
-		return nil, errors.New("målen för en skrivbordsapp ändras i appen")
+		return nil, errors.New("the targets of a desktop app are changed in the app")
 	}
 	cp := *a
 	return &cp, nil
@@ -700,7 +719,7 @@ func (s *Server) handleAddTargets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		maxSort++
-		t := Target{Target: monitor.Target{Host: host, Kind: kind, Port: port, Group: in.Group, AlertIDs: defs, Keyword: in.Keyword, DNSServer: in.DNS}, AgentID: in.AgentID, Source: "server", Sort: maxSort}
+		t := Target{Target: monitor.Target{Host: host, Kind: kind, Port: port, Group: in.Group, AlertIDs: defs, Keyword: in.Keyword, DNSServer: in.DNS, Name: strings.TrimSpace(in.Names[host])}, AgentID: in.AgentID, Source: "server", Sort: maxSort}
 		t.Normalize()
 		if err := s.db.SaveTarget(t); err != nil {
 			httpErr(w, 500, err.Error())
@@ -709,11 +728,11 @@ func (s *Server) handleAddTargets(w http.ResponseWriter, r *http.Request) {
 		added = append(added, t)
 	}
 	if len(added) == 0 {
-		httpErr(w, 400, "ange minst ett värdnamn eller en IP-adress")
+		httpErr(w, 400, "enter at least one host name or IP address")
 		return
 	}
 	s.db.BumpConfig(in.AgentID)
-	s.audit(r, "mål", in.AgentID, fmt.Sprintf("lade till %d mål: %s", len(added), strings.TrimSpace(in.Hosts)))
+	s.audit(r, "target", in.AgentID, fmt.Sprintf(i18n.T("added %d targets: %s"), len(added), strings.TrimSpace(in.Hosts)))
 	s.afterChange(w, added)
 }
 
@@ -735,7 +754,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	t := oldCopy
@@ -745,7 +764,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		okCust := ok && s.customerOfTarget(p) == s.customerOfTarget(old)
 		s.mu.RUnlock()
 		if in.DependsOn == id || !okCust {
-			httpErr(w, 400, "målet kan bara bero på ett annat mål hos samma kund")
+			httpErr(w, 400, "the target can only depend on another target of the same customer")
 			return
 		}
 	}
@@ -763,7 +782,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 		}
 		h, _, _ := parseHost(in.Host, in.Kind, in.Port)
 		if h == "" {
-			httpErr(w, 400, "ogiltig värd")
+			httpErr(w, 400, "invalid host")
 			return
 		}
 		t.Target = in.Target
@@ -787,7 +806,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	if oldCopy.AgentID != t.AgentID {
 		s.db.BumpConfig(oldCopy.AgentID)
 	}
-	s.audit(r, "mål", id, "ändrade målet "+t.Host)
+	s.audit(r, "target", id, i18n.T("changed the target ")+t.Host)
 	s.afterChange(w, t)
 }
 
@@ -795,11 +814,11 @@ func (s *Server) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	t, ok := s.targetVisible(r, id)
 	if !ok {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	if t.Source == "agent" {
-		httpErr(w, 400, "målet tillhör en skrivbordsapp – ta bort det i appen")
+		httpErr(w, 400, "the target belongs to a desktop app – delete it in the app")
 		return
 	}
 	if err := s.db.DeleteTarget(id); err != nil {
@@ -807,7 +826,7 @@ func (s *Server) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.db.BumpConfig(t.AgentID)
-	s.audit(r, "mål", id, "tog bort målet "+t.Host)
+	s.audit(r, "target", id, i18n.T("deleted the target ")+t.Host)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -835,7 +854,7 @@ func (s *Server) handleSaveRule(w http.ResponseWriter, r *http.Request) {
 		_, ok := s.customers[in.CustomerID]
 		s.mu.RUnlock()
 		if !ok {
-			httpErr(w, 400, "okänd kund")
+			httpErr(w, 400, "unknown customer")
 			return
 		}
 	}
@@ -845,7 +864,7 @@ func (s *Server) handleSaveRule(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "larmregel", in.ID, "sparade larmregeln "+in.Name)
+	s.audit(r, "alert rule", in.ID, i18n.T("saved the alert rule ")+in.Name)
 	s.afterChange(w, in)
 }
 
@@ -855,7 +874,7 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "larmregel", id, "tog bort larmregeln "+s.rules[id].Name)
+	s.audit(r, "alert rule", id, i18n.T("deleted the alert rule ")+s.rules[id].Name)
 	// ta bort kopplingen från målen
 	ts, _ := s.db.Targets()
 	for _, t := range ts {
@@ -909,7 +928,7 @@ func (s *Server) handleAssignRule(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 	if !ok {
-		httpErr(w, 404, "regeln finns inte")
+		httpErr(w, 404, "the rule does not exist")
 		return
 	}
 	for _, t := range list {
@@ -961,20 +980,20 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, 400, err.Error())
 			return
 		}
-		s.audit(r, "användare", u.ID, "skapade användaren "+u.Email+" ("+u.Role+")")
+		s.audit(r, "user", u.ID, i18n.T("created the user ")+u.Email+" ("+u.Role+")")
 		writeJSON(w, u)
 		return
 	}
 	me := userFrom(r)
 	if id == me.ID && in.Role != "admin" {
-		httpErr(w, 400, "du kan inte ta bort din egen administratörsroll")
+		httpErr(w, 400, "you cannot remove your own administrator role")
 		return
 	}
 	role, cust := "admin", ""
 	if in.Role != "admin" {
 		role, cust = "viewer", in.CustomerID
 		if cust == "" {
-			httpErr(w, 400, "en kundanvändare måste kopplas till en kund")
+			httpErr(w, 400, "a customer user must be linked to a customer")
 			return
 		}
 	}
@@ -991,21 +1010,21 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.db.Exec(`UPDATE users SET pw_hash=? WHERE id=?`, h, id)
 		_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, id)
 	}
-	s.audit(r, "användare", id, "ändrade användaren "+strings.TrimSpace(in.Email)+" ("+role+")")
+	s.audit(r, "user", id, i18n.T("changed the user ")+strings.TrimSpace(in.Email)+" ("+role+")")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == userFrom(r).ID {
-		httpErr(w, 400, "du kan inte ta bort dig själv")
+		httpErr(w, 400, "you cannot delete yourself")
 		return
 	}
 	if _, err := s.db.Exec(`DELETE FROM users WHERE id=?`, id); err != nil {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.audit(r, "användare", id, "tog bort en användare")
+	s.audit(r, "user", id, i18n.T("deleted a user"))
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -1051,7 +1070,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if st.Monitor.HistorySize < 300 {
 		st.Monitor.HistorySize = 3600
 	}
+	st.Language = i18n.Norm(st.Language, "en")
 	s.settings = st
+	i18n.SetLang(st.Language)
 	s.mu.Unlock()
 	if err := s.db.SaveSettings(st); err != nil {
 		httpErr(w, 500, err.Error())
@@ -1059,7 +1080,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mailer.SetConfig(st.SMTP)
 	_, _ = s.db.Exec(`UPDATE agents SET config_version=config_version+1`)
-	s.audit(r, "inställningar", "", "ändrade serverinställningar")
+	s.audit(r, "settings", "", i18n.T("changed server settings"))
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -1079,12 +1100,22 @@ func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	to := alert.SplitAddresses(in.To)
 	if len(to) == 0 {
-		httpErr(w, 400, "ange en mottagare")
+		httpErr(w, 400, "enter a recipient")
 		return
 	}
-	if err := alert.Send(in.SMTP, to, "[PingVakt] Testmejl från servern", "Det här är ett testmejl från PingVakt-servern.\r\n"); err != nil {
+	if err := alert.Send(in.SMTP, to, i18n.T("[PingVakt] Test email from the server"), i18n.T("This is a test email from the PingVakt server.\r\n")); err != nil {
 		httpErr(w, 400, err.Error())
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// userLang är användarens språk, annars serverns standardspråk.
+func (s *Server) userLang(r *http.Request) string {
+	if u := userFrom(r); u != nil && u.Lang != "" {
+		return u.Lang
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings.Language
 }

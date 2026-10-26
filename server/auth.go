@@ -6,11 +6,15 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"pingvakt/core/i18n"
 )
 
 const sessionCookie = "pv_session"
@@ -27,7 +31,7 @@ func userFrom(r *http.Request) *User {
 
 func hashPassword(pw string) (string, error) {
 	if len(pw) < 8 {
-		return "", errors.New("lösenordet måste ha minst 8 tecken")
+		return "", errors.New("the password must be at least 8 characters")
 	}
 	b, err := bcrypt.GenerateFromPassword([]byte(pw), 11)
 	return string(b), err
@@ -67,16 +71,16 @@ func need(admin bool, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := userFrom(r)
 		if u == nil {
-			httpErr(w, http.StatusUnauthorized, "inte inloggad")
+			httpErr(w, http.StatusUnauthorized, "not signed in")
 			return
 		}
 		if admin && u.Role != "admin" {
-			httpErr(w, http.StatusForbidden, "kräver administratör")
+			httpErr(w, http.StatusForbidden, "requires administrator")
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-				httpErr(w, http.StatusUnsupportedMediaType, "Content-Type måste vara application/json")
+				httpErr(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 				return
 			}
 		}
@@ -155,7 +159,7 @@ var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("pingvakt-dummy"), 11)
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if s.limiter.blocked(ip) {
-		httpErr(w, http.StatusTooManyRequests, "för många misslyckade försök – vänta 15 minuter")
+		httpErr(w, http.StatusTooManyRequests, "too many failed attempts – wait 15 minutes")
 		return
 	}
 	var in struct{ Email, Password string }
@@ -170,8 +174,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.limiter.fail(ip)
-		s.auditAs(strings.TrimSpace(in.Email), ip, "inloggning", "", "misslyckad inloggning")
-		httpErr(w, http.StatusUnauthorized, "fel e-post eller lösenord")
+		s.auditAs(strings.TrimSpace(in.Email), ip, "sign-in", "", i18n.T("failed sign-in"))
+		httpErr(w, http.StatusUnauthorized, "wrong email or password")
 		return
 	}
 	if sec, _ := s.userTOTP(u.ID); sec != "" {
@@ -183,7 +187,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.auditAs(u.Email, ip, "inloggning", u.ID, "loggade in")
+	s.auditAs(u.Email, ip, "sign-in", u.ID, i18n.T("signed in"))
 	writeJSON(w, u)
 }
 
@@ -200,7 +204,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = jsonEnc(w, map[string]any{"error": "inte inloggad", "setup": s.db.UserCount() == 0})
+		_ = jsonEnc(w, map[string]any{"error": i18n.T("not signed in"), "setup": s.db.UserCount() == 0})
 		return
 	}
 	writeJSON(w, u)
@@ -209,7 +213,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // handleSetup skapar den första administratören (bara när det inte finns några användare).
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		httpErr(w, http.StatusUnsupportedMediaType, "JSON krävs")
+		httpErr(w, http.StatusUnsupportedMediaType, "JSON required")
 		return
 	}
 	var in struct{ Email, Name, Password string }
@@ -217,7 +221,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.db.UserCount() > 0 {
-		httpErr(w, http.StatusForbidden, "servern är redan konfigurerad")
+		httpErr(w, http.StatusForbidden, "the server is already set up")
 		return
 	}
 	u, err := s.createUser(in.Email, in.Name, "admin", "", in.Password)
@@ -235,12 +239,12 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createUser(email, name, role, customerID, pw string) (User, error) {
 	email = strings.TrimSpace(email)
 	if !strings.Contains(email, "@") {
-		return User{}, errors.New("ange en giltig e-postadress")
+		return User{}, errors.New("enter a valid email address")
 	}
 	if role != "admin" {
 		role = "viewer"
 		if customerID == "" {
-			return User{}, errors.New("en kundanvändare måste kopplas till en kund")
+			return User{}, errors.New("a customer user must be linked to a customer")
 		}
 	} else {
 		customerID = ""
@@ -253,7 +257,7 @@ func (s *Server) createUser(email, name, role, customerID, pw string) (User, err
 	_, err = s.db.Exec(`INSERT INTO users(id,email,name,pw_hash,role,customer_id,created) VALUES(?,?,?,?,?,?,?)`,
 		u.ID, u.Email, u.Name, h, u.Role, u.CustomerID, u.Created)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE") {
-		return User{}, errors.New("e-postadressen används redan")
+		return User{}, errors.New("the email address is already in use")
 	}
 	return u, err
 }
@@ -270,7 +274,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Current)) != nil {
-		httpErr(w, 400, "nuvarande lösenord stämmer inte")
+		httpErr(w, 400, "the current password is incorrect")
 		return
 	}
 	nh, err := hashPassword(in.New)
@@ -279,8 +283,53 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.db.Exec(`UPDATE users SET pw_hash=? WHERE id=?`, nh, u.ID)
-	s.audit(r, "inloggning", u.ID, "bytte lösenord")
+	s.audit(r, "sign-in", u.ID, i18n.T("changed password"))
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 var _ = sql.ErrNoRows
+
+// handleI18n skickar språk och ordbok till webbgränssnittet. Språket är
+// användarens eget val, annars serverns standardspråk. ?lang= går före.
+func (s *Server) handleI18n(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	lang := s.settings.Language
+	s.mu.RUnlock()
+	if r.URL.Query().Get("status") != "" {
+		// publik statussida: kundens språk, nyckeln står sist i sidans adress
+		if ref, err := url.Parse(r.Referer()); err == nil {
+			key := path.Base(ref.Path)
+			s.mu.RLock()
+			for _, c := range s.customers {
+				if c.StatusKey != "" && c.StatusKey == key && c.Lang != "" {
+					lang = c.Lang
+				}
+			}
+			s.mu.RUnlock()
+		}
+	} else if u := userFrom(r); u != nil && u.Lang != "" {
+		lang = u.Lang
+	}
+	if l := r.URL.Query().Get("lang"); l != "" {
+		lang = l
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(i18n.Script(i18n.Norm(lang, "en")))
+}
+
+// handleMyLang sparar användarens språkval ("" = serverns standard).
+func (s *Server) handleMyLang(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Lang string `json:"lang"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	l := ""
+	if in.Lang != "" {
+		l = i18n.Norm(in.Lang, "en")
+	}
+	_, _ = s.db.Exec(`UPDATE users SET lang=? WHERE id=?`, l, userFrom(r).ID)
+	writeJSON(w, map[string]string{"lang": l})
+}

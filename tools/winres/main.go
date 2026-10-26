@@ -51,7 +51,7 @@ func main() {
 	vi.SetProductVersion(v)
 	for k, val := range map[string]string{
 		version.ProductName:      "PingVakt",
-		version.FileDescription:  "PingVakt – övervakning av latens och paketförlust",
+		version.FileDescription:  "PingVakt – latency and packet loss monitoring",
 		version.CompanyName:      "PingVakt",
 		version.LegalCopyright:   "© PingVakt. Innehåller kod under MIT-licens.",
 		version.OriginalFilename: "PingVakt.exe",

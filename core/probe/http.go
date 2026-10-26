@@ -37,7 +37,7 @@ func httpCheck(ctx context.Context, req Request, res *Result) {
 	raw := NormalizeURL(req.Host)
 	pu, err := url.Parse(raw)
 	if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") || pu.Host == "" {
-		res.Err = "ogiltig URL"
+		res.Err = "invalid URL"
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, req.Timeout)
@@ -52,7 +52,7 @@ func httpCheck(ctx context.Context, req Request, res *Result) {
 		res.Err = err.Error()
 		return
 	}
-	hr.Header.Set("User-Agent", "PingVakt/1 (+övervakning)")
+	hr.Header.Set("User-Agent", "PingVakt/1 (+monitoring)")
 	client := &http.Client{Transport: httpTransport, Timeout: req.Timeout}
 	start := time.Now()
 	resp, err := client.Do(hr)
@@ -60,7 +60,7 @@ func httpCheck(ctx context.Context, req Request, res *Result) {
 		var ce *tls.CertificateVerificationError
 		switch {
 		case errors.As(err, &ce):
-			res.Err = "Certifikatfel: " + shortErr(ce.Err)
+			res.Err = "Certificate error: " + shortErr(ce.Err)
 		case errors.Is(err, context.DeadlineExceeded) || isTimeout(err):
 			res.Err = ErrTimeout.Error()
 		default:
@@ -80,7 +80,7 @@ func httpCheck(ctx context.Context, req Request, res *Result) {
 		return
 	}
 	if kw := strings.TrimSpace(req.Keyword); kw != "" && !bytes.Contains(body, []byte(kw)) {
-		res.Err = "Texten \"" + kw + "\" saknas i svaret"
+		res.Err = "Missing text: " + kw
 		return
 	}
 	res.RTT, res.OK = rtt, true
@@ -94,7 +94,7 @@ func isTimeout(err error) bool {
 func dnsCheck(ctx context.Context, req Request, res *Result) {
 	name := strings.TrimSuffix(strings.TrimSpace(req.Host), ".")
 	if name == "" {
-		res.Err = "namn saknas"
+		res.Err = "name missing"
 		return
 	}
 	r := net.DefaultResolver
@@ -116,7 +116,7 @@ func dnsCheck(ctx context.Context, req Request, res *Result) {
 		var de *net.DNSError
 		switch {
 		case errors.As(err, &de) && de.IsNotFound:
-			res.Err = "Namnet finns inte (NXDOMAIN)"
+			res.Err = "Name does not exist (NXDOMAIN)"
 		case errors.As(err, &de) && de.IsTimeout, isTimeout(err):
 			res.Err = ErrTimeout.Error()
 		default:
@@ -125,7 +125,7 @@ func dnsCheck(ctx context.Context, req Request, res *Result) {
 		return
 	}
 	if len(ips) == 0 {
-		res.Err = "inga adresser i svaret"
+		res.Err = "no addresses in the answer"
 		return
 	}
 	res.Addr = ips[0].IP.String()

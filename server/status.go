@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 )
 
@@ -80,7 +81,7 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 	company := s.settings.ReportName
 	s.mu.RUnlock()
 	if !found || len(key) < 16 {
-		httpErr(w, 404, "statussidan finns inte")
+		httpErr(w, 404, "the status page does not exist")
 		return
 	}
 	snap := s.snapshot(map[string]bool{cust.ID: true})
@@ -161,9 +162,9 @@ func (s *Server) handleStatusKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Enable {
-		s.audit(r, "kund", id, "skapade ny länk till statussidan")
+		s.audit(r, "customer", id, i18n.T("created a new status page link"))
 	} else {
-		s.audit(r, "kund", id, "stängde av statussidan")
+		s.audit(r, "customer", id, i18n.T("turned off the status page"))
 	}
 	s.afterChange(w, map[string]string{"key": key})
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 )
 
 // checkCerts larmar när ett HTTPS-måls certifikat snart går ut.
@@ -50,14 +51,14 @@ func (s *Server) checkCerts() {
 			case met && !active:
 				s.host.alerts[key] = t
 				kind = "fire"
-				detail = fmt.Sprintf("Certifikatet går ut om %d dagar", it.days)
+				detail = fmt.Sprintf(i18n.T("The certificate expires in %d days"), it.days)
 				if it.days < 0 {
-					detail = "Certifikatet har gått ut"
+					detail = i18n.T("The certificate has expired")
 				}
 			case !met && active && it.days >= 0:
 				delete(s.host.alerts, key)
 				if r.OnClear {
-					kind, detail = "clear", fmt.Sprintf("Certifikatet är förnyat (giltigt %d dagar till)", it.days)
+					kind, detail = "clear", fmt.Sprintf(i18n.T("The certificate has been renewed (valid %d more days)"), it.days)
 				}
 			}
 			s.host.mu.Unlock()

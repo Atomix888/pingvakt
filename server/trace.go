@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 	"pingvakt/core/probe"
 	"pingvakt/core/trace"
@@ -214,12 +216,16 @@ func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 	agentID, ok := s.tokens[hashToken(strings.TrimPrefix(auth, "Bearer "))]
 	s.mu.RUnlock()
 	if !ok || !strings.HasPrefix(auth, "Bearer ") {
-		httpErr(w, http.StatusUnauthorized, "okänd token")
+		httpErr(w, http.StatusUnauthorized, "unknown token")
 		return
 	}
 	var res agentproto.CommandResult
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&res); err != nil {
-		httpErr(w, 400, "ogiltigt svar")
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&res); err != nil {
+		httpErr(w, 400, "invalid response")
+		return
+	}
+	if res.Kind == agentproto.CmdScan {
+		s.scanResult(w, agentID, res)
 		return
 	}
 	traces.mu.Lock()
@@ -229,7 +235,7 @@ func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 	}
 	traces.mu.Unlock()
 	if !ok || run.AgentID != agentID {
-		httpErr(w, 404, "okänt kommando")
+		httpErr(w, 404, "unknown command")
 		return
 	}
 	run.Pending = false
@@ -263,7 +269,7 @@ func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 	hops, _ := json.Marshal(run.Hops)
 	if _, err := s.db.Exec(`INSERT OR REPLACE INTO traces(id,target_id,agent_id,t,t_end,host,hops,err,path,auto,changed,prev_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 		run.ID, run.TargetID, agentID, run.T, run.End, run.Host, string(hops), run.Err, run.Path, b2i(run.Auto), b2i(run.Changed), run.PrevPath); err != nil {
-		log.Printf("spara traceroute: %v", err)
+		log.Printf("save traceroute: %v", err)
 	}
 	cust := ""
 	if exists {
@@ -297,7 +303,7 @@ func (s *Server) firePathChange(t Target, cust string, run *TraceRun) {
 	name := s.displayName(&t)
 	s.mu.RUnlock()
 	old, cur := strings.Split(run.PrevPath, ">"), strings.Split(run.Path, ">")
-	detail := "Vägen har ändrats: " + diffPath(old, cur)
+	detail := i18n.T("The path has changed: ") + diffPath(old, cur)
 	for _, r := range rules {
 		s.eng.Fire(r.Alert, alert.Event{Kind: "fire", AlertID: r.ID, AlertName: r.Name, TargetID: t.ID, TargetName: name, Host: t.Host,
 			Time: now(), Detail: detail, Popup: r.Popup, Sound: r.Sound, SoundName: r.SoundName})
@@ -312,11 +318,11 @@ func diffPath(old, cur []string) string {
 	}
 	switch {
 	case i < len(old) && i < len(cur):
-		return "hopp " + itoa(i+1) + " " + old[i] + " → " + cur[i] + " (" + itoa(len(old)) + " → " + itoa(len(cur)) + " hopp)"
+		return fmt.Sprintf(i18n.T("hop %d %s → %s (%d → %d hops)"), i+1, old[i], cur[i], len(old), len(cur))
 	case len(cur) > len(old):
-		return "nya hopp efter " + itoa(i) + " (" + itoa(len(old)) + " → " + itoa(len(cur)) + " hopp)"
+		return fmt.Sprintf(i18n.T("new hops after hop %d (%d → %d hops)"), i, len(old), len(cur))
 	default:
-		return "kortare väg (" + itoa(len(old)) + " → " + itoa(len(cur)) + " hopp)"
+		return fmt.Sprintf(i18n.T("shorter path (%d → %d hops)"), len(old), len(cur))
 	}
 }
 
@@ -327,12 +333,12 @@ func itoa(n int) string { return strconv.Itoa(n) }
 func (s *Server) handleStartTrace(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.canSeeTarget(r, id) {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	run, err := s.startTrace(id, false)
 	if err != nil {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	writeJSON(w, run)
@@ -341,7 +347,7 @@ func (s *Server) handleStartTrace(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTraces(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.canSeeTarget(r, id) {
-		httpErr(w, 404, "målet finns inte")
+		httpErr(w, 404, "the target does not exist")
 		return
 	}
 	out := []TraceRun{}

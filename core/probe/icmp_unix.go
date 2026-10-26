@@ -74,9 +74,9 @@ func (u *unixICMP) listen(v6 bool) (*icmp.PacketConn, string, error) {
 	}
 	hint := ""
 	if runtime.GOOS == "linux" {
-		hint = ` – kör: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"`
+		hint = " – run: sudo sysctl -w net.ipv4.ping_group_range=\"0 2147483647\""
 	}
-	return nil, "", fmt.Errorf("kan inte öppna ICMP-socket (%v)%s", firstErr, hint)
+	return nil, "", fmt.Errorf("cannot open ICMP socket (%v)%s", firstErr, hint)
 }
 
 func (u *unixICMP) ping(ctx context.Context, ip net.IP, size int, timeout time.Duration) (time.Duration, error) {
@@ -150,11 +150,11 @@ func (u *unixICMP) ping(ctx context.Context, ip net.IP, size int, timeout time.D
 			return rtt, nil
 		case ipv4.ICMPTypeDestinationUnreachable, ipv6.ICMPTypeDestinationUnreachable:
 			if du, ok := m.Body.(*icmp.DstUnreach); ok && embeddedMatches(du.Data, v6, id, seq) {
-				return 0, errors.New("Målet kan inte nås")
+				return 0, errors.New("Destination unreachable")
 			}
 		case ipv4.ICMPTypeTimeExceeded, ipv6.ICMPTypeTimeExceeded:
 			if te, ok := m.Body.(*icmp.TimeExceeded); ok && embeddedMatches(te.Data, v6, id, seq) {
-				return 0, errors.New("TTL gick ut på vägen")
+				return 0, errors.New("TTL expired in transit")
 			}
 		}
 	}

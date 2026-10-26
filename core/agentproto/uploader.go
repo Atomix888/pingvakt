@@ -20,12 +20,13 @@ import (
 
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/netscan"
 	"pingvakt/core/trace"
 	"pingvakt/core/wifi"
 )
 
 // ErrUnauthorized betyder att servern inte godkänner token (borttagen eller fel).
-var ErrUnauthorized = errors.New("servern godkänner inte token – agenten kan ha tagits bort")
+var ErrUnauthorized = errors.New("the server does not accept the token – the agent may have been removed")
 
 // Status beskriver anslutningen till servern.
 type Status struct {
@@ -57,8 +58,10 @@ type Uploader struct {
 	Host func() *hostinfo.Metrics
 	// WiFi returnerar den trådlösa anslutningen (nil = ingen).
 	WiFi func() *wifi.Info
-	// NoCommands stänger av kommandon från servern (traceroute).
+	// NoCommands stänger av kommandon från servern (traceroute, skanning).
 	NoCommands bool
+	// Nets returnerar datorns nät (för nätverksskanning från servern).
+	Nets func() []netscan.Network
 
 	mu            sync.Mutex
 	buf           []Sample
@@ -68,6 +71,8 @@ type Uploader struct {
 	needTargets   bool
 	reportSec     int
 	running       map[string]bool
+	netsSent      string
+	netsTime      time.Time
 	status        Status
 	client        *http.Client
 }
@@ -195,6 +200,21 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	if u.WiFi != nil {
 		rep.WiFi = u.WiFi()
 	}
+	var netsKey string
+	if u.Nets != nil {
+		ns := u.Nets()
+		b, _ := json.Marshal(ns)
+		netsKey = string(b)
+		u.mu.Lock()
+		send := netsKey != u.netsSent || time.Since(u.netsTime) > 10*time.Minute
+		u.mu.Unlock()
+		if send {
+			rep.Nets = ns
+			if rep.Nets == nil {
+				rep.Nets = []netscan.Network{}
+			}
+		}
+	}
 	var hash string
 	if u.LocalTargets != nil {
 		ts := u.LocalTargets()
@@ -224,6 +244,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	u.status.AgentName, u.status.Customer, u.status.Site = resp.AgentName, resp.Customer, resp.Site
 	if rep.LocalTargets != nil {
 		u.sentHash = hash
+	}
+	if rep.Nets != nil {
+		u.netsSent, u.netsTime = netsKey, time.Now()
 	}
 	u.needTargets = resp.NeedLocalTargets
 	if resp.Update != nil && u.OnUpdate != nil {
@@ -269,7 +292,7 @@ func (u *Uploader) post(ctx context.Context, rep Report) (*Response, error) {
 	req.Header.Set("User-Agent", "PingVakt/"+u.Info.Version+" ("+u.Info.Kind+")")
 	res, err := u.httpClient().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("kunde inte nå servern: %w", err)
+		return nil, fmt.Errorf("could not reach the server: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
@@ -277,11 +300,11 @@ func (u *Uploader) post(ctx context.Context, rep Report) (*Response, error) {
 	}
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(res.Body, 300))
-		return nil, fmt.Errorf("servern svarade %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("the server responded %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var out Response
 	if err := json.NewDecoder(io.LimitReader(res.Body, 50<<20)).Decode(&out); err != nil {
-		return nil, fmt.Errorf("ogiltigt svar från servern: %w", err)
+		return nil, fmt.Errorf("invalid response from the server: %w", err)
 	}
 	return &out, nil
 }
@@ -303,17 +326,17 @@ func (u *Uploader) httpClient() *http.Client {
 func ReportURL(server string) (string, error) {
 	server = strings.TrimSpace(server)
 	if server == "" {
-		return "", errors.New("serveradress saknas")
+		return "", errors.New("server address missing")
 	}
 	if !strings.Contains(server, "://") {
 		server = "https://" + server
 	}
 	p, err := url.Parse(server)
 	if err != nil || p.Host == "" {
-		return "", fmt.Errorf("ogiltig serveradress %q", server)
+		return "", fmt.Errorf("invalid server address %q", server)
 	}
 	if p.Scheme != "https" && p.Scheme != "http" {
-		return "", fmt.Errorf("serveradressen måste börja med https://")
+		return "", fmt.Errorf("the server address must start with https://")
 	}
 	p.Path = strings.TrimSuffix(p.Path, "/") + ReportPath
 	return p.String(), nil
@@ -362,8 +385,16 @@ func (u *Uploader) runCommand(c Command) {
 		if err != nil && len(res.Hops) == 0 {
 			res.Err = err.Error()
 		}
+	case CmdScan:
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ds, err := netscan.Scan(ctx, c.Host, netscan.Options{}, nil, nil)
+		cancel()
+		res.Devices = ds
+		if err != nil {
+			res.Err = err.Error()
+		}
 	default:
-		res.Err = "okänt kommando"
+		res.Err = "unknown command"
 	}
 	res.End = time.Now().UnixMilli()
 	base, err := BaseURL(u.ServerURL)

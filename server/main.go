@@ -19,7 +19,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.6.0"
+var Version = "0.7.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -32,12 +32,12 @@ func env(k, def string) string {
 }
 
 func main() {
-	addr := flag.String("listen", env("PINGVAKT_LISTEN", ":8080"), "adress att lyssna på")
-	dataDir := flag.String("data", env("PINGVAKT_DATA", "./data"), "mapp för databasen")
-	agentsDir := flag.String("agents", env("PINGVAKT_AGENTS_DIR", "./agents"), "mapp med agentfiler för nedladdning")
-	tlsCert := flag.String("tls-cert", env("PINGVAKT_TLS_CERT", ""), "TLS-certifikat (valfritt – annars bakom omvänd proxy)")
+	addr := flag.String("listen", env("PINGVAKT_LISTEN", ":8080"), "address to listen on")
+	dataDir := flag.String("data", env("PINGVAKT_DATA", "./data"), "folder for the database")
+	agentsDir := flag.String("agents", env("PINGVAKT_AGENTS_DIR", "./agents"), "folder with agent files for download")
+	tlsCert := flag.String("tls-cert", env("PINGVAKT_TLS_CERT", ""), "TLS certificate (optional – otherwise behind a reverse proxy)")
 	tlsKey := flag.String("tls-key", env("PINGVAKT_TLS_KEY", ""), "TLS-nyckel")
-	proxy := flag.Bool("trust-proxy", env("PINGVAKT_TRUST_PROXY", "") == "1", "lita på X-Forwarded-* från en omvänd proxy")
+	proxy := flag.Bool("trust-proxy", env("PINGVAKT_TRUST_PROXY", "") == "1", "trust X-Forwarded-* from a reverse proxy")
 	flag.Parse()
 	trustProxy = *proxy
 
@@ -54,10 +54,10 @@ func main() {
 	if db.UserCount() == 0 {
 		if e, p := os.Getenv("PINGVAKT_ADMIN_EMAIL"), os.Getenv("PINGVAKT_ADMIN_PASSWORD"); e != "" && p != "" {
 			srv := &Server{db: db}
-			if _, err := srv.createUser(e, "Administratör", "admin", "", p); err != nil {
-				log.Fatalf("skapa administratör: %v", err)
+			if _, err := srv.createUser(e, "Administrator", "admin", "", p); err != nil {
+				log.Fatalf("create administrator: %v", err)
 			}
-			log.Printf("skapade administratören %s", e)
+			log.Printf("created the administrator %s", e)
 		}
 	}
 
@@ -78,9 +78,9 @@ func main() {
 		defer cancel()
 		_ = hs.Shutdown(c)
 	}()
-	log.Printf("PingVakt-server %s lyssnar på %s (data: %s)", Version, *addr, *dataDir)
+	log.Printf("PingVakt server %s listening on %s (data: %s)", Version, *addr, *dataDir)
 	if db.UserCount() == 0 {
-		log.Printf("ingen användare finns ännu – öppna webbgränssnittet för att skapa administratören")
+		log.Printf("no user exists yet – open the web interface to create the administrator")
 	}
 	if *tlsCert != "" {
 		err = hs.ListenAndServeTLS(*tlsCert, *tlsKey)
@@ -98,7 +98,7 @@ func spaHandler(root http.FileSystem) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		if strings.HasPrefix(p, "/api/") {
-			httpErr(w, 404, "okänd endpoint")
+			httpErr(w, 404, "unknown endpoint")
 			return
 		}
 		if p != "/" {

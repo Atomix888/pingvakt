@@ -16,6 +16,7 @@ import (
 	"pingvakt/core/agentproto"
 	"pingvakt/core/alert"
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 	"pingvakt/core/wifi"
 )
@@ -59,6 +60,7 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 		pending: map[string][]monitor.Sample{}, rules: map[string]Rule{}, offline: map[string]bool{},
 		subs: map[*subscriber]struct{}{}, limiter: newLoginLimiter(), host: newHostState()}
 	s.settings = db.LoadSettings()
+	i18n.SetLang(s.settings.Language)
 	s.mailer = alert.NewMailer(s.settings.SMTP)
 	s.mailer.OnError = func(err error) { log.Printf("e-post: %v", err) }
 	s.eng = alert.NewEngineFor(engineSource{s}, s.mailer, "", s.onAlertEvent)
@@ -335,7 +337,7 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	s.mu.Unlock()
 
 	if err := s.db.InsertSamples(ctx, rows); err != nil {
-		log.Printf("spara mätdata: %v", err)
+		log.Printf("save measurements: %v", err)
 		return resp, err
 	}
 	for _, u := range touched {
@@ -343,6 +345,9 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	}
 	if rep.Host != nil {
 		s.ingestHost(agentID, *rep.Host)
+	}
+	if rep.Nets != nil {
+		s.ingestNets(agentID, rep.Nets)
 	}
 	if rep.WiFi != nil && rep.WiFi.RSSI < 0 && rep.WiFi.RSSI > -120 {
 		s.ingestWiFi(agentID, *rep.WiFi)
@@ -475,7 +480,7 @@ func (s *Server) Run(ctx context.Context) {
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
 			} else if n > 0 {
-				log.Printf("gallring: tog bort %d rader", n)
+				log.Printf("pruning: deleted %d rows", n)
 			}
 			select {
 			case <-ctx.Done():
@@ -523,12 +528,12 @@ func (s *Server) checkOffline() {
 			if r.CustomerID != "" && r.CustomerID != c.cust {
 				continue
 			}
-			kind, detail := "fire", "Agenten har inte rapporterat sedan "+time.UnixMilli(c.since).Format("2006-01-02 15:04:05")
+			kind, detail := "fire", i18n.T("The agent has not reported since ")+time.UnixMilli(c.since).Format("2006-01-02 15:04:05")
 			if !c.offline {
 				if !r.OnClear {
 					continue
 				}
-				kind, detail = "clear", "Agenten rapporterar igen"
+				kind, detail = "clear", i18n.T("The agent is reporting again")
 			}
 			ev := alert.Event{Kind: kind, AlertID: r.ID, AlertName: r.Name, TargetID: c.a.ID, TargetName: names[c.a.ID],
 				Host: c.a.Hostname, Time: now(), Detail: detail, Popup: r.Popup, Sound: r.Sound && kind == "fire", SoundName: r.SoundName}

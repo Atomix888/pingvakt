@@ -199,7 +199,7 @@ func TestObservePath(t *testing.T) {
 			t.Fatalf("steg %d (%s): changed=%v", i, st.sig, ch)
 		}
 	}
-	if d := diffPath([]string{"a", "b", "c"}, []string{"a", "x", "c"}); d != "hopp 2 b → x (3 → 3 hopp)" {
+	if d := diffPath([]string{"a", "b", "c"}, []string{"a", "x", "c"}); d != "hop 2 b → x (3 → 3 hops)" {
 		t.Fatal(d)
 	}
 }

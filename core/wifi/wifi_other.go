@@ -7,4 +7,4 @@ import (
 	"errors"
 )
 
-func collect(context.Context) (*Info, error) { return nil, errors.New("stöds inte") }
+func collect(context.Context) (*Info, error) { return nil, errors.New("not supported") }

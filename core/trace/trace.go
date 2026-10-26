@@ -36,7 +36,7 @@ func Run(ctx context.Context, host string, maxHops int, onHop func(Hop)) error {
 	}
 	host = strings.TrimSpace(host)
 	if host == "" || strings.HasPrefix(host, "-") || strings.ContainsAny(host, " ;&|`$<>\"'") {
-		return errors.New("ogiltigt mål")
+		return errors.New("invalid target")
 	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -45,7 +45,7 @@ func Run(ctx context.Context, host string, maxHops int, onHop func(Hop)) error {
 	default:
 		bin, err := exec.LookPath("traceroute")
 		if err != nil {
-			return errors.New("traceroute saknas – installera paketet 'traceroute'")
+			return errors.New("traceroute missing – install the 'traceroute' package")
 		}
 		cmd = exec.CommandContext(ctx, bin, "-n", "-q", "1", "-w", "1", "-m", strconv.Itoa(maxHops), host)
 	}
@@ -56,7 +56,7 @@ func Run(ctx context.Context, host string, maxHops int, onHop func(Hop)) error {
 	}
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("kunde inte starta traceroute: %w", err)
+		return fmt.Errorf("could not start traceroute: %w", err)
 	}
 	sc := bufio.NewScanner(out)
 	for sc.Scan() {

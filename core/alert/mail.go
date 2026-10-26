@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"pingvakt/core/i18n"
 )
 
 // SMTP är inställningar för utgående e-post.
@@ -93,14 +95,14 @@ func compose(evs []Event) (string, string) {
 	first := evs[0]
 	subject := fmt.Sprintf("[PingVakt] %s: %s – %s", first.KindText(), first.TargetName, first.AlertName)
 	if len(evs) > 1 {
-		subject = fmt.Sprintf("[PingVakt] %d larmhändelser (senast: %s %s)", len(evs), evs[len(evs)-1].KindText(), evs[len(evs)-1].TargetName)
+		subject = fmt.Sprintf(i18n.T("[PingVakt] %d alert events (latest: %s %s)"), len(evs), evs[len(evs)-1].KindText(), evs[len(evs)-1].TargetName)
 	}
 	var b strings.Builder
-	b.WriteString("Larm från PingVakt\r\n\r\n")
+	b.WriteString(i18n.T("Alerts from PingVakt\r\n\r\n"))
 	for _, e := range evs {
 		fmt.Fprintf(&b, "%s  %s\r\n", time.UnixMilli(e.Time).Format("2006-01-02 15:04:05"), e.KindText())
-		fmt.Fprintf(&b, "  Mål:    %s (%s)\r\n", e.TargetName, e.Host)
-		fmt.Fprintf(&b, "  Larm:   %s\r\n", e.AlertName)
+		fmt.Fprintf(&b, "  Target: %s (%s)\r\n", e.TargetName, e.Host)
+		fmt.Fprintf(&b, "  Alert:  %s\r\n", e.AlertName)
 		fmt.Fprintf(&b, "  Detalj: %s\r\n\r\n", e.Detail)
 	}
 	return subject, b.String()
@@ -121,10 +123,10 @@ func Send(cfg SMTP, to []string, subject, body string) error {
 // SendWithAttachments skickar ett textmejl med bifogade filer via SMTP.
 func SendWithAttachments(cfg SMTP, to []string, subject, body string, files ...Attachment) error {
 	if cfg.Host == "" {
-		return errors.New("SMTP-server saknas i inställningarna")
+		return errors.New("SMTP server missing in the settings")
 	}
 	if cfg.From == "" {
-		return errors.New("avsändaradress saknas i inställningarna")
+		return errors.New("sender address missing in the settings")
 	}
 	port := cfg.Port
 	if port == 0 {
@@ -145,7 +147,7 @@ func SendWithAttachments(cfg SMTP, to []string, subject, body string, files ...A
 		conn, err = dialer.Dial("tcp", addr)
 	}
 	if err != nil {
-		return fmt.Errorf("kunde inte ansluta till %s: %w", addr, err)
+		return fmt.Errorf("could not connect to %s: %w", addr, err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	c, err := smtp.NewClient(conn, cfg.Host)
@@ -160,7 +162,7 @@ func SendWithAttachments(cfg SMTP, to []string, subject, body string, files ...A
 				return fmt.Errorf("STARTTLS: %w", err)
 			}
 		} else if cfg.Security == "starttls" {
-			return errors.New("servern stöder inte STARTTLS")
+			return errors.New("the server does not support STARTTLS")
 		}
 	}
 	if cfg.Username != "" {
