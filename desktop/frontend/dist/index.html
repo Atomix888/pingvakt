@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="sv" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PingVakt</title>
+  <link rel="stylesheet" href="vendor/uPlot.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--brand-bg)"/><path d="M5 17h5l2.5-6 4 12 3-9 2 3H27" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>PingVakt</span>
+    </div>
+    <form class="addbar" id="addForm" autocomplete="off">
+      <input id="addHost" type="text" placeholder="Lägg till mål – värdnamn, IP eller värd:port (flera med komma)" spellcheck="false">
+      <select id="addKind" title="Mättyp">
+        <option value="icmp">ICMP</option>
+        <option value="tcp">TCP</option>
+      </select>
+      <input id="addPort" type="number" min="1" max="65535" value="443" title="Port" class="hidden">
+      <button type="submit" class="btn primary">Lägg till</button>
+    </form>
+    <div class="summary" id="summary"></div>
+    <nav class="actions">
+      <button class="btn ghost" id="btnPauseAll" title="Pausa/starta alla mål"></button>
+      <button class="btn ghost" id="btnTrace" title="Traceroute">Traceroute</button>
+      <button class="btn ghost" id="btnAlerts" title="Larm">Larm</button>
+      <button class="btn ghost" id="btnSettings" title="Inställningar">Inställningar</button>
+    </nav>
+  </header>
+
+  <div class="toolbar">
+    <input id="filter" type="search" placeholder="Filtrera…" spellcheck="false">
+    <label class="tb-field">Sortera
+      <select id="sortBy">
+        <option value="manual">Egen ordning</option>
+        <option value="name">Namn</option>
+        <option value="status">Status</option>
+        <option value="latency">Latens</option>
+        <option value="loss">Förlust</option>
+      </select>
+    </label>
+    <label class="tb-field">Kolumner
+      <select id="columns">
+        <option value="0">Auto</option>
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option>
+      </select>
+    </label>
+    <span class="spacer"></span>
+    <span class="demo-badge hidden" id="demoBadge">Demoläge – ingen mätmotor ansluten</span>
+    <span class="muted" id="footInfo"></span>
+  </div>
+
+  <main id="grid" class="grid"></main>
+  <div id="empty" class="empty hidden">
+    <h2>Inga mål ännu</h2>
+    <p>Skriv ett värdnamn eller en IP-adress i fältet ovan. Flera mål kan läggas till på en gång, separerade med komma.<br>
+      Skriv <code>värd:port</code> för att mäta mot en TCP-port i stället för med ICMP.</p>
+    <div class="quick" id="quickAdd"></div>
+  </div>
+
+  <section id="drawer" class="drawer hidden" aria-label="Detaljer">
+    <div class="drawer-grip" id="drawerGrip"></div>
+    <div class="drawer-head">
+      <span class="dot" id="dDot"></span>
+      <div class="names">
+        <div class="name" id="dName"></div>
+        <div class="host" id="dHost"></div>
+      </div>
+      <div class="ranges" id="dRanges"></div>
+      <div class="drawer-actions">
+        <button class="btn ghost sm" id="dEdit">Redigera</button>
+        <button class="btn ghost sm" id="dPause"></button>
+        <button class="btn ghost sm" id="dTrace">Traceroute</button>
+        <button class="btn ghost sm" id="dExport">Exportera CSV</button>
+        <button class="icon-btn" id="dClose" title="Stäng (Esc)">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="dstats" id="dStats"></div>
+      <div class="chart" id="dChart"></div>
+    </div>
+  </section>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="modalRoot"></div>
+
+  <script src="vendor/uPlot.iife.min.js"></script>
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-dist/
+/dist/
 desktop/rsrc_windows_*.syso
 desktop/build/windows/icon.ico
 desktop/build/windows/license.txt
