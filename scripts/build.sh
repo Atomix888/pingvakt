@@ -5,6 +5,8 @@
 #   scripts/build.sh macos     – PingVakt.app och .dmg (måste köras på en Mac)
 #   scripts/build.sh all       – windows + linux (från Linux)
 set -euo pipefail
+# I GitHub Actions: visa felraden som annotering så att felet syns i sammanfattningen
+trap 'echo "::error file=scripts/build.sh,line=$LINENO::Kommandot misslyckades: $BASH_COMMAND"' ERR
 cd "$(dirname "$0")/.."
 VERSION="${VERSION:-$(cat VERSION)}"
 DIST="dist"
@@ -72,7 +74,14 @@ macos() {
   iconutil -c icns "$iconset" -o "$app/Contents/Resources/iconfile.icns"
   codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
   rm -f "$DIST/PingVakt-${VERSION}-macos.dmg"
-  hdiutil create -volname "PingVakt" -srcfolder "$app" -ov -format UDZO "$DIST/PingVakt-${VERSION}-macos.dmg" >/dev/null
+  # hdiutil misslyckas ibland tillfälligt ("Resource busy") på byggservrar – försök igen
+  local ok=0
+  for i in 1 2 3 4 5; do
+    if hdiutil create -volname "PingVakt" -srcfolder "$app" -ov -format UDZO "$DIST/PingVakt-${VERSION}-macos.dmg"; then ok=1; break; fi
+    sleep 5
+  done
+  [ "$ok" = 1 ] || { echo "::error::hdiutil kunde inte skapa .dmg"; exit 1; }
+  (cd "$DIST" && ditto -c -k --keepParent PingVakt.app "PingVakt-${VERSION}-macos-app.zip")
   echo "klart: $DIST/PingVakt-${VERSION}-macos.dmg"
 }
 
