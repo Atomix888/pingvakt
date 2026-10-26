@@ -7,7 +7,7 @@ ARG TARGETARCH=amd64
 ARG VERSION=dev
 WORKDIR /src
 COPY . .
-RUN go mod tidy
+RUN apk add --no-cache git && if [ ! -s go.sum ]; then go mod tidy; fi && go mod download
 ENV CGO_ENABLED=0
 RUN set -e; \
     LDF="-s -w -X main.Version=${VERSION}"; \
