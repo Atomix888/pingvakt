@@ -71,7 +71,7 @@ macos() {
   echo "==> macOS ${VERSION}"
   [ "$(uname)" = "Darwin" ] || { echo "macOS-bygget måste köras på en Mac (eller i GitHub Actions)"; exit 1; }
   for a in arm64 amd64; do
-    CGO_ENABLED=1 GOOS=darwin GOARCH=$a MACOSX_DEPLOYMENT_TARGET=11.0 \
+    CGO_ENABLED=1 GOOS=darwin GOARCH=$a MACOSX_DEPLOYMENT_TARGET=11.0 CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=11.0" CGO_CFLAGS="-mmacosx-version-min=11.0" \
       logged go build -trimpath -tags desktop,production -ldflags "$LDFLAGS" -o "$DIST/pingvakt-darwin-$a" ./desktop
   done
   local app="$DIST/PingVakt.app"
