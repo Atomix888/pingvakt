@@ -432,6 +432,7 @@ func (s *Server) Run(ctx context.Context) {
 	go s.broadcastLoop(ctx)
 	go s.selfLoop(ctx)
 	go s.nightlyBackupLoop(ctx.Done())
+	go s.reportLoop(ctx.Done())
 	go func() {
 		tk := time.NewTicker(10 * time.Second)
 		defer tk.Stop()

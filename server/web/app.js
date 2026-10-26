@@ -99,12 +99,29 @@ function showLogin() {
   const err = h('div', { class: 'form-error' });
   const form = h('form', { onsubmit: async e => {
     e.preventDefault(); err.textContent = '';
-    try { S.me = await POST('/api/login', { email: email.value, password: pw.value }); location.hash = ''; await boot(); }
+    try {
+      const r = await POST('/api/login', { email: email.value, password: pw.value });
+      if (r.needTotp) return showTotpLogin(r.ticket);
+      S.me = r; location.hash = ''; await boot();
+    }
     catch (x) { err.textContent = x.message; }
   } }, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, 'Logga in'));
   authShell('Logga in', 'Logga in för att se övervakningen', form);
   setTimeout(() => email.focus(), 30);
 }
+function showTotpLogin(ticket) {
+  const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456', style: 'text-align:center;font-size:20px;letter-spacing:4px' });
+  const err = h('div', { class: 'form-error' });
+  const form = h('form', { onsubmit: async e => {
+    e.preventDefault(); err.textContent = '';
+    try { S.me = await POST('/api/login/totp', { ticket, code: code.value }); location.hash = ''; await boot(); }
+    catch (x) { err.textContent = x.message; if (x.status === 401 && /börja om/.test(x.message)) setTimeout(showLogin, 1500); }
+  } }, code, err, h('button', { class: 'btn primary', type: 'submit' }, 'Logga in'),
+    h('small', { class: 'muted', style: 'text-align:center' }, 'Ange koden från din autentiseringsapp, eller en reservkod (xxxx-xxxx).'));
+  authShell('Tvåstegsinloggning', 'Ange koden från din autentiseringsapp', form);
+  setTimeout(() => code.focus(), 30);
+}
+
 function showSetup() {
   const name = h('input', { type: 'text', placeholder: 'Ditt namn' });
   const email = h('input', { type: 'email', placeholder: 'E-post', autocomplete: 'username' });
@@ -130,6 +147,8 @@ function renderShell() {
         h('div', { class: 'who' }, h('b', null, S.me.name || S.me.email), h('small', null, isAdmin() ? 'Administratör' : 'Kund (läsbehörighet)')),
         h('button', { class: 'icon-btn', title: 'Konto', onclick: e => showMenu(e.currentTarget, [
           { label: 'Byt lösenord…', action: passwordDialog },
+          { label: S.me.totp ? 'Tvåstegsinloggning (på)…' : 'Aktivera tvåstegsinloggning…', action: totpDialog },
+          { label: 'TV-läge', action: () => { location.hash = '#/tv'; } },
           { label: 'Logga ut', action: async () => { await POST('/api/logout'); location.reload(); } },
         ]) }, '⋯'))),
     h('div', { class: 'mainwrap' },
@@ -155,7 +174,8 @@ function renderNav() {
   items.push(h('div', { class: 'navhead' }, 'Hantera'));
   items.push(link('#/agents', 'Agenter'));
   items.push(link('#/alerts', 'Larm'));
-  if (isAdmin()) { items.push(link('#/users', 'Användare')); items.push(link('#/settings', 'Inställningar')); }
+  if (isAdmin()) { items.push(link('#/users', 'Användare')); items.push(link('#/audit', 'Ändringslogg')); items.push(link('#/settings', 'Inställningar')); }
+  items.push(link('#/tv', 'TV-läge'));
   $('#nav').replaceChildren(...items);
 }
 
@@ -170,6 +190,7 @@ function counts(targets) {
 /* ---------------- routing ---------------- */
 function route() {
   closeDrawer();
+  document.body.classList.toggle('tv', location.hash === '#/tv');
   renderNav();
   const r = location.hash.replace(/^#/, '') || '/';
   const m = r.match(/^\/c\/([\w-]+)/);
@@ -186,6 +207,8 @@ function renderPage() {
   if (v.name === 'alerts') return renderAlerts(page);
   if (v.name === 'users' && isAdmin()) return renderUsers(page);
   if (v.name === 'settings' && isAdmin()) return renderSettings(page);
+  if (v.name === 'audit' && isAdmin()) return renderAudit(page);
+  if (v.name === 'tv') return renderTV(page);
   return renderOverview(page);
 }
 
@@ -250,13 +273,14 @@ function renderCustomer(page, id) {
   const sites = S.sites.filter(s => s.customerId === id);
   const head = h('div', { class: 'page-head' },
     h('div', null, h('h1', null, c.name), c.notes ? h('div', { class: 'sub' }, c.notes) : null), connBadge(),
-    h('div', { class: 'tools' }, isAdmin() ? [
+    h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, 'Rapport'), isAdmin() ? [
       h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, '+ Lägg till mål'),
       h('button', { class: 'btn', onclick: () => agentDialog(id) }, '+ Ny agent'),
       h('button', { class: 'btn', onclick: () => siteDialog(id) }, '+ Ny site'),
       h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
         { label: 'Redigera kund…', action: () => customerDialog(c) },
         { label: 'Servicefönster…', action: () => maintDialog(c.id) },
+        { label: 'Publik statussida…', action: () => statusPageDialog(c) },
         { label: 'Larm för kunden…', action: () => { location.hash = '#/alerts'; } },
         '-',
         { label: 'Ta bort kund…', danger: true, action: () => deleteCustomer(c) },
@@ -522,6 +546,7 @@ function onTick(m) {
   const unknown = Object.keys(m.stats || {}).some(id => !byId(S.targets, id)) || Object.keys(m.agents || {}).some(id => !byId(S.agents, id));
   if (unknown && !structTimer) structTimer = setTimeout(async () => { structTimer = null; await afterChange(); }, 500);
   if (S.view && S.view.name === 'overview' && !document.querySelector('.backdrop')) renderOverview($('#page'));
+  else if (S.view && S.view.name === 'tv') renderTV($('#page'));
   else for (const t of S.targets) if (tiles.has(t.id)) updateTile(t);
   document.querySelectorAll('.agent-chip').forEach(ch => {
     const a = agentOf(ch.dataset.agent);
@@ -733,6 +758,141 @@ function rebuildChart() {
 function resizeChart() { if (chart) { const box = $('#dChart'); chart.setSize({ width: box.clientWidth - 14, height: Math.max(120, box.clientHeight - 40) }); } }
 window.addEventListener('resize', () => { resizeChart(); for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
 
+
+
+/* ---------------- rapporter ---------------- */
+function reportDialog(c) {
+  const period = select([['last-month', 'Förra månaden'], ['this-month', 'Den här månaden'], ['last-week', 'Förra veckan'], ['this-week', 'Den här veckan'], ['last-30', 'Senaste 30 dagarna'], ['custom', 'Välj datum…']], 'last-month');
+  const pad = n => String(n).padStart(2, '0');
+  const d0 = new Date(Date.now() - 7 * 864e5), d1 = new Date();
+  const fromD = h('input', { type: 'date', value: `${d0.getFullYear()}-${pad(d0.getMonth() + 1)}-${pad(d0.getDate())}` });
+  const toD = h('input', { type: 'date', value: `${d1.getFullYear()}-${pad(d1.getMonth() + 1)}-${pad(d1.getDate())}` });
+  const custom = h('div', { class: 'form', style: 'grid-column:1/-1;display:none' }, field('Från', fromD), field('Till och med', toD));
+  period.onchange = () => { custom.style.display = period.value === 'custom' ? '' : 'none'; };
+  const range = () => {
+    if (period.value !== 'custom') return { period: period.value };
+    return { period: 'custom', from: new Date(fromD.value + 'T00:00').getTime(), to: new Date(toD.value + 'T00:00').getTime() + 864e5 };
+  };
+  const url = dl => { const r = range(); const q = new URLSearchParams({ period: r.period }); if (r.from) { q.set('from', r.from); q.set('to', r.to); } if (dl) q.set('download', '1'); return `/api/customers/${c.id}/report.pdf?${q}`; };
+  const fields = [field('Period', period, null, true), custom,
+    h('div', { class: 'field full' }, h('div', { class: 'row' },
+      h('button', { class: 'btn primary', onclick: () => window.open(url(false), '_blank') }, 'Visa PDF'),
+      h('button', { class: 'btn', onclick: () => { location.href = url(true); } }, 'Ladda ner'))),
+    h('small', { class: 'field full' }, 'Rapporten visar tillgänglighet, nertid, paketförlust och latens per mål, grafer per dygn, agenternas CPU, minne och disk, servicefönster och larmhändelser.')];
+  if (isAdmin()) {
+    const to = h('input', { type: 'text', value: c.reportTo || '', placeholder: 'kund@exempel.se, du@dittforetag.se' });
+    const freq = select([['', 'Av'], ['weekly', 'Varje vecka (måndag morgon, förra veckan)'], ['monthly', 'Varje månad (den 1:a, förra månaden)']], c.reportFreq || '');
+    const res = h('span');
+    fields.push(h('div', { class: 'section-title' }, 'Skicka med e-post'), field('Mottagare', to, null, true), field('Automatiskt', freq, null, true),
+      h('div', { class: 'field full' }, h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: async () => {
+          await PUT('/api/customers/' + c.id, Object.assign({}, c, { reportTo: to.value, reportFreq: freq.value }));
+          res.className = 'form-ok'; res.textContent = 'Sparat.'; await loadState();
+        } }, 'Spara inställning'),
+        h('button', { class: 'btn', onclick: async () => {
+          res.className = ''; res.replaceChildren(h('span', { class: 'spin' }), ' Skickar…');
+          const r = range();
+          try { await POST(`/api/customers/${c.id}/report/send`, { to: to.value, period: r.period, from: r.from || 0, toT: r.to || 0 }); res.className = 'form-ok'; res.textContent = 'Rapporten skickades.'; }
+          catch (e) { res.className = 'form-error'; res.textContent = e.message; }
+        } }, 'Skicka nu'), res)),
+      h('small', { class: 'field full' }, 'Kräver att e-post är inställt under Inställningar.'));
+  }
+  modal({ title: `Rapport – ${c.name}`, body: h('div', { class: 'form' }, ...fields) });
+}
+
+/* ---------------- statussida ---------------- */
+function statusPageDialog(c) {
+  const body = h('div');
+  const render = () => {
+    const cc = byId(S.customers, c.id) || c;
+    const link = cc.statusKey ? `${S.serverUrl}/status/${cc.statusKey}` : '';
+    body.replaceChildren(h('div', { class: 'form' },
+      h('p', { class: 'field full', style: 'margin:0' }, 'En publik sida som visar kundens mål med status och tillgänglighet (24 h och 30 d) – utan inloggning, IP-adresser eller detaljer. Länken är hemlig; dela den med kunden.'),
+      link ? field('Länk', copyBox(link), null, true) : h('p', { class: 'muted field full' }, 'Statussidan är avstängd.'),
+      h('div', { class: 'field full' }, h('div', { class: 'row' },
+        link ? h('a', { class: 'btn', href: link, target: '_blank' }, 'Öppna') : null,
+        h('button', { class: 'btn' + (link ? '' : ' primary'), onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: true }); await loadState(); render(); } }, link ? 'Skapa ny länk' : 'Slå på statussidan'),
+        link ? h('button', { class: 'btn danger', onclick: async () => { await POST(`/api/customers/${c.id}/status-key`, { enable: false }); await loadState(); render(); } }, 'Stäng av') : null)),
+      link ? h('small', { class: 'field full' }, 'En ny länk gör att den gamla slutar fungera.') : null));
+  };
+  render();
+  modal({ title: `Statussida – ${c.name}`, wide: true, body });
+}
+
+/* ---------------- tvåstegsinloggning ---------------- */
+async function totpDialog() {
+  const me = await GET('/api/me'); S.me = me;
+  if (me.totp) {
+    const pw = h('input', { type: 'password', autocomplete: 'current-password' });
+    formDialog({ title: 'Tvåstegsinloggning är på', saveLabel: 'Stäng av', fields: [
+      h('p', { class: 'field full', style: 'margin:0' }, 'Du loggar in med lösenord och en kod från din autentiseringsapp. Ange ditt lösenord för att stänga av.'),
+      field('Lösenord', pw, null, true)],
+      onSave: async () => { await POST('/api/me/totp/disable', { password: pw.value }); S.me.totp = false; renderShell(); renderPage(); toast({ kind: 'info', title: 'Tvåstegsinloggning avstängd' }); } });
+    return;
+  }
+  const setup = await POST('/api/me/totp/setup');
+  const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456' });
+  const err = h('span', { class: 'form-error' });
+  const body = h('div', { class: 'form' },
+    h('p', { class: 'field full', style: 'margin:0' }, 'Skanna QR-koden med en autentiseringsapp (t.ex. Microsoft Authenticator, Google Authenticator, 1Password eller Bitwarden) och ange koden som visas.'),
+    h('div', { class: 'field', style: 'align-items:center' }, h('img', { src: setup.qr, width: 200, height: 200, alt: 'QR-kod', style: 'background:#fff;border-radius:8px;padding:6px' })),
+    h('div', { class: 'field' }, h('span', null, 'Eller ange nyckeln manuellt'), h('code', { style: 'word-break:break-all' }, setup.secret),
+      h('span', { style: 'margin-top:12px' }, 'Kod från appen'), code));
+  const close = modal({ title: 'Aktivera tvåstegsinloggning', body,
+    foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
+      h('button', { class: 'btn primary', onclick: async () => {
+        err.textContent = '';
+        try {
+          const r = await POST('/api/me/totp/enable', { code: code.value });
+          close(); S.me.totp = true; renderShell(); renderPage();
+          modal({ title: 'Spara dina reservkoder', body: h('div', null,
+            h('p', null, 'Om du tappar telefonen kan du logga in med en av dessa koder (varje kod fungerar en gång). Spara dem på ett säkert ställe – de visas bara nu.'),
+            copyBox(r.recovery.join('  '))) });
+        } catch (e) { err.textContent = e.message; }
+      } }, 'Aktivera')] });
+}
+
+/* ---------------- ändringslogg ---------------- */
+async function renderAudit(page) {
+  const q = h('input', { type: 'search', placeholder: 'Sök på användare, typ eller text…', style: 'width:300px' });
+  const box = h('div');
+  const load = async () => {
+    const list = await GET('/api/audit?q=' + encodeURIComponent(q.value));
+    box.replaceChildren(list.length ? h('table', { class: 'tbl' },
+      h('thead', null, h('tr', null, ...['Tid', 'Användare', 'Typ', 'Händelse', 'IP'].map(x => h('th', null, x)))),
+      h('tbody', null, ...list.map(a => h('tr', null, h('td', { class: 'mono' }, dateTime(a.t)), h('td', null, a.user), h('td', null, a.kind),
+        h('td', null, a.text), h('td', { class: 'mono muted' }, a.ip))))) : h('p', { class: 'muted' }, 'Inga händelser.'));
+  };
+  let tm; q.oninput = () => { clearTimeout(tm); tm = setTimeout(load, 300); };
+  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, 'Ändringslogg'), h('div', { class: 'tools' }, q)), box,
+    h('p', { class: 'ro-note', style: 'margin-top:12px' }, 'Inloggningar och alla ändringar av kunder, agenter, mål, larm, användare och inställningar. Sparas lika länge som minutvärdena.'));
+  await load();
+}
+
+/* ---------------- TV-läge ---------------- */
+function renderTV(page) {
+  const all = counts(S.targets);
+  const clockEl = h('div', { class: 'tv-clock' }, new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }));
+  const cards = S.customers.map(c => {
+    const ts = S.targets.filter(t => customerOfTarget(t) === c.id);
+    const cnt = counts(ts);
+    const st = cnt.down ? 'down' : cnt.offline ? 'offline' : cnt.warn ? 'warn' : 'up';
+    return h('div', { class: 'tv-card st-' + st, onclick: () => { location.hash = '#/c/' + c.id; } },
+      h('div', { class: 'tv-name' }, h('span', { class: 'dot' }), c.name),
+      h('div', { class: 'tv-counts' }, ...[['up', 'uppe'], ['warn', 'varning'], ['down', 'nere'], ['offline', 'offline']].filter(([k]) => cnt[k] || k === 'up').map(([k, l]) => h('span', { class: 'st-' + k }, h('b', null, String(cnt[k])), ' ' + l))));
+  });
+  const problems = S.targets.filter(t => ['down', 'offline', 'warn'].includes((S.stats[t.id] || {}).status) && !maintNote(t))
+    .sort((a, b) => ({ down: 0, offline: 1, warn: 2 })[S.stats[a.id].status] - ({ down: 0, offline: 1, warn: 2 })[S.stats[b.id].status]).slice(0, 14);
+  page.replaceChildren(h('div', { class: 'tv' },
+    h('div', { class: 'tv-head' }, h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
+      h('div', { class: 'tv-sum' }, ...[['up', 'uppe'], ['warn', 'varning'], ['down', 'nere'], ['offline', 'offline']].map(([k, l]) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero') }, h('span', { class: 'dot' }), `${all[k]} ${l}`))),
+      clockEl, h('button', { class: 'btn ghost', onclick: () => { location.hash = '#/'; } }, 'Avsluta')),
+    h('div', { class: 'tv-grid' }, ...cards),
+    h('div', { class: 'tv-problems' }, h('h2', null, problems.length ? 'Just nu' : 'Allt fungerar'),
+      ...problems.map(t => { const st = S.stats[t.id]; const a = agentOf(t.agentId); const site = a && siteOf(a.siteId); const c = site && byId(S.customers, site.customerId);
+        return h('div', { class: 'tv-row st-' + st.status }, h('span', { class: 'dot' }), h('b', null, displayName(t)), h('span', { class: 'muted' }, `${c ? c.name : ''} · ${site ? site.name : ''}`),
+          h('span', { class: 'tv-since' }, `${STATUS_TEXT[st.status]} ${dur(Date.now() - st.since)}`)); }))));
+}
 
 /* ---------------- kvittering och servicefönster ---------------- */
 function ackAlert(key) {
@@ -978,9 +1138,10 @@ async function renderUsers(page) {
   const box = h('div');
   page.replaceChildren(head, box, h('p', { class: 'ro-note', style: 'margin-top:12px' }, 'Kundanvändare ser bara sin egen kund och kan inte ändra något.'));
   const us = await GET('/api/users');
-  box.replaceChildren(h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'E-post', 'Roll', 'Kund', ''].map(x => h('th', null, x)))),
+  box.replaceChildren(h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'E-post', 'Roll', 'Kund', 'Tvåsteg', ''].map(x => h('th', null, x)))),
     h('tbody', null, ...us.map(u => h('tr', null, h('td', null, u.name || '–'), h('td', null, u.email),
       h('td', null, u.role === 'admin' ? 'Administratör' : 'Kund (läs)'), h('td', null, u.customerId ? ((byId(S.customers, u.customerId) || {}).name || '–') : '–'),
+      h('td', null, u.totp ? h('span', { class: 'pill st-up' }, h('span', { class: 'dot' }), 'På') : h('span', { class: 'muted' }, 'Av')),
       h('td', { class: 'actions' }, h('button', { class: 'btn sm', onclick: () => userDialog(u) }, 'Redigera')))))));
 }
 
@@ -994,6 +1155,7 @@ async function renderSettings(page) {
       h('small', null, `Mapp: ${b.dir}. Återställ genom att stoppa servern och ersätta pingvakt.db med en kopia.`));
   }).catch(() => {});
   const pub = h('input', { type: 'text', value: st.publicUrl, placeholder: S.serverUrl });
+  const repName = h('input', { type: 'text', value: st.reportName || '', placeholder: 'Ditt företagsnamn' });
   const rep = num(st.reportSec, 2, 300), raw = num(st.rawDays, 1, 365), agg = num(st.aggDays, 7, 3650);
   const autoUpd = h('input', { type: 'checkbox', checked: !st.noAutoUpdate });
   const backupKeep = num(st.backupKeep, 0, 365);
@@ -1012,6 +1174,7 @@ async function renderSettings(page) {
     h('div', { class: 'modal', style: 'width:auto;max-width:860px;max-height:none' }, h('div', { class: 'modal-body', style: 'padding-top:16px' }, h('div', { class: 'form' },
       h('div', { class: 'section-title' }, 'Server'),
       field('Publik adress', pub, 'Används i installationskommandon och mejl. Tomt = adressen du surfar på', true),
+      field('Företagsnamn på rapporter och statussidor', repName, null, true),
       field('Agenter rapporterar var (sekunder)', rep), h('span'),
       field('Spara rådata (dagar)', raw, 'Varje enskild ping'), field('Spara minutvärden (dagar)', agg, 'Snitt/min/max/förlust per minut'),
       h('div', { class: 'field full' }, h('label', { class: 'check' }, autoUpd, 'Uppdatera agenterna automatiskt när servern får en ny version')),
@@ -1035,7 +1198,7 @@ async function renderSettings(page) {
         msg.className = ''; msg.textContent = '';
         try {
           await PUT('/api/settings', { publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
-            noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value,
+            noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value, reportName: repName.value.trim(),
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
             smtp: smtpVal(), newPassword: sPass.value !== '' });
           msg.className = 'form-ok'; msg.textContent = 'Sparat.'; await loadState();
@@ -1270,6 +1433,10 @@ function userDialog(u) {
   const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? 'Lämna tomt för att behålla' : 'Minst 8 tecken' });
   const cf = field('Kund', cust); const sync = () => { cf.style.display = role.value === 'viewer' ? '' : 'none'; }; role.onchange = sync; sync();
   const fields = [field('E-post', email), field('Namn', name), field('Roll', role), cf, field('Lösenord', pw, null, true)];
+  if (u && u.totp) fields.push(h('div', { class: 'field full' }, h('button', { class: 'btn', onclick: async e => {
+    if (!await confirmDialog('Återställ tvåstegsinloggning', `${u.email} kan då logga in med bara lösenordet och behöver aktivera tvåstegsinloggning igen.`, 'Återställ')) return;
+    await POST(`/api/users/${u.id}/totp/reset`); e.target.closest('.backdrop')._close(); renderPage();
+  } }, 'Återställ tvåstegsinloggning')));
   if (u && u.id !== S.me.id) fields.push(h('div', { class: 'field full' }, h('button', { class: 'btn danger', onclick: async e => {
     if (!await confirmDialog('Ta bort användare', `Ta bort ${u.email}?`, 'Ta bort')) return; await DEL('/api/users/' + u.id); e.target.closest('.backdrop')._close(); renderPage();
   } }, 'Ta bort användaren')));

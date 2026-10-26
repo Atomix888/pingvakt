@@ -170,7 +170,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.limiter.fail(ip)
+		s.auditAs(strings.TrimSpace(in.Email), ip, "inloggning", "", "misslyckad inloggning")
 		httpErr(w, http.StatusUnauthorized, "fel e-post eller lösenord")
+		return
+	}
+	if sec, _ := s.userTOTP(u.ID); sec != "" {
+		writeJSON(w, map[string]any{"needTotp": true, "ticket": startTOTPLogin(u.ID)})
 		return
 	}
 	s.limiter.reset(ip)
@@ -178,6 +183,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.auditAs(u.Email, ip, "inloggning", u.ID, "loggade in")
 	writeJSON(w, u)
 }
 
@@ -273,6 +279,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.db.Exec(`UPDATE users SET pw_hash=? WHERE id=?`, nh, u.ID)
+	s.audit(r, "inloggning", u.ID, "bytte lösenord")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

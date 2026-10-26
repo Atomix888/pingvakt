@@ -585,7 +585,13 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
-// audit är en plats för ändringsloggen (fylls i senare version).
-func (s *Server) audit(r *http.Request, kind, id, text string) {}
+// audit skriver en rad i ändringsloggen för den inloggade användaren.
+func (s *Server) audit(r *http.Request, kind, id, text string) {
+	user := "okänd"
+	if u := userFrom(r); u != nil {
+		user = u.Email
+	}
+	s.auditAs(user, clientIP(r), kind, id, text)
+}
 
 var _ = sql.ErrNoRows

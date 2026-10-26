@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,5 +170,20 @@ func TestAlertFilterDependency(t *testing.T) {
 	ev2 := alert.Event{Kind: "fire", TargetID: "router"}
 	if s.alertFilter(rule, &ev2) || ev2.Note == "" {
 		t.Fatal("servicefönster ska undertrycka larm")
+	}
+}
+
+func TestTOTP(t *testing.T) {
+	// RFC 6238, testvektor för SHA-1 vid t = 59 s: 94287082 -> sista 6 siffrorna
+	sec := b32.EncodeToString([]byte("12345678901234567890"))
+	if got := totpCode(sec, time.Unix(59, 0)); got != "287082" {
+		t.Fatalf("fel kod: %s", got)
+	}
+	if !totpValid(sec, totpCode(sec, time.Now())) {
+		t.Fatal("aktuell kod ska godtas")
+	}
+	codes, hashes := newRecoveryCodes()
+	if len(codes) != 8 || !strings.Contains(hashes, recoveryHash(codes[3])) {
+		t.Fatal("reservkoder")
 	}
 }

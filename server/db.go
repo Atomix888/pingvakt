@@ -74,8 +74,19 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
+	}
+	// nya kolumner i senare versioner (fel ignoreras om de redan finns)
+	for _, m := range []string{
+		`ALTER TABLE customers ADD COLUMN report_to TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE customers ADD COLUMN report_freq TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE customers ADD COLUMN report_last INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE customers ADD COLUMN status_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN totp_recovery TEXT NOT NULL DEFAULT ''`,
+	} {
+		_, _ = d.Exec(m)
 	}
 	return &DB{d}, nil
 }
@@ -83,10 +94,14 @@ func OpenDB(path string) (*DB, error) {
 // ---------- typer ----------
 
 type Customer struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Notes   string `json:"notes"`
-	Created int64  `json:"created"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Notes      string `json:"notes"`
+	Created    int64  `json:"created"`
+	ReportTo   string `json:"reportTo"`   // mottagare av automatiska rapporter
+	ReportFreq string `json:"reportFreq"` // "", "weekly", "monthly"
+	ReportLast int64  `json:"reportLast"` // slutet på senast skickade period
+	StatusKey  string `json:"statusKey"`  // hemlig nyckel för publik statussida ("" = av)
 }
 
 type Site struct {
@@ -132,6 +147,7 @@ type User struct {
 	Role       string `json:"role"` // admin, viewer
 	CustomerID string `json:"customerId"`
 	Created    int64  `json:"created"`
+	TOTP       bool   `json:"totp"` // tvåstegsinloggning aktiverad
 }
 
 // ServerSettings är serverns inställningar.
@@ -139,6 +155,7 @@ type ServerSettings struct {
 	PublicURL    string           `json:"publicUrl"`
 	NoAutoUpdate bool             `json:"noAutoUpdate"` // agenter uppdateras inte automatiskt
 	BackupKeep   int              `json:"backupKeep"`   // antal nattliga säkerhetskopior som sparas
+	ReportName   string           `json:"reportName"`   // företagsnamn som står på rapporterna
 	RawDays      int              `json:"rawDays"`
 	AggDays      int              `json:"aggDays"`
 	ReportSec    int              `json:"reportSec"`
@@ -184,7 +201,7 @@ func (d *DB) SaveSettings(s ServerSettings) error {
 // ---------- kunder, siter, agenter ----------
 
 func (d *DB) Customers() ([]Customer, error) {
-	rows, err := d.Query(`SELECT id,name,notes,created FROM customers ORDER BY name COLLATE NOCASE`)
+	rows, err := d.Query(`SELECT id,name,notes,created,report_to,report_freq,report_last,status_key FROM customers ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +209,7 @@ func (d *DB) Customers() ([]Customer, error) {
 	out := []Customer{}
 	for rows.Next() {
 		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Notes, &c.Created); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Notes, &c.Created, &c.ReportTo, &c.ReportFreq, &c.ReportLast, &c.StatusKey); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -532,13 +549,14 @@ func (d *DB) Prune(rawDays, aggDays int) (int64, error) {
 	total += n
 	_, _ = d.Exec(`DELETE FROM alert_events WHERE t < ?`, now()-int64(aggDays)*86400000)
 	_, _ = d.Exec(`DELETE FROM sessions WHERE expires < ?`, now())
+	_, _ = d.Exec(`DELETE FROM audit WHERE t < ?`, now()-int64(aggDays)*86400000)
 	return total, nil
 }
 
 // ---------- användare ----------
 
 func (d *DB) Users() ([]User, error) {
-	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created FROM users ORDER BY email`)
+	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created,totp_secret<>'' FROM users ORDER BY email`)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +564,7 @@ func (d *DB) Users() ([]User, error) {
 	out := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -570,8 +588,8 @@ func (d *DB) UserByEmail(email string) (User, string, error) {
 
 func (d *DB) UserBySession(tokenHash string) (User, error) {
 	var u User
-	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created)
+	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created,u.totp_secret<>'' FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP)
 	return u, err
 }
 

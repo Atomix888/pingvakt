@@ -67,6 +67,23 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Säkerhetskopior:** servern sparar en kopia av databasen varje natt kl. 03:15 i `data/backups`. Som standard sparas de sju senaste. Under Inställningar kan du ladda ner en färsk kopia när som helst. Du återställer genom att stoppa servern och ersätta `pingvakt.db` med kopian.
 
+**Rapporter:** under kunden → *Rapport* skapar du en PDF för förra månaden, förra veckan eller valfri period. Den innehåller:
+- tillgänglighet och nertid per mål
+- paketförlust och latens
+- grafer per dygn
+- agenternas CPU, minne och disk
+- servicefönster och larmhändelser
+
+Rapporten kan mejlas automatiskt varje vecka (måndag morgon) eller varje månad (den 1:a). Företagsnamnet på rapporterna ställer du in under Inställningar.
+
+**Publik statussida:** under kundens meny → *Publik statussida* skapar du en hemlig länk som kunden kan öppna utan inloggning. Den visar status och tillgänglighet (24 h och 30 d) per mål, men inga IP-adresser eller detaljer.
+
+**TV-läge:** en helskärmsvy med alla kunder och det som är fel just nu. Den passar för en skärm på kontoret.
+
+**Tvåstegsinloggning:** varje användare kan aktivera tvåstegsinloggning under kontomenyn längst ner till vänster. Det fungerar med Microsoft Authenticator, Google Authenticator, 1Password, Bitwarden m.fl. Användaren får också reservkoder. En administratör kan återställa tvåstegsinloggningen för någon som tappat telefonen.
+
+**Ändringslogg:** inloggningar och alla ändringar (kunder, agenter, mål, larm, användare, inställningar) loggas med användare, tid och IP-adress.
+
 **Roller:** *Administratör* kan göra allt. *Kund* har bara läsbehörighet och ser bara sin egen kund.
 
 **Lagring:** SQLite i datamappen (`/data` i Docker). Varje enskild ping sparas i 7 dagar, och minutvärden (snitt, min, max och förlust) sparas i 400 dagar. Båda tiderna kan ändras under Inställningar. Graferna visar upp till 30 dagar.
@@ -155,11 +172,10 @@ scripts/build.sh   Byggskript för alla plattformar
 
 ## Färdplan
 
-- PDF-rapporter per kund och period
 - Kodsignering (Windows/macOS)
 - Engelska som språkval
 - HTTP(S)-kontroller som mättyp
-- Tvåstegsinloggning och inloggning via Microsoft/Google för kunder
+- Inloggning via Microsoft/Google för kunder
 
 ## Licenser
 

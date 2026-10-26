@@ -2,6 +2,7 @@ package alert
 
 import (
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -105,8 +106,20 @@ func compose(evs []Event) (string, string) {
 	return subject, b.String()
 }
 
+// Attachment är en bifogad fil.
+type Attachment struct {
+	Name        string
+	ContentType string
+	Data        []byte
+}
+
 // Send skickar ett textmejl via SMTP.
 func Send(cfg SMTP, to []string, subject, body string) error {
+	return SendWithAttachments(cfg, to, subject, body)
+}
+
+// SendWithAttachments skickar ett textmejl med bifogade filer via SMTP.
+func SendWithAttachments(cfg SMTP, to []string, subject, body string, files ...Attachment) error {
 	if cfg.Host == "" {
 		return errors.New("SMTP-server saknas i inställningarna")
 	}
@@ -171,9 +184,33 @@ func Send(cfg SMTP, to []string, subject, body string) error {
 		"To: " + strings.Join(to, ", ") + "\r\n" +
 		"Subject: " + mimeHeader(subject) + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n" +
-		"Content-Transfer-Encoding: 8bit\r\n\r\n" + body
+		"MIME-Version: 1.0\r\n"
+	if len(files) == 0 {
+		msg += "Content-Type: text/plain; charset=UTF-8\r\n" +
+			"Content-Transfer-Encoding: 8bit\r\n\r\n" + body
+	} else {
+		boundary := "pingvakt-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+		var b strings.Builder
+		b.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n\r\n")
+		b.WriteString("--" + boundary + "\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + body + "\r\n")
+		for _, f := range files {
+			ct := f.ContentType
+			if ct == "" {
+				ct = "application/octet-stream"
+			}
+			name := strings.NewReplacer("\"", "", "\r", "", "\n", "").Replace(f.Name)
+			b.WriteString("--" + boundary + "\r\nContent-Type: " + ct + "; name=\"" + name + "\"\r\n" +
+				"Content-Disposition: attachment; filename=\"" + name + "\"\r\nContent-Transfer-Encoding: base64\r\n\r\n")
+			enc := base64.StdEncoding.EncodeToString(f.Data)
+			for len(enc) > 76 {
+				b.WriteString(enc[:76] + "\r\n")
+				enc = enc[76:]
+			}
+			b.WriteString(enc + "\r\n")
+		}
+		b.WriteString("--" + boundary + "--\r\n")
+		msg += b.String()
+	}
 	if _, err := w.Write([]byte(msg)); err != nil {
 		return err
 	}

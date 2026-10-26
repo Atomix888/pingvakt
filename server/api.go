@@ -55,6 +55,12 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/me/password", need(false, s.handleChangePassword))
+	mux.HandleFunc("POST /api/login/totp", s.handleLoginTOTP)
+	mux.HandleFunc("POST /api/me/totp/setup", need(false, s.handleTOTPSetup))
+	mux.HandleFunc("POST /api/me/totp/enable", need(false, s.handleTOTPEnable))
+	mux.HandleFunc("POST /api/me/totp/disable", need(false, s.handleTOTPDisable))
+	mux.HandleFunc("POST /api/users/{id}/totp/reset", need(true, s.handleTOTPReset))
+	mux.HandleFunc("GET /api/audit", need(true, s.handleAudit))
 	// data
 	mux.HandleFunc("GET /api/state", need(false, s.handleState))
 	mux.HandleFunc("GET /api/live", need(false, s.handleLive))
@@ -62,6 +68,8 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/export.csv", need(false, s.handleExport))
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
 	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
+	mux.HandleFunc("GET /api/customers/{id}/report.pdf", need(false, s.handleCustomerReport))
+	mux.HandleFunc("POST /api/customers/{id}/report/send", need(true, s.handleSendReport))
 	mux.HandleFunc("GET /api/maintenance", need(false, s.handleListMaintenance))
 	mux.HandleFunc("POST /api/maintenance", need(true, s.handleSaveMaintenance))
 	mux.HandleFunc("PUT /api/maintenance/{id}", need(true, s.handleSaveMaintenance))
@@ -101,6 +109,9 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /install.sh", s.handleInstallSh)
 	mux.HandleFunc("GET /install.ps1", s.handleInstallPs1)
 	mux.HandleFunc("GET /download/agent/{file}", s.handleDownload)
+	mux.HandleFunc("GET /api/public/status/{key}", s.handlePublicStatus)
+	mux.HandleFunc("POST /api/customers/{id}/status-key", need(true, s.handleStatusKey))
+	mux.HandleFunc("GET /status/{key}", s.serveStatusPage(web))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.Handle("/", web)
 	return securityHeaders(s.withUser(mux))
@@ -403,8 +414,12 @@ func (s *Server) handleSaveCustomer(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "namn saknas")
 		return
 	}
+	c.ReportTo = strings.TrimSpace(c.ReportTo)
+	if c.ReportFreq != "weekly" && c.ReportFreq != "monthly" {
+		c.ReportFreq = ""
+	}
 	if id := r.PathValue("id"); id != "" {
-		_, err := s.db.Exec(`UPDATE customers SET name=?, notes=? WHERE id=?`, c.Name, c.Notes, id)
+		_, err := s.db.Exec(`UPDATE customers SET name=?, notes=?, report_to=?, report_freq=? WHERE id=?`, c.Name, c.Notes, c.ReportTo, c.ReportFreq, id)
 		if err != nil {
 			httpErr(w, 500, err.Error())
 			return
@@ -412,13 +427,14 @@ func (s *Server) handleSaveCustomer(w http.ResponseWriter, r *http.Request) {
 		c.ID = id
 	} else {
 		c.ID, c.Created = newID(), now()
-		if _, err := s.db.Exec(`INSERT INTO customers(id,name,notes,created) VALUES(?,?,?,?)`, c.ID, c.Name, c.Notes, c.Created); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO customers(id,name,notes,created,report_to,report_freq) VALUES(?,?,?,?,?,?)`, c.ID, c.Name, c.Notes, c.Created, c.ReportTo, c.ReportFreq); err != nil {
 			httpErr(w, 500, err.Error())
 			return
 		}
 		// en första site skapas direkt
 		_, _ = s.db.Exec(`INSERT INTO sites(id,customer_id,name,created) VALUES(?,?,?,?)`, newID(), c.ID, "Huvudkontor", now())
 	}
+	s.audit(r, "kund", c.ID, "sparade kunden "+c.Name)
 	s.afterChange(w, c)
 }
 
@@ -434,6 +450,7 @@ func (s *Server) handleDeleteCustomer(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.db.Exec(`DELETE FROM alerts WHERE customer_id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM users WHERE customer_id=? AND role='viewer'`, id)
+	s.audit(r, "kund", id, "tog bort kunden "+s.customers[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -479,6 +496,7 @@ func (s *Server) handleSaveSite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.audit(r, "site", x.ID, "sparade siten "+x.Name)
 	s.afterChange(w, x)
 }
 
@@ -499,6 +517,7 @@ func (s *Server) handleDeleteSite(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "site", id, "tog bort siten "+s.sites[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -539,6 +558,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "agent", a.ID, "skapade agenten "+a.Name)
 	s.afterChange(w, agentWithToken{a, tok})
 }
 
@@ -552,6 +572,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "agent", id, "ändrade agenten "+in.Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -564,6 +585,7 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "agent", id, "tog bort agenten "+s.agents[id].Name)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -579,6 +601,7 @@ func (s *Server) handleNewToken(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 404, "agenten finns inte")
 		return
 	}
+	s.audit(r, "agent", id, "skapade ny token")
 	s.afterChange(w, map[string]string{"token": tok})
 }
 
@@ -686,6 +709,7 @@ func (s *Server) handleAddTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.db.BumpConfig(in.AgentID)
+	s.audit(r, "mål", in.AgentID, fmt.Sprintf("lade till %d mål: %s", len(added), strings.TrimSpace(in.Hosts)))
 	s.afterChange(w, added)
 }
 
@@ -778,6 +802,7 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	if oldCopy.AgentID != t.AgentID {
 		s.db.BumpConfig(oldCopy.AgentID)
 	}
+	s.audit(r, "mål", id, "ändrade målet "+t.Host)
 	s.afterChange(w, t)
 }
 
@@ -797,6 +822,7 @@ func (s *Server) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.db.BumpConfig(t.AgentID)
+	s.audit(r, "mål", id, "tog bort målet "+t.Host)
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 
@@ -834,6 +860,7 @@ func (s *Server) handleSaveRule(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "larmregel", in.ID, "sparade larmregeln "+in.Name)
 	s.afterChange(w, in)
 }
 
@@ -843,6 +870,7 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "larmregel", id, "tog bort larmregeln "+s.rules[id].Name)
 	// ta bort kopplingen från målen
 	ts, _ := s.db.Targets()
 	for _, t := range ts {
@@ -948,6 +976,7 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, 400, err.Error())
 			return
 		}
+		s.audit(r, "användare", u.ID, "skapade användaren "+u.Email+" ("+u.Role+")")
 		writeJSON(w, u)
 		return
 	}
@@ -977,6 +1006,7 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.db.Exec(`UPDATE users SET pw_hash=? WHERE id=?`, h, id)
 		_, _ = s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, id)
 	}
+	s.audit(r, "användare", id, "ändrade användaren "+strings.TrimSpace(in.Email)+" ("+role+")")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -990,6 +1020,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "användare", id, "tog bort en användare")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -1043,6 +1074,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mailer.SetConfig(st.SMTP)
 	_, _ = s.db.Exec(`UPDATE agents SET config_version=config_version+1`)
+	s.audit(r, "inställningar", "", "ändrade serverinställningar")
 	s.afterChange(w, map[string]bool{"ok": true})
 }
 

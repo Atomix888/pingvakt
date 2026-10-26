@@ -3,9 +3,11 @@ module pingvakt
 go 1.26.0
 
 require (
+	github.com/go-pdf/fpdf v0.9.0
 	github.com/kardianos/service v1.2.4
 	github.com/ncruces/go-sqlite3 v0.30.5
 	github.com/shirou/gopsutil/v4 v4.25.10
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tc-hib/winres v0.3.1
 	github.com/wailsapp/wails/v2 v2.10.1
 	golang.org/x/crypto v0.47.0
