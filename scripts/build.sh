@@ -4,13 +4,25 @@
 #   scripts/build.sh linux     – binär, .deb och .tar.gz (kräver libgtk-3-dev och libwebkit2gtk-4.1-dev)
 #   scripts/build.sh macos     – PingVakt.app och .dmg (måste köras på en Mac)
 #   scripts/build.sh all       – windows + linux (från Linux)
-set -euo pipefail
+set -Eeuo pipefail
 # I GitHub Actions: visa felraden som annotering så att felet syns i sammanfattningen
 trap 'echo "::error file=scripts/build.sh,line=$LINENO::Kommandot misslyckades: $BASH_COMMAND"' ERR
 cd "$(dirname "$0")/.."
 VERSION="${VERSION:-$(cat VERSION)}"
 DIST="dist"
 mkdir -p "$DIST"
+
+# Kör ett kommando; om det misslyckas visas de sista raderna som en annotering i GitHub Actions.
+logged() {
+  local out; out="$(mktemp)"
+  if "$@" >"$out" 2>&1; then cat "$out"; rm -f "$out"; return 0; fi
+  cat "$out"
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    local msg; msg="$(tail -n 25 "$out" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+    echo "::error title=Misslyckades: $1::${msg}"
+  fi
+  rm -f "$out"; return 1
+}
 LDFLAGS="-s -w -X main.Version=${VERSION}"
 
 windows() {
@@ -60,19 +72,19 @@ macos() {
   [ "$(uname)" = "Darwin" ] || { echo "macOS-bygget måste köras på en Mac (eller i GitHub Actions)"; exit 1; }
   for a in arm64 amd64; do
     CGO_ENABLED=1 GOOS=darwin GOARCH=$a MACOSX_DEPLOYMENT_TARGET=11.0 \
-      go build -trimpath -tags desktop,production -ldflags "$LDFLAGS" -o "$DIST/pingvakt-darwin-$a" ./desktop
+      logged go build -trimpath -tags desktop,production -ldflags "$LDFLAGS" -o "$DIST/pingvakt-darwin-$a" ./desktop
   done
   local app="$DIST/PingVakt.app"
   rm -rf "$app"; mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-  lipo -create -output "$app/Contents/MacOS/PingVakt" "$DIST/pingvakt-darwin-arm64" "$DIST/pingvakt-darwin-amd64"
+  logged lipo -create -output "$app/Contents/MacOS/PingVakt" "$DIST/pingvakt-darwin-arm64" "$DIST/pingvakt-darwin-amd64"
   sed "s/@VERSION@/${VERSION}/g" desktop/build/darwin/Info.plist > "$app/Contents/Info.plist"
   local iconset; iconset="$(mktemp -d)/PingVakt.iconset"; mkdir -p "$iconset"
   for s in 16 32 128 256 512; do
-    sips -z $s $s desktop/build/appicon.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
-    sips -z $((s*2)) $((s*2)) desktop/build/appicon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
+    logged sips -z $s $s desktop/build/appicon.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
+    logged sips -z $((s*2)) $((s*2)) desktop/build/appicon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
   done
-  iconutil -c icns "$iconset" -o "$app/Contents/Resources/iconfile.icns"
-  codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
+  logged iconutil -c icns "$iconset" -o "$app/Contents/Resources/iconfile.icns"
+  logged codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
   rm -f "$DIST/PingVakt-${VERSION}-macos.dmg"
   # hdiutil misslyckas ibland tillfälligt ("Resource busy") på byggservrar – försök igen
   local ok=0
