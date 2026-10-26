@@ -19,7 +19,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.7.0"
+var Version = "0.7.1"
 
 //go:embed all:web
 var webFS embed.FS
