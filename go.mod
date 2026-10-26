@@ -1,8 +1,6 @@
 module pingvakt
 
-go 1.24.0
-
-toolchain go1.24.7
+go 1.26.0
 
 require (
 	github.com/kardianos/service v1.2.4
@@ -12,7 +10,6 @@ require (
 	github.com/wailsapp/wails/v2 v2.10.1
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
-	golang.org/x/sys v0.49.0
 )
 
 require (
@@ -28,12 +25,14 @@ require (
 	github.com/leaanthony/gosod v1.0.4 // indirect
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
@@ -46,6 +45,6 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/image v0.12.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 )
-
