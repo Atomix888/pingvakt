@@ -6,6 +6,8 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
 WORKDIR /src
+# go.mod kan kräva en nyare Go-version än avbildningen – låt Go hämta den
+ENV GOTOOLCHAIN=auto
 COPY . .
 RUN apk add --no-cache git && if [ ! -s go.sum ]; then go mod tidy; fi && go mod download
 ENV CGO_ENABLED=0
