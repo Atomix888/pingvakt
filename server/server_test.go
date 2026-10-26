@@ -187,3 +187,35 @@ func TestTOTP(t *testing.T) {
 		t.Fatal("reservkoder")
 	}
 }
+
+func TestObservePath(t *testing.T) {
+	ps := &pathState{}
+	steps := []struct {
+		sig     string
+		changed bool
+	}{{"a>b>c", false}, {"a>b>c", false}, {"a>x>c", false}, {"a>b>c", false}, {"a>x>c", false}, {"a>x>c", true}, {"a>x>c", false}}
+	for i, st := range steps {
+		if ch, _ := observePath(ps, st.sig); ch != st.changed {
+			t.Fatalf("steg %d (%s): changed=%v", i, st.sig, ch)
+		}
+	}
+	if d := diffPath([]string{"a", "b", "c"}, []string{"a", "x", "c"}); d != "hopp 2 b → x (3 → 3 hopp)" {
+		t.Fatal(d)
+	}
+}
+
+func TestEvalRSSI(t *testing.T) {
+	r := alert.Alert{Condition: alert.CondRSSI, Threshold: -75, Samples: 5}
+	end := int64(10 * 60000)
+	var pts []wifiPoint
+	for i := 0; i <= 30; i++ {
+		pts = append(pts, wifiPoint{end - int64(30-i)*10000, -80})
+	}
+	if met, _ := evalRSSI(r, pts, end); !met {
+		t.Fatal("svag signal ska larma")
+	}
+	pts[len(pts)-1].rssi = -60
+	if met, _ := evalRSSI(r, pts, end); met {
+		t.Fatal("bra signal ska inte larma")
+	}
+}

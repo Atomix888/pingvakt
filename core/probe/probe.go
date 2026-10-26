@@ -19,6 +19,8 @@ type Kind string
 const (
 	KindICMP Kind = "icmp"
 	KindTCP  Kind = "tcp"
+	KindHTTP Kind = "http" // HTTP(S)-anrop; Host är en URL
+	KindDNS  Kind = "dns"  // DNS-uppslag; Host är namnet som slås upp
 )
 
 // IPMode styr vilken adressfamilj som används vid namnuppslag.
@@ -38,6 +40,8 @@ type Request struct {
 	Timeout time.Duration
 	Size    int // ICMP-datastorlek i byte
 	IPMode  IPMode
+	Keyword string // HTTP: texten måste finnas i svaret
+	DNSSrv  string // DNS: server att fråga (tom = systemets)
 }
 
 // Result är utfallet av en mätning.
@@ -47,6 +51,9 @@ type Result struct {
 	RTT  time.Duration
 	Addr string // den IP-adress som faktiskt mättes
 	Err  string
+	// HTTP(S)
+	Status   int // statuskod
+	CertDays int // dagar tills certifikatet går ut (-1 = inget certifikat)
 }
 
 // Pinger utför mätningar. Implementeringen är trådsäker.
@@ -71,7 +78,15 @@ func (p *Pinger) Do(ctx context.Context, req Request) Result {
 	if req.Size <= 0 {
 		req.Size = 32
 	}
-	res := Result{Time: time.Now()}
+	res := Result{Time: time.Now(), CertDays: -1}
+	switch req.Kind {
+	case KindHTTP:
+		httpCheck(ctx, req, &res)
+		return res
+	case KindDNS:
+		dnsCheck(ctx, req, &res)
+		return res
+	}
 	ip, err := p.resolver.Resolve(ctx, req.Host, req.IPMode)
 	if err != nil {
 		res.Err = "Namnuppslag misslyckades: " + shortErr(err)

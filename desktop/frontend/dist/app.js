@@ -29,7 +29,8 @@ const SPARK_MAX = 600;
 const STATUS_TEXT = { up: 'Uppe', warn: 'Varning', down: 'Nere', paused: 'Pausad', pending: 'Väntar' };
 const STATUS_ORDER = { down: 0, warn: 1, pending: 2, up: 3, paused: 4 };
 const RANGES = [[60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h'], [21600, '6 h']];
-const INTERVALS = [250, 500, 1000, 2000, 5000, 10000, 30000, 60000];
+const INTERVALS = [250, 500, 1000, 2000, 5000, 10000, 30000, 60000, 300000];
+const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', 'HTTP(S) (webbsida)'], ['dns', 'DNS (namnuppslag)']];
 
 /* ---------------- start ---------------- */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -154,7 +155,8 @@ function buildTile(t) {
 }
 function clearDrop() { document.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); }
 
-function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : 'ICMP'; }
+function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : t.kind === 'http' ? (/^http:/.test(t.host) ? 'HTTP' : 'HTTPS') : t.kind === 'dns' ? 'DNS' + (t.dnsServer ? ' @' + t.dnsServer : '') : 'ICMP'; }
+function certText(d) { return d < 0 ? 'utgånget' : d + ' d'; }
 function displayName(t) { return t.name || t.host; }
 
 function fillTileStatic(el, t) {
@@ -179,11 +181,13 @@ function updateTile(t) {
   el.querySelector('.unit').style.visibility = (!st.window || lost || status === 'paused') ? 'hidden' : '';
   updateTileText(t);
   const s = el.querySelector('.tile-stats');
-  s.replaceChildren(
+  s.replaceChildren(...[
     h('span', null, h('i', null, 'snitt'), fmtMs(st.avg)),
     h('span', null, h('i', null, 'max'), fmtMs(st.max)),
     h('span', null, h('i', null, 'jitter'), fmtMs(st.jitter)),
-    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'));
+    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
+    t.kind === 'http' && st.httpStatus ? h('span', { class: st.httpStatus >= 400 ? 'bad' : '' }, h('i', null, 'HTTP'), String(st.httpStatus)) : null,
+    t.kind === 'http' && st.certDays >= 0 ? h('span', { class: st.certDays < 14 ? 'bad' : '' }, h('i', null, 'cert'), certText(st.certDays)) : null].filter(Boolean));
   drawSpark(el.querySelector('canvas'), S.spark[t.id] || [], warnFor(t));
 }
 
@@ -418,7 +422,11 @@ function errText(e) { return (e && (e.message || e.toString())) || String(e); }
 /* ---------------- UI-bindningar ---------------- */
 function bindUI() {
   const kind = $('#addKind'), port = $('#addPort');
-  kind.onchange = () => port.classList.toggle('hidden', kind.value !== 'tcp');
+  kind.onchange = () => {
+    port.classList.toggle('hidden', kind.value !== 'tcp');
+    $('#addHost').placeholder = { http: 'https://webb.se – en eller flera adresser', dns: 'Namn att slå upp, t.ex. kund.se' }[kind.value] || $('#addHost').dataset.ph;
+  };
+  $('#addHost').dataset.ph = $('#addHost').placeholder;
   $('#addForm').addEventListener('submit', async e => {
     e.preventDefault();
     const v = $('#addHost').value.trim();
@@ -669,9 +677,11 @@ function editTarget(id) {
   const t = JSON.parse(JSON.stringify(orig));
   const host = h('input', { type: 'text', value: t.host, spellcheck: 'false' });
   const name = h('input', { type: 'text', value: t.name, placeholder: 'Valfritt visningsnamn' });
-  const kind = select([['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)']], t.kind);
+  const kind = select(KINDS, t.kind);
   const port = num(t.port || 443, 1, 65535);
-  const interval = select(INTERVALS.map(v => [v, v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs);
+  const kw = h('input', { type: 'text', value: t.keyword || '', placeholder: 'Valfritt – svaret måste innehålla texten' });
+  const dns = h('input', { type: 'text', value: t.dnsServer || '', placeholder: 'Tomt = datorns vanliga DNS' });
+  const interval = select(INTERVALS.map(v => [v, v >= 60000 ? `${v / 60000} min` : v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs);
   const timeout = num(t.timeoutMs, 100, 60000, 100);
   const size = num(t.size, 1, 65000);
   const ipMode = select([['auto', 'Automatiskt'], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode);
@@ -679,24 +689,27 @@ function editTarget(id) {
   const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: `Globalt (${S.settings.warnMs} ms)` });
   const sel = new Set(t.alertIds || []);
   const alertChecks = h('div', { class: 'checks' }, ...S.alerts.map(a => check(a.name, sel.has(a.id), e => e.target.checked ? sel.add(a.id) : sel.delete(a.id))));
-  const portField = field('Port', port);
-  const syncKind = () => { portField.style.display = kind.value === 'tcp' ? '' : 'none'; size.disabled = kind.value === 'tcp'; };
+  const portField = field('Port', port), kwField = field('Text som måste finnas', kw), dnsField = field('DNS-server', dns);
+  const sizeField = field('Paketstorlek (byte)', size), ipField = field('IP-version', ipMode);
+  const syncKind = () => { const k = kind.value; portField.style.display = k === 'tcp' ? '' : 'none'; kwField.style.display = k === 'http' ? '' : 'none';
+    dnsField.style.display = k === 'dns' ? '' : 'none'; sizeField.style.display = k === 'icmp' ? '' : 'none'; ipField.style.display = k === 'http' || k === 'dns' ? 'none' : ''; };
   kind.onchange = syncKind; syncKind();
   const err = h('span', { class: 'form-error' });
   const close = modal({
     title: 'Redigera mål',
     body: h('div', { class: 'form' },
-      field('Värd (namn eller IP)', host), field('Namn', name),
-      field('Mättyp', kind), portField,
+      field('Värd (namn, IP eller URL)', host), field('Namn', name),
+      field('Mättyp', kind), portField, kwField, dnsField,
       field('Intervall', interval), field('Tidsgräns (ms)', timeout),
-      field('Paketstorlek (byte)', size), field('IP-version', ipMode),
+      sizeField, ipField,
       field('Grupp', group, 'Används för filtrering'), field('Varningsgräns latens (ms)', warn, 'Tomt = globalt värde'),
       h('div', { class: 'section-title' }, 'Larm för det här målet'),
       h('div', { class: 'field full' }, S.alerts.length ? alertChecks : h('small', null, 'Inga larm skapade ännu.'))),
     foot: [h('div', { class: 'left' }, err), h('button', { class: 'btn', onclick: () => close() }, 'Avbryt'),
       h('button', { class: 'btn primary', onclick: async () => {
         Object.assign(t, { host: host.value.trim(), name: name.value.trim(), kind: kind.value, port: +port.value || 0, intervalMs: +interval.value,
-          timeoutMs: +timeout.value, size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel] });
+          timeoutMs: +timeout.value, size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel],
+          keyword: kw.value.trim(), dnsServer: dns.value.trim() });
         try {
           await api.call('SaveTarget', t);
           if (orig.host !== t.host || orig.kind !== t.kind || orig.port !== t.port) S.spark[t.id] = [];

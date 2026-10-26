@@ -30,6 +30,9 @@ type Target struct {
 	Group      string       `json:"group,omitempty"`
 	WarnMs     float64      `json:"warnMs,omitempty"`    // 0 = använd globalt värde
 	DependsOn  string       `json:"dependsOn,omitempty"` // mål som detta ligger bakom (t.ex. routern)
+	Keyword    string       `json:"keyword,omitempty"`   // HTTP: text som måste finnas i svaret
+	DNSServer  string       `json:"dnsServer,omitempty"` // DNS: server att fråga
+	TraceMin   int          `json:"traceMin,omitempty"`  // traceroute var N:e minut för att upptäcka vägändringar (0 = av)
 	AlertIDs   []string     `json:"alertIds"`
 	Paused     bool         `json:"paused"`
 }
@@ -41,8 +44,32 @@ func (t *Target) Normalize() {
 	if t.ID == "" {
 		t.ID = NewID()
 	}
-	if t.Kind != probe.KindTCP {
+	if t.TraceMin < 0 {
+		t.TraceMin = 0
+	}
+	if t.TraceMin > 0 && t.TraceMin < 5 {
+		t.TraceMin = 5
+	}
+	switch t.Kind {
+	case probe.KindTCP, probe.KindHTTP, probe.KindDNS:
+	default:
 		t.Kind = probe.KindICMP
+	}
+	if t.Kind == probe.KindHTTP {
+		t.Host = probe.NormalizeURL(t.Host)
+		t.Port = 0
+		if t.TimeoutMs < 1000 {
+			t.TimeoutMs = 10000
+		}
+		if t.IntervalMs < 10000 {
+			t.IntervalMs = 60000 // HTTP-kontroller körs mer sällan som standard
+		}
+	}
+	if t.Kind == probe.KindDNS {
+		t.Port = 0
+		if t.IntervalMs < 5000 {
+			t.IntervalMs = 30000
+		}
 	}
 	if t.Kind == probe.KindTCP && (t.Port <= 0 || t.Port > 65535) {
 		t.Port = 443
@@ -111,6 +138,8 @@ type Stats struct {
 	ConsecLost int     `json:"consecLost"`
 	Addr       string  `json:"addr"`
 	Err        string  `json:"err,omitempty"`
+	HTTPStatus int     `json:"httpStatus,omitempty"`
+	CertDays   int     `json:"certDays"` // -1 = inget certifikat
 }
 
 // Settings är globala inställningar för mätningen.
@@ -170,7 +199,7 @@ type Tracker struct {
 
 // NewTracker skapar en Tracker som sparar historySize mätpunkter.
 func NewTracker(historySize int) *Tracker {
-	return &Tracker{hist: newRing(historySize), stats: Stats{Status: StatusPending, Since: nowMs(), Last: -1}}
+	return &Tracker{hist: newRing(historySize), stats: Stats{Status: StatusPending, Since: nowMs(), Last: -1, CertDays: -1}}
 }
 
 // Add lägger till en mätpunkt. errText är felet för ett förlorat paket.
@@ -192,6 +221,14 @@ func (t *Tracker) Add(s Sample, errText, addr string) {
 
 // Stats returnerar aktuell statistik.
 func (t *Tracker) Stats() Stats { return t.stats }
+
+// SetProbeInfo sparar HTTP-status och certifikatets giltighet från senaste mätningen.
+func (t *Tracker) SetProbeInfo(status, certDays int) {
+	if status != 0 {
+		t.stats.HTTPStatus = status
+	}
+	t.stats.CertDays = certDays
+}
 
 // Recent returnerar de n senaste mätpunkterna.
 func (t *Tracker) Recent(n int) []Sample { return t.hist.last(n) }
@@ -453,7 +490,7 @@ func (m *Manager) loop(ctx context.Context, r *runner) {
 		start := time.Now()
 		res := m.pinger.Do(ctx, probe.Request{
 			Host: t.Host, Kind: t.Kind, Port: t.Port, Size: t.Size, IPMode: t.IPMode,
-			Timeout: time.Duration(t.TimeoutMs) * time.Millisecond,
+			Timeout: time.Duration(t.TimeoutMs) * time.Millisecond, Keyword: t.Keyword, DNSSrv: t.DNSServer,
 		})
 		if ctx.Err() != nil {
 			return
@@ -465,6 +502,7 @@ func (m *Manager) loop(ctx context.Context, r *runner) {
 		settings := m.Settings()
 		r.mu.Lock()
 		r.Add(s, res.Err, res.Addr)
+		r.SetProbeInfo(res.Status, res.CertDays)
 		r.recompute(settings)
 		u := Update{TargetID: t.ID, Sample: s, Stats: r.stats}
 		r.mu.Unlock()

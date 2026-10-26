@@ -116,8 +116,10 @@ function createDemoAPI() {
     AddHosts: (text, inp) => {
       const out = [];
       for (const tok of text.split(/[\s,;]+/).filter(Boolean)) {
-        const m = tok.match(/^(.+):(\d+)$/);
-        const t = mk(m ? m[1] : tok, '', m ? { kind: 'tcp', port: +m[2] } : { kind: inp.kind, port: inp.port });
+        const web = /^https?:\/\//i.test(tok) || inp.kind === 'http';
+        const m = !web && inp.kind !== 'dns' && tok.match(/^(.+):(\d+)$/);
+        const t = web ? mk(/:\/\//.test(tok) ? tok : 'https://' + tok, '', { kind: 'http', port: 0 })
+          : mk(m ? m[1] : tok, '', m ? { kind: 'tcp', port: +m[2] } : { kind: inp.kind, port: inp.port });
         targets.push(t); hist[t.id] = []; stats[t.id] = { status: 'pending', since: now(), last: -1 }; out.push(t);
       }
       return out;

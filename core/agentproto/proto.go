@@ -12,10 +12,38 @@ import (
 
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/trace"
+	"pingvakt/core/wifi"
 )
 
 // ReportPath är serverns endpoint för rapporter.
 const ReportPath = "/api/agent/v1/report"
+
+// ResultPath tar emot svar på kommandon (t.ex. traceroute).
+const ResultPath = "/api/agent/v1/result"
+
+// Command är ett uppdrag från servern som agenten utför och svarar på via ResultPath.
+type Command struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"` // "trace"
+	TargetID string `json:"targetId,omitempty"`
+	Host     string `json:"host"`
+	MaxHops  int    `json:"maxHops,omitempty"`
+}
+
+// CommandResult är svaret på ett Command.
+type CommandResult struct {
+	ID       string      `json:"id"`
+	Kind     string      `json:"kind"`
+	TargetID string      `json:"targetId,omitempty"`
+	Start    int64       `json:"start"`
+	End      int64       `json:"end"`
+	Hops     []trace.Hop `json:"hops,omitempty"`
+	Err      string      `json:"err,omitempty"`
+}
+
+// CmdTrace är kommandot för traceroute.
+const CmdTrace = "trace"
 
 // Kind för klienten.
 const (
@@ -38,6 +66,8 @@ type Sample struct {
 	R  float32 `json:"r"`
 	E  string  `json:"e,omitempty"` // fel för förlorat paket
 	A  string  `json:"a,omitempty"` // uppslagen IP-adress (skickas när den ändras)
+	H  int     `json:"h,omitempty"` // HTTP-statuskod
+	C  *int    `json:"c,omitempty"` // dagar tills certifikatet går ut
 }
 
 // Report skickas från klienten.
@@ -48,6 +78,7 @@ type Report struct {
 	LocalTargets     []monitor.Target  `json:"localTargets,omitempty"`
 	Samples          []Sample          `json:"samples"`
 	Host             *hostinfo.Metrics `json:"host,omitempty"` // CPU, minne och disk (agenter)
+	WiFi             *wifi.Info        `json:"wifi,omitempty"` // trådlös anslutning (om datorn har en)
 }
 
 // Config är det servern bestämmer för en agent.
@@ -68,6 +99,7 @@ type Response struct {
 	Config           *Config     `json:"config,omitempty"`
 	NeedLocalTargets bool        `json:"needLocalTargets,omitempty"`
 	Update           *UpdateInfo `json:"update,omitempty"`
+	Commands         []Command   `json:"commands,omitempty"`
 }
 
 // UpdateInfo erbjuder agenten en nyare version.

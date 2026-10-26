@@ -12,6 +12,8 @@ PingVakt består av tre delar som använder samma mätmotor:
 
 - **Många mål samtidigt** visas som rutor med statusfärg (uppe, varning, nere, pausad). Varje ruta har en minigraf med staplar, och förlorade paket syns som röda staplar.
 - **ICMP-ping (IPv4 och IPv6)** och **TCP-portping**. Skriv `värd:port` för TCP.
+- **HTTP(S)-kontroller:** skriv en adress som börjar med `https://` (eller välj mättypen HTTP(S)). Svarstiden mäts inklusive uppkoppling och TLS. Statuskod 400 eller högre räknas som fel, och du kan kräva att en viss text finns i svaret. Rutan visar statuskoden och hur många dagar certifikatet är giltigt.
+- **DNS-kontroller:** mäter hur lång tid ett namnuppslag tar, mot datorns vanliga DNS eller en DNS-server du anger. Svar som saknas eller NXDOMAIN räknas som fel.
 - **Statistik per mål:** senaste värde, snitt, min, max, jitter och förlust i %. I detaljvyn finns dessutom median och 95:e percentil.
 - **Detaljgraf** över tid (1 min till 6 h). Grafen visar latens, markerar förlorade paket och har en linje för varningsgränsen. Du kan zooma genom att dra i grafen och återställa med dubbelklick.
 - **Larmregler** av samma typ som i MultiPing:
@@ -62,6 +64,12 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 - *Kvittera* ett aktivt larm under Larm, eller direkt i popupen. Det upprepas då inte, och kvitteringen tas bort när larmet upphör.
 - *Servicefönster* lägger du in via kundens meny (⋯ → Servicefönster). De kan gälla en gång eller varje vecka, och omfatta hela kunden, en site, en agent eller ett mål. Under ett servicefönster skickas inga larm, men händelserna sparas.
 - *Beror på* sätts per mål, till exempel att accesspunkterna ligger bakom routern. När routern är nere kommer ett larm för routern, inte ett för varje mål bakom den.
+
+**Wi-Fi:** agenter och skrivbordsappar som är anslutna via Wi-Fi rapporterar signalstyrka (RSSI), brus, SNR, kanal, åtkomstpunkt (BSSID) och länkhastighet. Klicka på en agent för att se en graf över signalen där varje roaming (byte av åtkomstpunkt) är markerad, en lista över roamingar och hur länge datorn varit ansluten till varje åtkomstpunkt. Under Agenter finns en Wi-Fi-kolumn med aktuell signal. Värdena hämtas med `iw` på Linux, `netsh` på Windows och `wdutil`/`system_profiler` på macOS (brus finns inte på Windows).
+
+**Traceroute och vägbevakning:** i målets detaljvy finns knappen *Traceroute*. Den körs från agenten som mäter målet, och svaret visas efter några sekunder. Under *Redigera → Vägbevakning* kan agenten köra traceroute var 5:e, 15:e, 30:e eller 60:e minut. När en ny väg syns två gånger i rad räknas det som en vägändring. Hoppen som är nya markeras, och regeln *Vägen ändras* larmar.
+
+**Nya larmtyper:** *Agentens Wi-Fi-signal svag* (under N dBm i X minuter), *HTTPS-certifikat går ut* (inom N dagar) och *Vägen (traceroute) ändras*.
 
 **Automatisk uppdatering:** när servern uppdateras hämtar agenterna (från version 0.4.0) den nya versionen själva. Agenten kontrollerar filens kontrollsumma och startar om sig själv. Det kan stängas av under Inställningar.
 
@@ -154,7 +162,8 @@ Repot är privat, så Docker-avbildningen är också privat. Logga in med `docke
 ```
 core/              Mätmotorn – delas av skrivbordsapp, agent och server
   agentproto/      Protokollet agent ↔ server och klienten som skickar mätdata
-  probe/           ICMP (Windows-API / oprivilegierade socketar) och TCP-ping, DNS-cache
+  probe/           ICMP (Windows-API / oprivilegierade socketar), TCP-ping, HTTP(S)- och DNS-kontroller
+  wifi/            Wi-Fi-avläsning (iw, netsh, wdutil, system_profiler)
   monitor/         Schemaläggning per mål, ringbuffert med historik, statistik och status
   alert/           Larmregler, utvärdering, e-post (SMTP), systemnotiser, loggfil
   trace/           Traceroute via systemets verktyg
@@ -174,7 +183,6 @@ scripts/build.sh   Byggskript för alla plattformar
 
 - Kodsignering (Windows/macOS)
 - Engelska som språkval
-- HTTP(S)-kontroller som mättyp
 - Inloggning via Microsoft/Google för kunder
 
 ## Licenser

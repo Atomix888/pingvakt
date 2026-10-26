@@ -26,6 +26,9 @@ const (
 	CondCPU     Condition = "cpu"     // agentens CPU över gränsvärde (procent) i N minuter
 	CondMem     Condition = "mem"     // agentens minne över gränsvärde (procent) i N minuter
 	CondDisk    Condition = "disk"    // någon av agentens diskar fylld över gränsvärde (procent)
+	CondRSSI    Condition = "rssi"    // agentens Wi-Fi-signal under gränsvärde (dBm) i N minuter
+	CondPath    Condition = "path"    // vägen (traceroute) till ett bevakat mål har ändrats (bara på servern)
+	CondCert    Condition = "cert"    // HTTPS-certifikatet går ut inom N dagar (bara på servern)
 )
 
 // ForTargets anger om villkoret gäller mätmål (annars agenten/datorn).
@@ -63,7 +66,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath:
 	default:
 		a.Condition = CondDown
 	}
@@ -79,6 +82,27 @@ func (a *Alert) Normalize() {
 			a.Samples = 1440
 		}
 		a.Count = a.Samples
+	}
+	if a.Condition == CondRSSI {
+		if a.Threshold >= 0 || a.Threshold < -100 {
+			a.Threshold = -75
+		}
+		if a.Samples < 1 {
+			a.Samples = 5
+		}
+		if a.Samples > 120 {
+			a.Samples = 120
+		}
+		a.Count = a.Samples
+	}
+	if a.Condition == CondPath {
+		a.Samples, a.Count, a.RepeatMin, a.OnClear = 1, 1, 0, false
+	}
+	if a.Condition == CondCert {
+		if a.Threshold <= 0 {
+			a.Threshold = 14
+		}
+		a.Samples, a.Count = 1, 1
 	}
 	a.HookURL = strings.TrimSpace(a.HookURL)
 	if a.Samples < 1 {
@@ -125,6 +149,12 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf("Minne > %g %% i %d min", a.Threshold, a.Samples)
 	case CondDisk:
 		return fmt.Sprintf("Disk > %g %% full", a.Threshold)
+	case CondRSSI:
+		return fmt.Sprintf("Wi-Fi-signal < %g dBm i %d min", a.Threshold, a.Samples)
+	case CondPath:
+		return "Vägen till målet ändras"
+	case CondCert:
+		return fmt.Sprintf("Certifikat går ut inom %g dagar", a.Threshold)
 	}
 	return fmt.Sprintf("Nere (%d av %d förlorade)", a.Count, a.Samples)
 }

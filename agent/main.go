@@ -24,10 +24,11 @@ import (
 	"pingvakt/core/agentproto"
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/wifi"
 )
 
 // Version sätts vid bygge.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -229,6 +230,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	up := newUploader(c)
 	hc := hostinfo.New()
 	up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
+	up.WiFi = wifi.New().Get
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)
@@ -277,7 +279,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 			_ = os.WriteFile(cachePath, b, 0o600)
 		}
 	}
-	mon.Subscribe(func(u monitor.Update) { up.Add(u.TargetID, u.Sample, u.Stats.Err, u.Stats.Addr) })
+	mon.Subscribe(up.AddUpdate)
 
 	go func() {
 		// logga ändringar i anslutningen

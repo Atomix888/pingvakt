@@ -17,6 +17,7 @@ import (
 	"pingvakt/core/alert"
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/wifi"
 )
 
 // Server håller hela tillståndet i minnet (kunder, agenter, mål, statistik)
@@ -67,6 +68,7 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 		return nil, err
 	}
 	s.loadHostLatest()
+	s.loadTraces()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
 		tr := monitor.NewTracker(s.settings.Monitor.HistorySize)
@@ -308,6 +310,13 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 		tr := s.trackers[id]
 		smp := monitor.Sample{T: x.T, RTT: x.R}
 		tr.Add(smp, x.E, x.A)
+		if x.H != 0 || x.C != nil {
+			cd := -1
+			if x.C != nil {
+				cd = *x.C
+			}
+			tr.SetProbeInfo(x.H, cd)
+		}
 		s.pending[id] = append(s.pending[id], smp)
 		if len(s.pending[id]) > 2000 {
 			s.pending[id] = s.pending[id][len(s.pending[id])-2000:]
@@ -335,10 +344,14 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	if rep.Host != nil {
 		s.ingestHost(agentID, *rep.Host)
 	}
+	if rep.WiFi != nil && rep.WiFi.RSSI < 0 && rep.WiFi.RSSI > -120 {
+		s.ingestWiFi(agentID, *rep.WiFi)
+	}
 
 	if kind == agentproto.KindAgent {
 		resp.Update = s.agentUpdate(rep.Agent.OS, rep.Agent.Version)
 	}
+	resp.Commands = s.takeCommands(agentID)
 	// konfiguration till agenter som styrs från servern
 	if kind == agentproto.KindAgent && rep.ConfigVersion != agentCopy.ConfigVersion {
 		resp.ConfigVersion = agentCopy.ConfigVersion
@@ -380,6 +393,7 @@ func (s *Server) syncLocalTargets(agentID string, local []monitor.Target, hash s
 		t.ID = id
 		if old, ok := existing[id]; ok {
 			t.AlertIDs = old.AlertIDs // larm väljs på servern, inte i appen
+			t.TraceMin = old.TraceMin
 			t.DependsOn = old.DependsOn
 		} else {
 			t.AlertIDs = s.defaultAlertIDs(agentID)
@@ -442,7 +456,10 @@ func (s *Server) Run(ctx context.Context) {
 				return
 			case <-tk.C:
 				s.checkOffline()
+				s.checkCerts()
+				s.scheduleTraces()
 				s.flushHost(false)
+				s.flushWiFi(false)
 			}
 		}
 	}()
@@ -452,6 +469,8 @@ func (s *Server) Run(ctx context.Context) {
 			raw, agg := s.settings.RawDays, s.settings.AggDays
 			s.mu.RUnlock()
 			s.pruneHost(agg)
+			s.pruneWiFi(agg)
+			s.pruneTraces(agg)
 			s.pruneMaintenance()
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
@@ -558,6 +577,7 @@ type liveAgent struct {
 	LastSeen int64             `json:"lastSeen"`
 	Online   bool              `json:"online"`
 	Host     *hostinfo.Metrics `json:"host,omitempty"`
+	WiFi     *wifi.Info        `json:"wifi,omitempty"`
 }
 
 func (s *Server) broadcastLoop(ctx context.Context) {
@@ -669,7 +689,7 @@ func (s *Server) snapshot(customers map[string]bool) snapshot {
 			continue
 		}
 		out.agentCustomer[id] = c
-		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a), Host: s.hostLatest(id)}
+		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a), Host: s.hostLatest(id), WiFi: s.wifiLatest(id)}
 	}
 	for id, t := range s.targets {
 		c := s.customerOfTarget(t)

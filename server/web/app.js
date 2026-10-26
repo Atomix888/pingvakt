@@ -46,7 +46,7 @@ const S = {
 const SPARK_MAX = 400;
 const STATUS_TEXT = { up: 'Uppe', warn: 'Varning', down: 'Nere', paused: 'Pausad', pending: 'Väntar', offline: 'Agent offline' };
 const RANGES = [[900, '15 min'], [3600, '1 h'], [21600, '6 h'], [86400, '24 h'], [604800, '7 d'], [2592000, '30 d']];
-const INTERVALS = [500, 1000, 2000, 5000, 10000, 30000, 60000];
+const INTERVALS = [500, 1000, 2000, 5000, 10000, 30000, 60000, 300000];
 const isAdmin = () => S.me && S.me.role === 'admin';
 const byId = (list, id) => list.find(x => x.id === id);
 const siteOf = id => byId(S.sites, id);
@@ -354,7 +354,9 @@ function agentMenu(a, anchor) {
 
 /* ---------------- rutor ---------------- */
 function displayName(t) { return t.name || t.host; }
-function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : 'ICMP'; }
+const KINDS = [['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)'], ['http', 'HTTP(S) (webbsida)'], ['dns', 'DNS (namnuppslag)']];
+function kindText(t) { return t.kind === 'tcp' ? `TCP ${t.port}` : t.kind === 'http' ? (/^http:/.test(t.host) ? 'HTTP' : 'HTTPS') : t.kind === 'dns' ? 'DNS' + (t.dnsServer ? ' @' + t.dnsServer : '') : 'ICMP'; }
+function certText(d) { return d < 0 ? 'utgånget' : d + ' d'; }
 function warnFor(t) { return t.warnMs > 0 ? t.warnMs : (S.monitor.warnMs || 0); }
 
 function buildTile(t) {
@@ -413,11 +415,13 @@ function updateTile(t) {
   lat.classList.toggle('lost', lost && status !== 'offline');
   el.querySelector('.unit').style.visibility = (!st.window || lost || status === 'paused' || status === 'offline') ? 'hidden' : '';
   tileText(el, st);
-  el.querySelector('.tile-stats').replaceChildren(
+  el.querySelector('.tile-stats').replaceChildren(...[
     h('span', null, h('i', null, 'snitt'), fmtMs(st.avg)),
     h('span', null, h('i', null, 'max'), fmtMs(st.max)),
     h('span', null, h('i', null, 'jitter'), fmtMs(st.jitter)),
-    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'));
+    h('span', { class: st.loss > 0 ? 'bad' : '' }, h('i', null, 'förl'), (st.loss || 0).toFixed(st.loss && st.loss < 10 ? 1 : 0) + '%'),
+    t.kind === 'http' && st.httpStatus ? h('span', { class: st.httpStatus >= 400 ? 'bad' : '' }, h('i', null, 'HTTP'), String(st.httpStatus)) : null,
+    t.kind === 'http' && st.certDays >= 0 ? h('span', { class: st.certDays < 14 ? 'bad' : '' }, h('i', null, 'cert'), certText(st.certDays)) : null].filter(Boolean));
   drawSpark(el.querySelector('canvas'), S.spark[t.id] || [], warnFor(t));
 }
 
@@ -523,6 +527,7 @@ function connectLive() {
     if (m.type === 'tick') onTick(m);
     else if (m.type === 'ack') { S.acks[m.key] = m.ack; if (S.view.name === 'alerts') renderPage(); }
     else if (m.type === 'alert') onAlert(m.event);
+    else if (m.type === 'trace') onTrace(m.trace);
   };
 }
 function updateConn() { const b = $('#connBadge'); if (b) b.replaceWith(connBadge()); }
@@ -584,6 +589,7 @@ async function openDrawer(id) {
       h('div', { class: 'ranges', id: 'dRanges' }, ...RANGES.map(([sec, label]) => h('button', { 'data-r': sec, onclick: () => { S.range = sec; loadChart(); } }, label))),
       h('div', { class: 'drawer-actions' },
         isAdmin() ? h('button', { class: 'btn ghost sm', onclick: () => editTargetDialog(S.selected) }, 'Redigera') : null,
+        h('button', { class: 'btn ghost sm', onclick: () => traceDialog(S.selected) }, 'Traceroute'),
         h('button', { class: 'btn ghost sm', onclick: () => { const to = Date.now(); location.href = `/api/targets/${S.selected}/export.csv?from=${to - S.range * 1000}&to=${to}`; } }, 'Exportera CSV'),
         h('button', { class: 'icon-btn', title: 'Stäng (Esc)', onclick: closeDrawer }, '✕'))),
     h('div', { class: 'drawer-body' }, h('div', { class: 'dstats', id: 'dStats' }), h('div', { class: 'chart', id: 'dChart' })));
@@ -991,7 +997,8 @@ function hostView(id) {
   const charts = h('div', { class: 'hostcharts' },
     h('div', null, h('h4', null, 'CPU'), h('div', { class: 'hchart', id: 'hcCpu' })),
     h('div', null, h('h4', null, 'Minne'), h('div', { class: 'hchart', id: 'hcMem' })),
-    h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })));
+    h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })),
+    h('div', { class: 'full', id: 'hvWifi' }));
   const title = isSrv ? 'PingVakt-servern' : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
   modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, 'Historik'), h('div', { class: 'tools' }, ranges)), charts),
     onClose: () => { S.hostView = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
@@ -1050,7 +1057,124 @@ async function loadHostCharts() {
   mk('#hcCpu', [{ label: 'Snitt', stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: pv, points: pts },
     { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
   mk('#hcMem', [{ label: `Använt${hs.memTotal ? ' av ' + gb(hs.memTotal) : ''}`, stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
+  renderWifi(res, from, to, axis, hv);
   mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
+}
+
+/* ---------------- Wi-Fi ---------------- */
+const rssiLevel = v => v == null ? '' : v >= -67 ? 'ok' : v >= -75 ? 'high' : 'bad';
+function wifiFacts(w) {
+  const fact = (k, v, cls) => h('div', null, h('small', null, k), h('b', { class: cls || '' }, v || '–'));
+  const snr = w.noise ? w.rssi - w.noise : null;
+  const band = w.freq >= 5925 ? '6 GHz' : w.freq >= 4900 ? '5 GHz' : w.freq ? '2,4 GHz' : '';
+  return h('div', { class: 'facts' }, fact('Nätverk (SSID)', w.ssid || 'dolt'), fact('Åtkomstpunkt (BSSID)', w.bssid),
+    fact('Signal', w.rssi + ' dBm', 'lvl-' + rssiLevel(w.rssi)), fact('Brus', w.noise ? w.noise + ' dBm' : 'okänt'),
+    fact('SNR', snr != null ? snr + ' dB' : '–', snr == null ? '' : snr >= 25 ? 'lvl-ok' : snr >= 15 ? 'lvl-high' : 'lvl-bad'),
+    fact('Kanal', w.ch ? `${w.ch} (${band}${w.width ? ', ' + w.width + ' MHz' : ''})` : '–'),
+    fact('Hastighet', w.tx ? `${Math.round(w.tx)}${w.rx ? ' / ' + Math.round(w.rx) : ''} Mbit/s` : '–'), w.std ? fact('Standard', w.std) : null);
+}
+function renderWifi(res, from, to, axis, hv) {
+  const box = $('#hvWifi');
+  if (!box) return;
+  const wh = res.wifi || { t: [], roams: [], aps: [] }, wl = res.wifiLatest;
+  if (!wh.t.length && !wl) { box.replaceChildren(); return; }
+  const roams = wh.roams || [];
+  const chartBox = h('div', { class: 'hchart' });
+  box.replaceChildren(...[h('h4', null, 'Wi-Fi'), wl ? wifiFacts(wl) : h('p', { class: 'muted' }, 'Inte ansluten till Wi-Fi just nu.'),
+    h('div', { class: 'wifi-legend muted' }, `${roams.length} roaming${roams.length === 1 ? '' : 'ar'} under perioden`, roams.length ? ' – markerade med streck i grafen' : ''),
+    chartBox,
+    roams.length ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, 'Tid'), h('th', null, 'Från'), h('th', null, 'Till'), h('th', null, 'Signal före → efter'))),
+      h('tbody', null, ...roams.slice(-20).reverse().map(r => h('tr', null, h('td', { class: 'mono' }, dateTime(r.t)),
+        h('td', { class: 'mono' }, `${r.from} (k ${r.fromCh})`), h('td', { class: 'mono' }, `${r.to} (k ${r.toCh})`),
+        h('td', { class: 'mono' }, `${r.fromRssi} → ${r.toRssi} dBm`))))) : null,
+    wh.aps && wh.aps.length > 1 ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, 'Åtkomstpunkt'), h('th', null, 'SSID'), h('th', null, 'Kanal'), h('th', null, 'Tid'), h('th', null, 'Snittsignal'))),
+      h('tbody', null, ...wh.aps.map(a => h('tr', null, h('td', { class: 'mono' }, a.bssid), h('td', null, a.ssid || '–'), h('td', { class: 'mono' }, String(a.ch || '–')),
+        h('td', { class: 'mono' }, dur(a.minutes * 60000)), h('td', { class: 'mono lvl-' + rssiLevel(a.rssi) }, a.rssi + ' dBm'))))) : null].filter(Boolean));
+  if (!wh.t.length) { chartBox.append(h('p', { class: 'muted' }, 'Ingen historik för perioden.')); return; }
+  const c = css();
+  const x = wh.t.map(t => t / 1000);
+  const pv = (u, v) => v == null ? '–' : Math.round(v) + ' dBm';
+  const pts = { show: x.length < 90, size: 4 };
+  const marks = roams.map(r => r.t / 1000);
+  const u = new uPlot({
+    width: chartBox.clientWidth || 600, height: 190,
+    scales: { x: { time: true, range: () => [from / 1000, to / 1000] }, y: { range: (u, mn, mx) => [Math.min(-90, Math.floor((mn || -90) / 10) * 10), Math.max(-30, Math.ceil((mx || -30) / 10) * 10)] } },
+    axes: [Object.assign({}, axis, { values: (u, sp) => sp.map(v => timeLabel(v, hv.range)) }), Object.assign({}, axis, { size: 70, values: (u, sp) => sp.map(v => v + ' dBm') })],
+    series: [{ label: 'Tid', value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') },
+      { label: 'Signal', stroke: '#3ccf7a', width: 1.6, fill: 'rgba(60,207,122,.10)', value: pv, points: pts },
+      { label: 'Lägsta', stroke: 'rgba(60,207,122,.45)', width: 1, value: pv, points: pts },
+      { label: 'Brus', stroke: '#9aa5b1', width: 1, dash: [4, 3], value: pv, points: pts }],
+    legend: { live: true }, cursor: { drag: { x: false, y: false } },
+    hooks: { draw: [u => {
+      const ctx = u.ctx; ctx.save(); ctx.strokeStyle = '#f2b33d'; ctx.lineWidth = 1.5 * devicePixelRatio; ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
+      for (const m of marks) { const px = u.valToPos(m, 'x', true); ctx.beginPath(); ctx.moveTo(px, u.bbox.top); ctx.lineTo(px, u.bbox.top + u.bbox.height); ctx.stroke(); }
+      ctx.restore();
+    }] },
+  }, [x, wh.rssi, wh.rssiMin, wh.noise], chartBox);
+  hostCharts.push(u);
+}
+
+/* ---------------- traceroute ---------------- */
+let traceView = null;
+function traceDialog(id) {
+  const t = byId(S.targets, id);
+  if (!t) return;
+  const body = h('div', { class: 'trace-view' });
+  traceView = { id, body, runs: [], show: null };
+  modal({ title: `Traceroute – ${displayName(t)}`, wide: true, body,
+    foot: [h('div', { class: 'left muted' }, `Körs från ${(agentOf(t.agentId) || {}).name || 'agenten'}`),
+      h('button', { class: 'btn primary', onclick: () => runTrace(id) }, 'Kör traceroute')],
+    onClose: () => { traceView = null; } });
+  loadTraces(id, true);
+}
+async function loadTraces(id, autoStart) {
+  try {
+    const runs = await GET(`/api/targets/${id}/traces`);
+    if (!traceView || traceView.id !== id) return;
+    traceView.runs = runs;
+    if (!traceView.show && runs.length) traceView.show = runs[0].id;
+    renderTrace();
+    if (autoStart && (!runs.length || Date.now() - runs[0].t > 10 * 60000)) runTrace(id);
+  } catch (e) { if (traceView) traceView.body.replaceChildren(h('p', { class: 'form-error' }, e.message)); }
+}
+async function runTrace(id) {
+  try {
+    const r = await POST(`/api/targets/${id}/trace`, {});
+    if (!traceView) return;
+    traceView.show = r.id;
+    if (!traceView.runs.find(x => x.id === r.id)) traceView.runs.unshift(r);
+    renderTrace();
+  } catch (e) { toast({ kind: 'error', title: 'Traceroute', text: e.message }); }
+}
+function onTrace(tr) {
+  if (!traceView || traceView.id !== tr.targetId) return;
+  const i = traceView.runs.findIndex(x => x.id === tr.id);
+  if (i >= 0) traceView.runs[i] = tr; else traceView.runs.unshift(tr);
+  renderTrace();
+}
+function renderTrace() {
+  const v = traceView;
+  if (!v) return;
+  const t = byId(S.targets, v.id) || {};
+  const run = v.runs.find(x => x.id === v.show) || v.runs[0];
+  const prevHops = new Set(run && run.prevPath ? run.prevPath.split('>') : []);
+  let main;
+  if (!run) main = h('p', { class: 'muted' }, 'Ingen traceroute körd ännu.');
+  else if (run.pending) main = h('p', { class: 'muted' }, h('span', { class: 'spinner' }), ' Väntar på agenten… (svaret kommer inom några sekunder till ett par minuter)');
+  else main = h('div', null,
+    run.err ? h('p', { class: 'form-error' }, run.err) : null,
+    run.changed ? h('div', { class: 'notice' }, 'Vägen ändrades vid den här körningen. Nya hopp är markerade.') : null,
+    h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, '#'), h('th', null, 'Adress'), h('th', null, 'Namn'), h('th', null, 'Svarstid'))),
+      h('tbody', null, ...(run.hops || []).map(hp => h('tr', { class: run.changed && hp.addr && hp.addr !== '*' && !prevHops.has(hp.addr) ? 'hop-new' : '' },
+        h('td', { class: 'mono' }, String(hp.n)), h('td', { class: 'mono' }, hp.addr || '*'), h('td', null, hp.name || ''),
+        h('td', { class: 'mono' }, hp.rtt >= 0 ? fmtMs(hp.rtt) + ' ms' : '–'))))),
+    h('small', { class: 'muted' }, `${dateTime(run.t)} · ${run.auto ? 'automatisk' : 'manuell'} · ${(run.hops || []).length} hopp${run.end ? ' · tog ' + dur(run.end - run.t) : ''}`));
+  const hist = v.runs.filter(r => !r.pending);
+  const side = h('div', { class: 'trace-hist' }, h('h4', null, t.traceMin ? `Vägbevakning var ${t.traceMin} min` : 'Tidigare körningar'),
+    t.traceMin ? null : h('small', { class: 'muted' }, 'Slå på vägbevakning under Redigera för att larma när vägen ändras.'),
+    hist.length ? h('ul', null, ...hist.slice(0, 30).map(r => h('li', { class: (r.id === (run && run.id) ? 'on ' : '') + (r.changed ? 'changed' : ''), onclick: () => { v.show = r.id; renderTrace(); } },
+      h('span', { class: 'mono' }, dateTime(r.t)), r.changed ? h('b', null, ' vägändring') : r.err ? h('span', { class: 'muted' }, ' fel') : h('span', { class: 'muted' }, ` ${(r.hops || []).length} hopp`)))) : null);
+  v.body.replaceChildren(h('div', { class: 'trace-grid' }, main, side));
 }
 
 /* ---------------- agenter ---------------- */
@@ -1069,11 +1193,12 @@ function renderAgents(page) {
       h('td', { class: 'mono' }, a.ip || '–'), h('td', { class: 'mono' + (a.kind === 'agent' && a.version && a.version !== S.version.replace(/-.*$/, '') && st === 'up' ? ' lvl-high' : ''), title: a.kind === 'agent' && a.version !== S.version.replace(/-.*$/, '') ? 'Uppdateras automatiskt till ' + S.version : '' }, a.version || '–'),
       h('td', null, seen ? dateTime(seen) : 'aldrig'),
       ...hostCells(lv.host, st === 'up'),
+      h('td', { class: 'mono ' + (lv.wifi && st === 'up' ? 'lvl-' + rssiLevel(lv.wifi.rssi) : 'muted'), title: lv.wifi ? `${lv.wifi.ssid || ''} ${lv.wifi.bssid || ''} kanal ${lv.wifi.ch || '?'}` : 'Inte ansluten via Wi-Fi' }, lv.wifi ? lv.wifi.rssi + ' dBm' : '–'),
       h('td', null, String(S.targets.filter(t => t.agentId === a.id).length)),
       h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'icon-btn', onclick: e => agentMenu(a, e.currentTarget) }, '⋯') : null));
   });
   page.replaceChildren(head, h('table', { class: 'tbl' },
-    h('thead', null, h('tr', null, ...['Status', 'Namn', 'Kund / site', 'Värd', 'IP', 'Version', 'Senast sedd', 'CPU', 'Minne', 'Disk', 'Mål', ''].map(x => h('th', null, x)))),
+    h('thead', null, h('tr', null, ...['Status', 'Namn', 'Kund / site', 'Värd', 'IP', 'Version', 'Senast sedd', 'CPU', 'Minne', 'Disk', 'Wi-Fi', 'Mål', ''].map(x => h('th', null, x)))),
     h('tbody', null, ...rows)));
 }
 function customerName(a) { const s = siteOf(a.siteId); const c = s && byId(S.customers, s.customerId); return c ? c.name : ''; }
@@ -1089,7 +1214,7 @@ async function renderAlerts(page) {
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
       rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Namn', 'Villkor', 'Åtgärder', 'Mål', ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, !['down', 'latency', 'loss'].includes(r.condition) ? 'alla agenter' : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? 'alla HTTPS-mål' : r.condition === 'path' ? 'mål med vägbevakning' : !['down', 'latency', 'loss'].includes(r.condition) ? 'alla agenter' : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
           h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, 'Redigera') : null)))))
         : h('p', { class: 'muted' }, 'Inga regler.'));
   }).filter(Boolean);
@@ -1124,6 +1249,9 @@ function describe(a) {
   if (a.condition === 'cpu') return `CPU > ${a.threshold} % i ${a.samples} min`;
   if (a.condition === 'mem') return `Minne > ${a.threshold} % i ${a.samples} min`;
   if (a.condition === 'disk') return `Disk > ${a.threshold} % full`;
+  if (a.condition === 'rssi') return `Wi-Fi-signal < ${a.threshold} dBm i ${a.samples} min`;
+  if (a.condition === 'path') return 'Vägen till målet ändras';
+  if (a.condition === 'cert') return `Certifikat går ut inom ${a.threshold} dagar`;
   return `Nere: ${a.count} av ${a.samples} förlorade`;
 }
 function actionsText(r) {
@@ -1310,15 +1438,19 @@ function addTargetsDialog(customerId) {
   if (!ags.length) { toast({ kind: 'info', title: 'Ingen agent', text: 'Skapa en agent först – det är agenten som mäter mot målen.' }); return agentDialog(customerId); }
   const agent = select(ags.map(a => [a.id, `${a.name} (${(siteOf(a.siteId) || {}).name || ''})`]), ags[0].id);
   const hosts = h('textarea', { rows: 4, placeholder: '192.168.1.1, 10.0.0.1\nskrivare.lokal\nwebb.kund.se:443', spellcheck: 'false' });
-  const kind = select([['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)']], 'icmp');
+  const kind = select(KINDS, 'icmp');
   const port = num(443, 1, 65535);
   const group = h('input', { type: 'text', placeholder: 'Valfritt, t.ex. Accesspunkter' });
-  const pf = field('Port', port); pf.style.display = 'none';
-  kind.onchange = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; };
+  const kw = h('input', { type: 'text', placeholder: 'Valfritt – t.ex. Logga in' });
+  const dns = h('input', { type: 'text', placeholder: 'Tomt = agentens vanliga DNS, t.ex. 8.8.8.8' });
+  const pf = field('Port', port), kf = field('Text som måste finnas', kw), df = field('DNS-server', dns);
+  kind.onchange = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; kf.style.display = kind.value === 'http' ? '' : 'none'; df.style.display = kind.value === 'dns' ? '' : 'none';
+    hosts.placeholder = { http: 'https://webb.kund.se\nhttps://intranät.lokal/login', dns: 'kund.se\nmail.kund.se' }[kind.value] || '192.168.1.1, 10.0.0.1\nskrivare.lokal\nwebb.kund.se:443'; };
+  kind.onchange();
   formDialog({ title: 'Lägg till mål', saveLabel: 'Lägg till', fields: [field('Agent som mäter', agent, null, true),
     field('Värdar', hosts, 'En eller flera, separerade med komma eller radbrytning. Skriv värd:port för TCP.', true),
-    field('Mättyp', kind), pf, field('Grupp', group, null, true)],
-    onSave: async () => { await POST('/api/targets', { agentId: agent.value, hosts: hosts.value, kind: kind.value, port: +port.value, group: group.value }); await afterChange(); } });
+    field('Mättyp', kind), pf, kf, df, field('Grupp', group, null, true)],
+    onSave: async () => { await POST('/api/targets', { agentId: agent.value, hosts: hosts.value, kind: kind.value, port: +port.value, group: group.value, keyword: kw.value.trim(), dnsServer: dns.value.trim() }); await afterChange(); } });
 }
 
 function editTargetDialog(id) {
@@ -1328,9 +1460,11 @@ function editTargetDialog(id) {
   const fromApp = t.source === 'agent';
   const host = h('input', { type: 'text', value: t.host, disabled: fromApp });
   const name = h('input', { type: 'text', value: t.name, disabled: fromApp });
-  const kind = select([['icmp', 'ICMP (ping)'], ['tcp', 'TCP (port)']], t.kind); kind.disabled = fromApp;
+  const kind = select(KINDS, t.kind); kind.disabled = fromApp;
+  const kw = h('input', { type: 'text', value: t.keyword || '', disabled: fromApp, placeholder: 'Valfritt' });
+  const dns = h('input', { type: 'text', value: t.dnsServer || '', disabled: fromApp, placeholder: 'Tomt = agentens vanliga DNS' });
   const port = num(t.port || 443, 1, 65535); port.disabled = fromApp;
-  const interval = select(INTERVALS.map(v => [v, v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs); interval.disabled = fromApp;
+  const interval = select(INTERVALS.map(v => [v, v >= 60000 ? `${v / 60000} min` : v >= 1000 ? `${v / 1000} s` : `${v} ms`]), t.intervalMs); interval.disabled = fromApp;
   const timeout = num(t.timeoutMs, 100, 60000, 100); timeout.disabled = fromApp;
   const size = num(t.size, 1, 65000); size.disabled = fromApp;
   const ipMode = select([['auto', 'Automatiskt'], ['4', 'IPv4'], ['6', 'IPv6']], t.ipMode); ipMode.disabled = fromApp;
@@ -1338,22 +1472,26 @@ function editTargetDialog(id) {
   const warn = h('input', { type: 'number', value: t.warnMs || '', min: 0, placeholder: `Globalt (${S.monitor.warnMs} ms)` });
   const ags = S.agents.filter(a => customerOfAgent(a) === cust && a.kind !== 'desktop');
   const agent = select(ags.map(a => [a.id, a.name]), t.agentId); agent.disabled = fromApp;
+  const traceMin = select([[0, 'Av'], [5, 'Var 5:e minut'], [15, 'Var 15:e minut'], [30, 'Var 30:e minut'], [60, 'Varje timme']], t.traceMin || 0);
   const depends = select([['', '– inget –'], ...S.targets.filter(x => x.id !== t.id && customerOfTarget(x) === cust).map(x => [x.id, `${displayName(x)} (${x.host})`])], t.dependsOn || '');
   const sel = new Set(t.alertIds || []);
   const rules = S.rules.filter(r => ['down', 'latency', 'loss'].includes(r.condition) && (!r.customerId || r.customerId === cust));
-  const pf = field('Port', port); const syncKind = () => { pf.style.display = kind.value === 'tcp' ? '' : 'none'; }; kind.onchange = syncKind; syncKind();
+  const pf = field('Port', port), kf = field('Text som måste finnas', kw), df = field('DNS-server', dns), sf = field('Paketstorlek (byte)', size), ipf = field('IP-version', ipMode);
+  const syncKind = () => { const k = kind.value; pf.style.display = k === 'tcp' ? '' : 'none'; kf.style.display = k === 'http' ? '' : 'none'; df.style.display = k === 'dns' ? '' : 'none';
+    sf.style.display = k === 'icmp' ? '' : 'none'; ipf.style.display = k === 'http' || k === 'dns' ? 'none' : ''; }; kind.onchange = syncKind; syncKind();
   formDialog({ title: 'Redigera mål', fields: [
     fromApp ? h('div', { class: 'notice field full' }, 'Målet kommer från en skrivbordsapp. Värd och mätinställningar ändras i appen – här väljer du larm och varningsgräns.') : null,
-    field('Värd', host), field('Namn', name), field('Mättyp', kind), pf, fromApp ? null : field('Agent', agent),
-    field('Intervall', interval), field('Tidsgräns (ms)', timeout), field('Paketstorlek (byte)', size), field('IP-version', ipMode),
+    field('Värd / adress', host), field('Namn', name), field('Mättyp', kind), pf, kf, df, fromApp ? null : field('Agent', agent),
+    field('Intervall', interval), field('Tidsgräns (ms)', timeout), sf, ipf,
     field('Grupp', group), field('Varningsgräns latens (ms)', warn, 'Tomt = globalt värde'),
+    field('Vägbevakning', traceMin, 'Kör traceroute regelbundet från agenten och larmar när vägen till målet ändras (regel "Vägen ändras").', true),
     field('Beror på', depends, 'Larm skickas inte för det här målet när målet det ligger bakom är nere – du får ett larm i stället för många.', true),
     h('div', { class: 'section-title' }, 'Larm'),
     h('div', { class: 'field full' }, rules.length ? h('div', { class: 'checks' }, ...rules.map(r => check(r.name, sel.has(r.id), e => e.target.checked ? sel.add(r.id) : sel.delete(r.id))))
       : h('small', null, 'Inga larmregler finns för kunden.'))],
     onSave: async () => {
       Object.assign(t, { host: host.value.trim(), name: name.value.trim(), kind: kind.value, port: +port.value || 0, intervalMs: +interval.value, timeoutMs: +timeout.value,
-        size: +size.value, ipMode: ipMode.value, group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel], agentId: agent.value || t.agentId, dependsOn: depends.value });
+        size: +size.value, ipMode: ipMode.value, keyword: kw.value.trim(), dnsServer: dns.value.trim(), group: group.value.trim(), warnMs: +warn.value || 0, alertIds: [...sel], agentId: agent.value || t.agentId, dependsOn: depends.value, traceMin: +traceMin.value });
       await PUT('/api/targets/' + id, t); S.spark[id] = S.spark[id] || []; await afterChange(); if (S.selected === id) loadChart();
     } });
 }
@@ -1363,8 +1501,8 @@ function ruleDialog(rule) {
   const name = h('input', { type: 'text', value: r.name, placeholder: 'Namn på regeln' });
   const cust = select([['', 'Alla kunder'], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
   const cond = select([['down', 'Nere – förlorade paket'], ['latency', 'Hög latens'], ['loss', 'Paketförlust i procent'], ['offline', 'Agent offline'],
-    ['cpu', 'Agentens CPU hög'], ['mem', 'Agentens minne högt'], ['disk', 'Agentens disk full']], r.condition);
-  const thr = num(r.threshold, 0, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
+    ['cpu', 'Agentens CPU hög'], ['mem', 'Agentens minne högt'], ['disk', 'Agentens disk full'], ['rssi', 'Agentens Wi-Fi-signal svag'], ['cert', 'HTTPS-certifikat går ut'], ['path', 'Vägen (traceroute) ändras']], r.condition);
+  const thr = num(r.threshold, -120, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
   const condRow = h('div', { class: 'field full' });
   const syncCond = () => {
     const c = cond.value;
@@ -1375,6 +1513,11 @@ function ruleDialog(rule) {
       h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
     if (c === 'disk') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Någon disk mer än'), thr, h('span', null, '% full')),
       h('small', null, 'Gäller alla agenter hos kunden' + (cust.value ? '' : ' – och själva PingVakt-servern') + '.'));
+    if (c === 'rssi') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Signal under'), thr, h('span', null, 'dBm i'), smp, h('span', null, 'minuter i sträck')),
+      h('small', null, 'Gäller alla agenter och skrivbordsappar hos kunden som är anslutna via Wi-Fi. −67 dBm räcker för samtal och video, under −75 dBm blir det ofta problem.'));
+    if (c === 'path') condRow.replaceChildren(h('small', null, 'Utlöses när traceroute visar en ny väg två gånger i rad. Slå på "Vägbevakning" på målen som ska bevakas.'));
+    if (c === 'cert') condRow.replaceChildren(h('span', null, 'Villkor'), h('div', { class: 'row' }, h('span', null, 'Certifikatet går ut inom'), thr, h('span', null, 'dagar')),
+      h('small', null, 'Gäller alla HTTPS-mål hos kunden.'));
     if (c === 'offline') condRow.replaceChildren(h('small', null, `Utlöses när en agent inte har rapporterat på ${Math.max(30, S.reportSec * 3)} sekunder. Gäller alla agenter hos kunden.`));
   };
   cond.onchange = () => {
@@ -1383,6 +1526,8 @@ function ruleDialog(rule) {
     if (c === 'loss') thr.value = +thr.value > 0 && +thr.value <= 100 ? thr.value : 5;
     if (c === 'cpu' || c === 'mem' || c === 'disk') { thr.value = +thr.value >= 50 && +thr.value <= 100 ? thr.value : 90; smp.value = c === 'disk' ? 1 : 5; }
     if (c === 'down') { cnt.value = 3; smp.value = 3; }
+    if (c === 'rssi') { thr.value = +thr.value < 0 ? thr.value : -75; smp.value = 5; }
+    if (c === 'cert') { thr.value = 14; smp.value = 1; cnt.value = 1; }
     syncCond();
   };
   cust.addEventListener('change', syncCond);

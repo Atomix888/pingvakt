@@ -414,3 +414,23 @@ body.tv .page { padding: 22px 28px; }
 .tv-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; font-size: 17px; }
 .tv-row .dot { width: 12px; height: 12px; }
 .tv-row .tv-since { margin-left: auto; color: var(--st); font-weight: 600; }
+
+/* ---------- Wi-Fi och traceroute (0.6) ---------- */
+#hvWifi h4 { margin-top: 18px; }
+#hvWifi .facts { margin-bottom: 8px; }
+.wifi-legend { font-size: 12px; margin: 4px 0 6px; }
+.tbl.compact td, .tbl.compact th { padding: 5px 8px; font-size: 12.5px; }
+#hvWifi .tbl.compact { margin-top: 10px; }
+.trace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 18px; }
+.trace-grid .notice { margin-bottom: 8px; }
+.trace-hist h4 { margin: 0 0 6px; }
+.trace-hist ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 420px; overflow: auto; }
+.trace-hist li { padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.trace-hist li:hover { background: var(--hover, rgba(127,127,127,.12)); }
+.trace-hist li.on { background: var(--accent-soft, rgba(60,140,255,.16)); }
+.trace-hist li.changed b { color: var(--warn, #f2b33d); }
+tr.hop-new td { background: rgba(242,179,61,.16); }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 720px) { .trace-grid { grid-template-columns: 1fr; } }
+.tbl td.mono { white-space: nowrap; }

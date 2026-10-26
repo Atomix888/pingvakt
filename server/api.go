@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -68,6 +67,9 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/targets/{id}/export.csv", need(false, s.handleExport))
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
 	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
+	mux.HandleFunc("POST /api/targets/{id}/trace", need(false, s.handleStartTrace))
+	mux.HandleFunc("GET /api/targets/{id}/traces", need(false, s.handleTraces))
+	mux.HandleFunc("POST "+agentproto.ResultPath, s.handleCommandResult)
 	mux.HandleFunc("GET /api/customers/{id}/report.pdf", need(false, s.handleCustomerReport))
 	mux.HandleFunc("POST /api/customers/{id}/report/send", need(true, s.handleSendReport))
 	mux.HandleFunc("GET /api/maintenance", need(false, s.handleListMaintenance))
@@ -655,6 +657,8 @@ type addTargetsIn struct {
 	Kind    probe.Kind `json:"kind"`
 	Port    int        `json:"port"`
 	Group   string     `json:"group"`
+	Keyword string     `json:"keyword"`
+	DNS     string     `json:"dnsServer"`
 }
 
 func (s *Server) agentEditable(id string) (*Agent, error) {
@@ -696,7 +700,7 @@ func (s *Server) handleAddTargets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		maxSort++
-		t := Target{Target: monitor.Target{Host: host, Kind: kind, Port: port, Group: in.Group, AlertIDs: defs}, AgentID: in.AgentID, Source: "server", Sort: maxSort}
+		t := Target{Target: monitor.Target{Host: host, Kind: kind, Port: port, Group: in.Group, AlertIDs: defs, Keyword: in.Keyword, DNSServer: in.DNS}, AgentID: in.AgentID, Source: "server", Sort: maxSort}
 		t.Normalize()
 		if err := s.db.SaveTarget(t); err != nil {
 			httpErr(w, 500, err.Error())
@@ -714,26 +718,7 @@ func (s *Server) handleAddTargets(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseHost(tok string, kind probe.Kind, port int) (string, probe.Kind, int) {
-	tok = strings.TrimSpace(tok)
-	for _, p := range []string{"tcp://", "icmp://", "http://", "https://"} {
-		if strings.HasPrefix(strings.ToLower(tok), p) {
-			tok = tok[len(p):]
-		}
-	}
-	tok = strings.TrimSuffix(tok, "/")
-	if kind != probe.KindTCP {
-		kind = probe.KindICMP
-	}
-	if h, p, err := net.SplitHostPort(tok); err == nil {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
-			return h, probe.KindTCP, n
-		}
-	}
-	tok = strings.Trim(tok, "[]")
-	if tok == "" || strings.ContainsAny(tok, " /\\\"'<>") {
-		return "", kind, port
-	}
-	return tok, kind, port
+	return monitor.ParseHostToken(tok, kind, port)
 }
 
 func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {

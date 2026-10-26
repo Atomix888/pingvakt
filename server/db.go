@@ -74,7 +74,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	// nya kolumner i senare versioner (fel ignoreras om de redan finns)

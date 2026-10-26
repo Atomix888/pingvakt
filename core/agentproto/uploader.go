@@ -20,6 +20,8 @@ import (
 
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
+	"pingvakt/core/trace"
+	"pingvakt/core/wifi"
 )
 
 // ErrUnauthorized betyder att servern inte godkänner token (borttagen eller fel).
@@ -53,6 +55,10 @@ type Uploader struct {
 	LocalTargets func() []monitor.Target
 	// Host returnerar datorns CPU, minne och disk (agenter).
 	Host func() *hostinfo.Metrics
+	// WiFi returnerar den trådlösa anslutningen (nil = ingen).
+	WiFi func() *wifi.Info
+	// NoCommands stänger av kommandon från servern (traceroute).
+	NoCommands bool
 
 	mu            sync.Mutex
 	buf           []Sample
@@ -61,6 +67,7 @@ type Uploader struct {
 	sentHash      string
 	needTargets   bool
 	reportSec     int
+	running       map[string]bool
 	status        Status
 	client        *http.Client
 }
@@ -88,6 +95,23 @@ func (u *Uploader) Add(targetID string, s monitor.Sample, errText, addr string) 
 	if len(u.buf) > max {
 		drop := len(u.buf) - max
 		u.buf = append(u.buf[:0:0], u.buf[drop:]...)
+	}
+}
+
+// AddUpdate lägger en mätning från monitor i kö (med HTTP-status och certifikat).
+func (u *Uploader) AddUpdate(up monitor.Update) {
+	u.Add(up.TargetID, up.Sample, up.Stats.Err, up.Stats.Addr)
+	if up.Stats.HTTPStatus == 0 && up.Stats.CertDays < 0 {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if n := len(u.buf); n > 0 && u.buf[n-1].ID == up.TargetID {
+		u.buf[n-1].H = up.Stats.HTTPStatus
+		if up.Stats.CertDays >= 0 {
+			d := up.Stats.CertDays
+			u.buf[n-1].C = &d
+		}
 	}
 }
 
@@ -168,6 +192,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	if u.Host != nil {
 		rep.Host = u.Host()
 	}
+	if u.WiFi != nil {
+		rep.WiFi = u.WiFi()
+	}
 	var hash string
 	if u.LocalTargets != nil {
 		ts := u.LocalTargets()
@@ -202,6 +229,11 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	if resp.Update != nil && u.OnUpdate != nil {
 		upd := *resp.Update
 		go u.OnUpdate(upd)
+	}
+	if len(resp.Commands) > 0 && !u.NoCommands {
+		for _, c := range resp.Commands {
+			go u.runCommand(c)
+		}
 	}
 	if resp.Config != nil {
 		u.configVersion = resp.ConfigVersion
@@ -302,6 +334,55 @@ func BaseURL(server string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSuffix(r, ReportPath), nil
+}
+
+// runCommand utför ett kommando från servern och skickar svaret.
+func (u *Uploader) runCommand(c Command) {
+	u.mu.Lock()
+	if u.running == nil {
+		u.running = map[string]bool{}
+	}
+	if u.running[c.ID] {
+		u.mu.Unlock()
+		return
+	}
+	u.running[c.ID] = true
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		delete(u.running, c.ID)
+		u.mu.Unlock()
+	}()
+	res := CommandResult{ID: c.ID, Kind: c.Kind, TargetID: c.TargetID, Start: time.Now().UnixMilli(), Hops: []trace.Hop{}}
+	switch c.Kind {
+	case CmdTrace:
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		err := trace.Run(ctx, c.Host, c.MaxHops, func(h trace.Hop) { res.Hops = append(res.Hops, h) })
+		cancel()
+		if err != nil && len(res.Hops) == 0 {
+			res.Err = err.Error()
+		}
+	default:
+		res.Err = "okänt kommando"
+	}
+	res.End = time.Now().UnixMilli()
+	base, err := BaseURL(u.ServerURL)
+	if err != nil {
+		return
+	}
+	b, _ := json.Marshal(res)
+	for try := 0; try < 3; try++ {
+		req, _ := http.NewRequest(http.MethodPost, base+ResultPath, bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+u.Token)
+		req.Header.Set("Content-Type", "application/json")
+		if r, err := u.httpClient().Do(req); err == nil {
+			r.Body.Close()
+			if r.StatusCode < 500 {
+				return
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 // HTTPClient returnerar klientens HTTP-klient (samma certifikatinställning som rapporterna).

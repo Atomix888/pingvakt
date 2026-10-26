@@ -179,6 +179,7 @@ func (s *Server) selfLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			s.flushHost(true)
+			s.flushWiFi(true)
 			return
 		case <-tk.C:
 		}
@@ -460,7 +461,12 @@ func (s *Server) handleAgentMetrics(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"history": h, "latest": s.hostLatest(id)})
+	wh, err := s.wifiHistory(id, from, to)
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"history": h, "latest": s.hostLatest(id), "wifi": wh, "wifiLatest": s.wifiLatest(id)})
 }
 
 func (s *Server) pruneHost(aggDays int) {

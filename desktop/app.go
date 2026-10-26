@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
-	"fmt"
-	"net"
 	"os"
 	goruntime "runtime"
 	"sort"
@@ -22,10 +20,11 @@ import (
 	"pingvakt/core/monitor"
 	"pingvakt/core/probe"
 	"pingvakt/core/trace"
+	"pingvakt/core/wifi"
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.
@@ -80,7 +79,7 @@ func (a *App) startup(ctx context.Context) {
 		up := a.up
 		a.umu.Unlock()
 		if up != nil {
-			up.Add(u.TargetID, u.Sample, u.Stats.Err, u.Stats.Addr)
+			up.AddUpdate(u)
 		}
 	})
 	for _, t := range cfg.Targets {
@@ -121,7 +120,7 @@ func (a *App) startServerLink(l config.ServerLink) {
 	host, _ := os.Hostname()
 	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
 		Info:         agentproto.AgentInfo{Version: Version, Hostname: host, OS: goruntime.GOOS + "/" + goruntime.GOARCH, Kind: agentproto.KindDesktop},
-		LocalTargets: a.mon.Targets}
+		LocalTargets: a.mon.Targets, WiFi: wifiCollector.Get}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.up, a.upCancel = up, cancel
 	go func() {
@@ -184,7 +183,7 @@ func (a *App) TestServer(in ServerInput) (agentproto.Status, error) {
 	host, _ := os.Hostname()
 	up := &agentproto.Uploader{ServerURL: l.URL, Token: l.Token, Insecure: l.Insecure,
 		Info:         agentproto.AgentInfo{Version: Version, Hostname: host, OS: goruntime.GOOS + "/" + goruntime.GOARCH, Kind: agentproto.KindDesktop},
-		LocalTargets: a.mon.Targets}
+		LocalTargets: a.mon.Targets, NoCommands: true}
 	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 	defer cancel()
 	if _, err := up.Send(ctx); err != nil {
@@ -278,10 +277,14 @@ func (a *App) GetState() State {
 	}
 }
 
+var wifiCollector = wifi.New()
+
 // AddInput är förval när flera mål läggs till på en gång.
 type AddInput struct {
-	Kind probe.Kind `json:"kind"`
-	Port int        `json:"port"`
+	Kind    probe.Kind `json:"kind"`
+	Port    int        `json:"port"`
+	Keyword string     `json:"keyword"`
+	DNS     string     `json:"dnsServer"`
 }
 
 // AddHosts lägger till ett eller flera mål. Texten kan innehålla flera värdar
@@ -299,7 +302,7 @@ func (a *App) AddHosts(text string, in AddInput) ([]monitor.Target, error) {
 			continue
 		}
 		t := monitor.Target{Host: host, Kind: kind, Port: port, IntervalMs: d.IntervalMs, TimeoutMs: d.TimeoutMs,
-			Size: d.Size, AlertIDs: append([]string{}, d.AlertIDs...)}
+			Size: d.Size, AlertIDs: append([]string{}, d.AlertIDs...), Keyword: in.Keyword, DNSServer: in.DNS}
 		added = append(added, a.mon.Upsert(t))
 	}
 	if len(added) == 0 {
@@ -309,36 +312,19 @@ func (a *App) AddHosts(text string, in AddInput) ([]monitor.Target, error) {
 }
 
 func parseHostToken(tok string, in AddInput) (string, probe.Kind, int) {
-	tok = strings.TrimSpace(tok)
-	for _, p := range []string{"tcp://", "icmp://", "http://", "https://"} {
-		if strings.HasPrefix(strings.ToLower(tok), p) {
-			tok = tok[len(p):]
-		}
-	}
-	tok = strings.TrimSuffix(tok, "/")
-	kind, port := in.Kind, in.Port
-	if kind != probe.KindTCP {
-		kind = probe.KindICMP
-	}
-	if h, p, err := net.SplitHostPort(tok); err == nil {
-		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
-			return h, probe.KindTCP, n
-		}
-	}
-	tok = strings.Trim(tok, "[]")
-	if strings.ContainsAny(tok, " /\\\"'<>") {
-		return "", kind, port
-	}
-	return tok, kind, port
+	return monitor.ParseHostToken(tok, in.Kind, in.Port)
 }
 
 // SaveTarget sparar ett nytt eller ändrat mål.
 func (a *App) SaveTarget(t monitor.Target) (monitor.Target, error) {
-	h, _, _ := parseHostToken(t.Host, AddInput{Kind: t.Kind, Port: t.Port})
+	h, k, p := parseHostToken(t.Host, AddInput{Kind: t.Kind, Port: t.Port})
 	if h == "" {
 		return t, errors.New("ogiltig värd")
 	}
 	t.Host = h
+	if k == probe.KindHTTP || t.Kind == probe.KindTCP {
+		t.Kind, t.Port = k, p
+	}
 	t = a.mon.Upsert(t)
 	return t, a.save()
 }
@@ -582,10 +568,7 @@ func (a *App) writeCSV(path string, ids []string, sinceMs int64) error {
 		if name == "" {
 			name = t.Host
 		}
-		kind := "ICMP"
-		if t.Kind == probe.KindTCP {
-			kind = fmt.Sprintf("TCP %d", t.Port)
-		}
+		kind := t.KindLabel()
 		for _, s := range a.mon.History(id, sinceMs) {
 			lat, lost := strings.Replace(strconv.FormatFloat(float64(s.RTT), 'f', 3, 32), ".", ",", 1), "0"
 			if s.Lost() {
