@@ -84,6 +84,13 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 404, "the status page does not exist")
 		return
 	}
+	out := s.buildStatus(cust, company)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, out)
+}
+
+// buildStatus sammanställer kundens status (används av statussidan och kundportalen).
+func (s *Server) buildStatus(cust Customer, company string) publicStatus {
 	snap := s.snapshot(map[string]bool{cust.ID: true})
 	maint := s.inMaintenance()
 	out := publicStatus{Customer: cust.Name, Company: company, Generated: now(), Overall: "up", Sites: []publicSite{}, Maint: []string{}}
@@ -140,8 +147,7 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 		out.Sites[i].Targets = append(out.Sites[i].Targets, publicTarget{Name: name, Status: status, Uptime24: u24, Uptime30: u30, Since: st.Since})
 	}
 	out.Overall = map[int]string{0: "up", 1: "warn", 2: "offline", 3: "down"}[worst]
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, out)
+	return out
 }
 
 func (s *Server) handleStatusKey(w http.ResponseWriter, r *http.Request) {

@@ -100,6 +100,9 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/agents/{id}/survey/run", need(false, s.handleSurveyRun))
 	mux.HandleFunc("GET /api/customers/{id}/topology", need(false, s.handleTopology))
 	mux.HandleFunc("GET /api/logs", need(false, s.handleLogs))
+	mux.HandleFunc("GET /api/portal", need(false, s.handlePortal))
+	mux.HandleFunc("PUT /api/me/subscribe", need(false, s.handleSubscribe))
+	mux.HandleFunc("GET /api/targets/{id}/baseline", need(false, s.handleBaseline))
 	mux.HandleFunc("GET /api/agents/{id}/opts", need(false, s.handleAgentOpts))
 	mux.HandleFunc("PUT /api/agents/{id}/opts", need(true, s.handleAgentOpts))
 	mux.HandleFunc("GET /api/integrations", need(false, s.handleIntegrations))
@@ -127,6 +130,9 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/alerts/ack", need(true, s.handleAck))
 	mux.HandleFunc("GET /api/backups", need(true, s.handleListBackups))
 	mux.HandleFunc("GET /api/backup", need(true, s.handleDownloadBackup))
+	mux.HandleFunc("POST /api/backup/offsite", need(true, s.handleOffsiteNow))
+	mux.HandleFunc("POST /api/settings/test-offsite", need(true, s.handleTestOffsite))
+	mux.HandleFunc("POST /api/settings/test-ticket", need(true, s.handleTestTicket))
 	// administration
 	mux.HandleFunc("POST /api/customers", need(true, s.handleSaveCustomer))
 	mux.HandleFunc("PUT /api/customers/{id}", need(true, s.handleSaveCustomer))
@@ -193,6 +199,7 @@ type stateOut struct {
 	Monitor   monitor.Settings         `json:"monitor"`
 	ReportSec int                      `json:"reportSec"`
 	ServerURL string                   `json:"serverUrl"`
+	Tickets   string                   `json:"ticketSystem,omitempty"`
 	Server    *hostinfo.Metrics        `json:"server,omitempty"`
 	Maint     map[string]string        `json:"maint"`
 	Acks      map[string]Ack           `json:"acks"`
@@ -206,7 +213,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	out := stateOut{Me: u, Version: s.version, Customers: []Customer{}, Sites: []Site{}, Agents: []Agent{}, Targets: []Target{},
 		Rules: []Rule{}, Stats: snap.Stats, Live: snap.Agents, Monitor: s.settings.Monitor, ReportSec: s.settings.ReportSec,
-		ServerURL: s.publicURL(r)}
+		ServerURL: s.publicURL(r), Tickets: s.settings.Tickets.Name()}
 	for _, c := range s.customers {
 		if ok(c.ID) {
 			out.Customers = append(out.Customers, c)
@@ -1097,6 +1104,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	st.SMTP.Password = ""
 	st.Notify = st.Notify.redact()
 	st.Auth = st.Auth.redact()
+	st.Offsite = redactOffsite(st.Offsite)
+	st.Tickets = redactTickets(st.Tickets)
 	writeJSON(w, settingsOut{st, has})
 }
 
@@ -1115,6 +1124,8 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	st := in.ServerSettings
 	st.Notify = st.Notify.merge(s.settings.Notify)
 	st.Auth = st.Auth.merge(s.settings.Auth)
+	st.Offsite = mergeOffsite(st.Offsite, s.settings.Offsite)
+	st.Tickets = mergeTickets(st.Tickets, s.settings.Tickets)
 	if st.RawDays < 1 {
 		st.RawDays = 1
 	}

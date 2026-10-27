@@ -346,6 +346,8 @@ func (s *Server) notifyExtra(a alert.Alert, ev alert.Event) {
 			log.Printf("notification %s: %v", a.Name, err)
 		}
 	}()
+	go s.handleTicket(a, ev)
+	go s.notifySubscribers(a, ev)
 }
 
 // notify skickar till alla kanaler som regeln har. test = skicka direkt, utan spärrar.

@@ -78,7 +78,7 @@ async function loadState() {
   Object.assign(S, {
     me: st.me, customers: st.customers, sites: st.sites, agents: st.agents, targets: st.targets, rules: st.rules,
     stats: st.stats || {}, live: st.live || {}, active: st.active || {}, monitor: st.monitor, reportSec: st.reportSec,
-    serverUrl: st.serverUrl, version: st.version, serverHost: st.server || null, maint: st.maint || {}, acks: st.acks || {},
+    serverUrl: st.serverUrl, ticketSystem: st.ticketSystem || '', version: st.version, serverHost: st.server || null, maint: st.maint || {}, acks: st.acks || {},
   });
 }
 
@@ -239,7 +239,7 @@ function renderShell() {
 function renderNav() {
   const route = location.hash || '#/';
   const link = (href, label, extra) => h('a', { href, class: route === href || (href !== '#/' && route.startsWith(href)) ? 'on' : '' }, label, extra || null);
-  const items = [link('#/', T('Overview'))];
+  const items = isAdmin() ? [link('#/', T('Overview'))] : [link('#/', T('Status')), link('#/overview', T('Overview'))];
   items.push(h('div', { class: 'navhead' }, T('Customers')));
   for (const c of S.customers) {
     const cnt = counts(S.targets.filter(t => customerOfTarget(t) === c.id));
@@ -296,6 +296,8 @@ function renderPage() {
   if (v.name === 'audit' && isAdmin()) return renderAudit(page);
   if (v.name === 'tv') return renderTV(page);
   if (v.name === 'logs') return renderLogs(page);
+  if (v.name.startsWith('portal')) return renderPortal(page, v.name.split('/')[1] || '');
+  if (!isAdmin() && S.me && S.me.customerId && (location.hash === '' || location.hash === '#/')) return renderPortal(page, S.me.customerId);
   return renderOverview(page);
 }
 
@@ -374,6 +376,7 @@ function renderCustomer(page, id) {
         { label: T('Edit customer…'), action: () => customerDialog(c) },
         { label: T('Maintenance windows…'), action: () => maintDialog(c.id) },
         { label: T('Public status page…'), action: () => statusPageDialog(c) },
+        { label: T('Customer portal (as the customer sees it)'), action: () => { location.hash = '#/portal/' + c.id; } },
         { label: T('Alert rules for customer…'), action: () => { location.hash = '#/alerts'; } },
         '-',
         { label: T('Delete customer…'), danger: true, action: () => deleteCustomer(c) },
@@ -709,6 +712,7 @@ async function openDrawer(id) {
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
   });
   updateDrawerHead();
+  GET(`/api/targets/${id}/baseline`).then(b => { S.baseline = { id, ...b }; renderDrawerStats(); }).catch(() => {});
   await loadChart();
   const el = tiles.get(id); if (el) el.scrollIntoView({ block: 'nearest' });
 }
@@ -732,6 +736,14 @@ function updateDrawerHead() {
   renderDrawerStats();
 }
 
+// baselineRow visar vad som är normal svarstid för målet den här timmen (dynamiska tröskelvärden).
+function baselineRow(id, row) {
+  const b = S.baseline;
+  if (!b || b.id !== id) return [];
+  const hr = b.hours[new Date().getHours()];
+  if (!hr || hr.days < b.minDays) return row(T('Normal now'), T('learning ({0}/{1} days)', hr ? hr.days : 0, b.minDays));
+  return row(T('Normal now'), `${fmtMs(hr.mean)} ms ±${fmtMs(hr.std)}`);
+}
 function renderDrawerStats() {
   const d = S.chartData, t = byId(S.targets, S.selected);
   if (!d || !t || !$('#dStats')) return;
@@ -762,7 +774,7 @@ function renderDrawerStats() {
       row(T('Resolution'), S.chartBucket >= 3600000 ? S.chartBucket / 3600000 + ' h' : S.chartBucket / 60000 + ' min')];
   }
   $('#dStats').replaceChildren(h('dl', null, row('Status', STATUS_TEXT[st.status] || '–'), row(T('Since'), st.since ? dur(Date.now() - st.since) : '–'),
-    row(T('Last'), st.last >= 0 ? fmtMs(st.last) + ' ms' : T('lost')), ...rows), ...(st.err ? [h('div', { class: 'err' }, TE(st.err))] : []));
+    row(T('Last'), st.last >= 0 ? fmtMs(st.last) + ' ms' : T('lost')), ...rows, ...baselineRow(t.id, row)), ...(st.err ? [h('div', { class: 'err' }, TE(st.err))] : []));
 }
 
 async function loadChart() {
@@ -1357,7 +1369,7 @@ async function renderAlerts(page) {
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
       rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('Condition'), T('Actions'), T('Targets'), ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : ['snmp', 'ifdown', 'ifutil', 'iferrors'].includes(r.condition) ? T('SNMP devices') : r.condition === 'vendor' ? T('integrations') : r.condition === 'log' ? 'syslog/traps' : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : ['snmp', 'ifdown', 'ifutil', 'iferrors'].includes(r.condition) ? T('SNMP devices') : r.condition === 'vendor' ? T('integrations') : r.condition === 'log' ? 'syslog/traps' : r.condition === 'anomaly' ? T('all targets') : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
           h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, T('Edit')) : null)))))
         : h('p', { class: 'muted' }, T('No rules.')));
   }).filter(Boolean);
@@ -1368,7 +1380,7 @@ async function renderAlerts(page) {
       h('thead', null, h('tr', null, ...[T('Since'), T('Alert'), T('Applies to'), 'Status', ''].map(x => h('th', null, x)))),
       h('tbody', null, ...list.map(a => h('tr', null,
         h('td', { class: 'mono' }, dateTime(a.since), h('div', { class: 'muted' }, dur(Date.now() - a.since))),
-        h('td', null, h('b', null, a.ruleName)), h('td', null, a.targetName),
+        h('td', null, h('b', null, a.ruleName), a.ticketUrl ? h('div', null, h('a', { href: a.ticketUrl, target: '_blank', rel: 'noopener' }, T('Ticket ↗'))) : null), h('td', null, a.targetName),
         h('td', null, a.ack ? h('span', { class: 'pill' }, T('Acknowledged by {0} {1}{2}', a.ack.user, clock(a.ack.t), a.ack.note ? ' – ' + a.ack.note : '')) : a.note ? h('span', { class: 'pill' }, a.note) : h('span', { class: 'pill st-down' }, h('span', { class: 'dot' }), T('Unacknowledged'))),
         h('td', { class: 'actions' }, isAdmin() ? (a.ack ? h('button', { class: 'btn sm', onclick: async () => { await POST('/api/alerts/ack', { key: a.key, undo: true }); delete S.acks[a.key]; renderPage(); } }, T('Undo')) :
           h('button', { class: 'btn sm primary', onclick: async () => { await ackAlert(a.key); renderPage(); } }, T('Acknowledge'))) : null)))))
@@ -1407,6 +1419,7 @@ function describe(a) {
   if (a.condition === 'cert') return T('Certificate expires within {0} days', a.threshold);
   if (a.condition === 'log') return a.match ? T('Log message containing "{0}"', a.match) : T('Log message with severity {0} or worse', ['emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug'][a.threshold] || 'debug');
   if (a.condition === 'vendor') return T('{0} offline ({1} polls)', [T('UniFi/Meraki/Aruba device'), T('Access point'), T('UniFi/Meraki/Aruba device except AP')][a.threshold || 0], a.samples);
+  if (a.condition === 'anomaly') return T('Unusual latency: {0}× normal spread, at least +{1} ms, {2} min', a.threshold, a.count, a.samples);
   if (a.condition === 'sticky') return T('Sticky client: below {0} dBm, another AP {1} dB stronger for {2} min', a.threshold, a.count, a.samples);
   if (a.condition === 'roamrate') return T('More than {0} roams in {1} min', a.threshold, a.samples);
   if (a.condition === 'snmp') return T('SNMP device not responding ({0} polls)', a.samples);
@@ -1418,7 +1431,7 @@ function describe(a) {
 }
 function actionsText(r) {
   const a = [];
-  if (r.email) a.push(T('email')); if (r.push) a.push('push'); if (r.sms) a.push('SMS'); if (r.teams) a.push('Teams'); if (r.webhook) a.push('webhook');
+  if (r.email) a.push(T('email')); if (r.push) a.push('push'); if (r.ticket) a.push(T('ticket')); if (r.sms) a.push('SMS'); if (r.teams) a.push('Teams'); if (r.webhook) a.push('webhook');
   if (r.onCall) { const o = (S.oncalls || []).find(x => x.id === r.onCall); a.push(T('on call') + (o ? ': ' + o.name : '')); }
   if (r.popup) a.push('popup'); if (r.sound) a.push(T('sound'));
   return a.join(', ') || '–';
@@ -1507,6 +1520,7 @@ async function renderSettings(page) {
     box.replaceChildren(h('span', null, T('Saved copies')), b.files.length ? h('div', { class: 'checks', style: 'flex-direction:column' }, ...b.files.map(f =>
       h('a', { href: '/api/backup?file=' + encodeURIComponent(f.name) }, `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`))) : h('small', null, T('None yet.')),
       h('small', null, T('Folder: {0}. Restore by stopping the server and replacing pingvakt.db with a copy.', b.dir)));
+    showOffsiteStatus(b.offsite);
   }).catch(() => {});
   const pub = h('input', { type: 'text', value: st.publicUrl, placeholder: S.serverUrl });
   const lang = select([['en', 'English'], ['sv', 'Svenska']], st.language || 'en');
@@ -1514,6 +1528,8 @@ async function renderSettings(page) {
   const rep = num(st.reportSec, 2, 300), raw = num(st.rawDays, 1, 365), agg = num(st.aggDays, 7, 3650);
   const autoUpd = h('input', { type: 'checkbox', checked: !st.noAutoUpdate });
   const backupKeep = num(st.backupKeep, 0, 365);
+  const off = offsiteFields(st.offsite || {});
+  const tix = ticketFields(st.tickets || {});
   const m = st.monitor;
   const win = num(m.statsWindow, 5, 3600), warnMs = num(m.warnMs, 0, 10000), warnLoss = num(m.warnLossPct, 0, 100, .5), downAfter = num(m.downAfter, 1, 100);
   const sm = st.smtp;
@@ -1584,6 +1600,7 @@ async function renderSettings(page) {
       field(T('Keep nightly copies (count)'), backupKeep, T('Taken every night at 03:15. 0 = off.')),
       h('div', { class: 'field' }, h('span', null, T('Download')), h('div', { class: 'row' }, h('a', { class: 'btn', href: '/api/backup' }, T('Download backup now')))),
       h('div', { class: 'field full', id: 'backupList' }),
+      ...off.fields,
       h('div', { class: 'section-title' }, T('Measurement (sent to the agents)')),
       field(T('Statistics window (samples)'), win), field(T('Down after (lost in a row)'), downAfter),
       field(T('Latency warning threshold (ms)'), warnMs), field(T('Loss warning threshold (%)'), warnLoss),
@@ -1595,7 +1612,7 @@ async function renderSettings(page) {
         try { await POST('/api/settings/test-email', { to: testTo.value, smtp: smtpVal(), newPassword: sPass.value !== '' }); testRes.className = 'form-ok'; testRes.textContent = T('The test email was sent.'); }
         catch (e) { testRes.className = 'form-error'; testRes.textContent = e.message; }
       } }, T('Send test email'))), testRes),
-      ...notifyFields, ...authFields,
+      ...notifyFields, ...tix.fields, ...authFields,
       h('div', { class: 'section-title', id: 'tplSection' }, T('Target templates')),
       h('div', { class: 'field full', id: 'tplBox' }))),
     h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('PingVakt server {0}', S.version))),
@@ -1606,7 +1623,7 @@ async function renderSettings(page) {
           await PUT('/api/settings', { language: lang.value, publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
             noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value, reportName: repName.value.trim(),
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
-            smtp: smtpVal(), newPassword: sPass.value !== '', notify: notifyVal(), auth: authVal() });
+            smtp: smtpVal(), newPassword: sPass.value !== '', notify: notifyVal(), auth: authVal(), offsite: off.val(), tickets: tix.val() });
           msg.className = 'form-ok'; msg.textContent = T('Saved.'); await loadState();
           if (langChanged && !S.me.lang) location.reload();
         } catch (e) { msg.className = 'form-error'; msg.textContent = e.message; }
@@ -1794,7 +1811,7 @@ function ruleDialog(rule) {
   const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')], ['offline', 'Agent offline'],
     ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')],
     ['snmp', T('SNMP device not responding')], ['ifdown', T('Watched port down')], ['ifutil', T('Port traffic high')], ['iferrors', T('Port errors')], ['speed', T('Speed test slow')],
-    ['log', T('Syslog or SNMP trap')], ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
+    ['anomaly', T('Unusual latency (learns what is normal)')], ['log', T('Syslog or SNMP trap')], ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
   const logMatch = h('input', { type: 'text', value: r.match || '', placeholder: T('e.g. link down, or /auth.*fail/ – empty = any message') });
   const logSev = select([[0, '0 emerg'], [1, '1 alert'], [2, '2 crit'], [3, '3 err'], [4, '4 warning'], [5, '5 notice'], [6, '6 info'], [7, T('any')]], r.condition === 'log' ? r.threshold : 4);
   const vendorWhich = select([[0, T('All devices')], [1, T('Only access points')], [2, T('All except access points')]], r.condition === 'vendor' ? r.threshold : 0);
@@ -1823,6 +1840,8 @@ function ruleDialog(rule) {
       h('small', null, T('Applies to all ports of the customer\'s SNMP devices.')));
     if (c === 'speed') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Download below')), thr, h('span', null, T('Mbit/s in')), smp, h('span', null, T('tests in a row'))),
       h('small', null, T('Turn on automatic speed tests on the agent (CPU, memory and disk view).')));
+    if (c === 'anomaly') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Latency over normal by')), thr, h('span', null, T('× the normal spread, and at least')), cnt, h('span', null, T('ms, for')), smp, h('span', null, T('minutes'))),
+      h('small', null, T('PingVakt learns the normal latency per target and hour of the day from the last two weeks, and starts alerting after 5 days. Applies to all targets of the customer. Lower = more sensitive; 3 is a good start.')));
     if (c === 'log') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Message contains')), logMatch),
       h('div', { class: 'row', style: 'margin-top:6px' }, h('span', null, T('Severity at least')), logSev, h('span', null, T('– clears after')), smp, h('span', null, T('minutes without new matches'))),
       h('small', null, T('Applies to syslog and SNMP traps received by the customer\'s agents (agent view → Syslog and SNMP traps).')));
@@ -1847,6 +1866,7 @@ function ruleDialog(rule) {
     if (c === 'roamrate') { thr.value = 10; smp.value = 60; }
     if (c === 'vendor') smp.value = 2;
     if (c === 'log') smp.value = 15;
+    if (c === 'anomaly') { thr.value = 3; cnt.value = 10; smp.value = 10; }
     if (c === 'ifutil') { thr.value = +thr.value > 0 && +thr.value <= 100 ? thr.value : 90; smp.value = 10; }
     if (c === 'iferrors') thr.value = +thr.value > 0 ? thr.value : 10;
     if (c === 'speed') { thr.value = +thr.value > 0 ? thr.value : 50; smp.value = 2; }
@@ -1861,7 +1881,7 @@ function ruleDialog(rule) {
   const smsTo = h('input', { type: 'text', value: r.smsTo || '', placeholder: T('070-123 45 67, +46701234567') });
   const teamsUrl = h('input', { type: 'text', value: r.teamsUrl || '', placeholder: T('Teams workflow URL (Post to a channel when a webhook request is received)') });
   const onCall = select([['', T('– none –')], ...(S.oncalls || []).map(o => [o.id, o.name])], r.onCall || '');
-  const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear, push: !!r.push, sms: !!r.sms, teams: !!r.teams };
+  const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear, push: !!r.push, sms: !!r.sms, teams: !!r.teams, ticket: !!r.ticket };
   const box = (label, key) => check(label, flags[key], e => { flags[key] = e.target.checked; });
   const collect = () => Object.assign(r, { name: name.value.trim(), customerId: cust.value, condition: cond.value, threshold: cond.value === 'vendor' ? +vendorWhich.value : cond.value === 'log' ? +logSev.value : +thr.value, match: cond.value === 'log' ? logMatch.value.trim() : '', count: +cnt.value, samples: +smp.value,
     emailTo: emailTo.value, hookUrl: hook.value.trim(), soundName: sound.value, repeatMin: +repeat.value,
@@ -1877,6 +1897,7 @@ function ruleDialog(rule) {
         h('div', { class: 'row' }, box('SMS', 'sms'), smsTo),
         h('div', { class: 'row' }, box('Teams', 'teams'), teamsUrl),
         h('div', { class: 'row' }, box('Webhook', 'webhook'), hook),
+        h('div', { class: 'row' }, box(T('Create ticket'), 'ticket'), h('small', { class: 'muted' }, S.ticketSystem ? T('in {0} – resolved when the alert clears', S.ticketSystem) : T('set up the ticket system under Settings first'))),
         h('div', { class: 'row' }, h('span', null, T('Notify on call')), onCall),
         box(T('Popup in the browser for anyone with PingVakt open'), 'popup'),
         h('div', { class: 'row' }, box(T('Sound in the browser'), 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')))),

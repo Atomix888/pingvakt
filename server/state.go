@@ -508,6 +508,7 @@ func (s *Server) Run(ctx context.Context) {
 				s.flushWiFi(false)
 				s.flushSNMP(false)
 				s.sweepLogAlerts()
+				s.checkAnomalies()
 			}
 		}
 	}()

@@ -109,6 +109,14 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **Syslog and SNMP traps:** in the agent view (CPU, memory and disk → *Syslog and SNMP traps*) the agent can receive syslog on UDP 514 and SNMP traps (v1/v2c) on UDP 162 from the devices at the site and forward them to the server. Messages are shown under **Logs** with filters for customer, severity, type and text, and are kept for 30 days. The rule *Syslog or SNMP trap* fires on messages that contain a text (or match a `/regular expression/`) with a given severity or worse, and clears after N minutes without new matches. The server can also receive directly: start it with `--syslog :5514 --traps :1162` (or `PINGVAKT_SYSLOG`/`PINGVAKT_TRAPS`) and publish the ports, e.g. `514:5514/udp` and `162:1162/udp` in Docker. Messages are then linked to a customer by the sender's IP address (SNMP device, ping target or integration device).
 
+**Unusual latency (dynamic thresholds):** instead of a fixed ms limit, the rule *Unusual latency* learns what is normal for every target and hour of the day from the last two weeks, and fires when the latency over the last N minutes is well above normal: more than K × the normal spread, at least X ms and at least 25 %. It starts after 5 days of data. The target's detail view shows *Normal now* (e.g. "12 ms ±2").
+
+**Ticket system:** under Settings → Ticket system you connect Jira Cloud, Freshdesk or Zendesk. Alert rules with *Create ticket* open a ticket when the alert fires (with customer, target, details and a link) and add a comment and close it when the alert clears. Active alerts link to their ticket. *Create test ticket* checks the connection.
+
+**Customer portal:** customer users (the role *Customer*) now land on a portal with an overall status, ongoing disruptions, planned maintenance, availability per service for 24 hours and 30 days, PDF reports to download and the latest events. They can tick *Email me when something goes down or comes back* (administrators get it for all customers). Preview it from the customer menu → *Customer portal*.
+
+**Off-site backups:** under Settings → Backups the nightly copy can also be uploaded to S3-compatible storage (AWS S3, Backblaze B2, Wasabi, MinIO …) or WebDAV (Nextcloud, ownCloud), keeping the N latest copies there. *Test* uploads and deletes a small file; *Upload a backup now* runs it at once.
+
 **Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
 
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
@@ -219,6 +227,8 @@ core/              The measurement engine – shared by desktop app, agent and s
   speedtest/       Speed test against Cloudflare or the server
   vendors/         UniFi, Meraki and Aruba Central clients
   logrx/           Syslog and SNMP trap receiver
+  offsite/         Off-site backups (S3 Signature V4, WebDAV)
+  tickets/         Jira, Freshdesk and Zendesk tickets
   monitor/         Per-target scheduling, history ring buffer, statistics and status
   alert/           Alert rules, evaluation, email (SMTP), system notifications, log file
   trace/           Traceroute via the system tool

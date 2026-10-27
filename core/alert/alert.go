@@ -36,6 +36,7 @@ const (
 	CondSpeed    Condition = "speed"    // hastighetstestet visar lägre nedladdning än N Mbit/s
 	CondSticky   Condition = "sticky"   // klistrig klient: svag AP fast en starkare med samma SSID syns
 	CondRoamRate Condition = "roamrate" // fler än N roamingar under X minuter
+	CondAnomaly  Condition = "anomaly"  // svarstiden avviker från det normala för timmen (Threshold = k, Count = minsta ökning i ms)
 	CondLog      Condition = "log"      // syslog/trap som matchar Match med allvarlighet <= Threshold
 	CondVendor   Condition = "vendor"   // enhet i UniFi/Meraki/Aruba offline (Threshold: 0 = alla, 1 = bara AP, 2 = utom AP)
 	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
@@ -72,6 +73,7 @@ type Alert struct {
 	Teams    bool   `json:"teams,omitempty"`    // Teams-kort till TeamsURL
 	TeamsURL string `json:"teamsUrl,omitempty"` // Teams Workflows/inkommande webhook
 	OnCall   string `json:"onCall,omitempty"`   // jourschema som också meddelas
+	Ticket   bool   `json:"ticket,omitempty"`   // skapa ärende i ärendesystemet (Inställningar)
 	Match    string `json:"match,omitempty"`    // loggmeddelanden: text (eller /reguljärt uttryck/) som ska finnas
 
 	RepeatMin int  `json:"repeatMin"` // upprepa medan larmet är aktivt (0 = nej)
@@ -85,7 +87,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog, CondAnomaly:
 	default:
 		a.Condition = CondDown
 	}
@@ -145,6 +147,16 @@ func (a *Alert) Normalize() {
 		if a.Samples < 1 {
 			a.Samples = 10
 		}
+	case CondAnomaly:
+		if a.Threshold < 1 || a.Threshold > 10 {
+			a.Threshold = 3
+		}
+		if a.Count < 1 || a.Count > 10000 {
+			a.Count = 10
+		}
+		if a.Samples < 2 || a.Samples > 240 {
+			a.Samples = 10
+		}
 	case CondLog:
 		a.Match = strings.TrimSpace(a.Match)
 		if a.Threshold < 0 || a.Threshold > 7 {
@@ -197,7 +209,7 @@ func (a *Alert) Normalize() {
 	if a.Samples > 3600 {
 		a.Samples = 3600
 	}
-	if a.Condition != CondSticky && (a.Count < 1 || a.Count > a.Samples) { // för klistrig klient är Count en skillnad i dB
+	if a.Condition != CondSticky && a.Condition != CondAnomaly && (a.Count < 1 || a.Count > a.Samples) { // för klistrig klient är Count en skillnad i dB
 		a.Count = a.Samples
 		if a.Condition == CondLatency {
 			a.Count = (a.Samples + 1) / 2
@@ -247,6 +259,8 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf(i18n.T("Port errors > %g per minute"), a.Threshold)
 	case CondSticky:
 		return fmt.Sprintf(i18n.T("Sticky client: below %g dBm while another AP is %d dB stronger (%d min)"), a.Threshold, a.Count, a.Samples)
+	case CondAnomaly:
+		return fmt.Sprintf(i18n.T("Unusual latency: %g× the normal spread (at least +%d ms) for %d min"), a.Threshold, a.Count, a.Samples)
 	case CondLog:
 		if a.Match == "" {
 			return fmt.Sprintf(i18n.T("Log message with severity %s or worse"), sevName(int(a.Threshold)))

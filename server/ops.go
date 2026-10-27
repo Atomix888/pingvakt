@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"pingvakt/core/alert"
 	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
+	"pingvakt/core/offsite"
 )
 
 const opsSchema = `
@@ -404,12 +406,14 @@ type ActiveAlert struct {
 	Since      int64  `json:"since"`
 	Ack        *Ack   `json:"ack,omitempty"`
 	Note       string `json:"note,omitempty"`
+	TicketURL  string `json:"ticketUrl,omitempty"`
 }
 
 func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
 	act := s.activeAlerts()
 	maint := s.inMaintenance()
+	tix := s.ticketURLs()
 	out := []ActiveAlert{}
 	for k, since := range act {
 		rid, tid, ok := strings.Cut(k, "|")
@@ -446,6 +450,7 @@ func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 		if n, ok := maint[tid]; ok {
 			aa.Note = i18n.T("Maintenance window: ") + n
 		}
+		aa.TicketURL = tix[k]
 		out = append(out, aa)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Since > out[j].Since })
@@ -527,9 +532,19 @@ func (s *Server) nightlyBackupLoop(stop <-chan struct{}) {
 func (s *Server) runBackup() error {
 	s.mu.RLock()
 	keep := s.settings.BackupKeep
+	off := s.settings.Offsite
 	s.mu.RUnlock()
 	if keep <= 0 {
-		return nil
+		if !off.Enabled() {
+			return nil
+		}
+		// bara utanför servern: gör en tillfällig kopia
+		p := filepath.Join(s.dataDir, "pingvakt-"+time.Now().Format("20060102-1504")+".db")
+		if err := s.backupTo(p); err != nil {
+			return err
+		}
+		defer os.Remove(p)
+		return s.uploadOffsite(off, p)
 	}
 	dir := s.backupDir()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -546,7 +561,105 @@ func (s *Server) runBackup() error {
 		_ = os.Remove(files[0])
 		files = files[1:]
 	}
+	if off.Enabled() {
+		return s.uploadOffsite(off, p)
+	}
 	return nil
+}
+
+// OffsiteStatus är resultatet av den senaste uppladdningen.
+type OffsiteStatus struct {
+	T    int64  `json:"t"`
+	File string `json:"file,omitempty"`
+	Err  string `json:"err,omitempty"`
+}
+
+func (s *Server) uploadOffsite(c offsite.Config, file string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	err := offsite.UploadAndPrune(ctx, c, file)
+	st := OffsiteStatus{T: now(), File: filepath.Base(file)}
+	if err != nil {
+		st.Err = err.Error()
+		log.Printf("off-site backup: %v", err)
+	} else {
+		log.Printf("off-site backup uploaded: %s", st.File)
+	}
+	b, _ := json.Marshal(st)
+	_, _ = s.db.Exec(`INSERT INTO settings(key,value) VALUES('offsite_status',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(b))
+	return err
+}
+
+func (s *Server) offsiteStatus() *OffsiteStatus {
+	var raw string
+	if s.db.QueryRow(`SELECT value FROM settings WHERE key='offsite_status'`).Scan(&raw) != nil {
+		return nil
+	}
+	var st OffsiteStatus
+	if json.Unmarshal([]byte(raw), &st) != nil {
+		return nil
+	}
+	return &st
+}
+
+func redactOffsite(c offsite.Config) offsite.Config {
+	c.SecretKey, c.Password = maskIf(c.SecretKey), maskIf(c.Password)
+	return c
+}
+
+func mergeOffsite(c, old offsite.Config) offsite.Config {
+	if c.SecretKey == secretMask {
+		c.SecretKey = old.SecretKey
+	}
+	if c.Password == secretMask {
+		c.Password = old.Password
+	}
+	c.Endpoint, c.Bucket, c.URL = strings.TrimSpace(c.Endpoint), strings.TrimSpace(c.Bucket), strings.TrimSpace(c.URL)
+	c.AccessKey, c.Region = strings.TrimSpace(c.AccessKey), strings.TrimSpace(c.Region)
+	if c.Keep < 0 {
+		c.Keep = 0
+	}
+	return c
+}
+
+func (s *Server) handleTestOffsite(w http.ResponseWriter, r *http.Request) {
+	var in offsite.Config
+	if !readJSON(w, r, &in) {
+		return
+	}
+	s.mu.RLock()
+	in = mergeOffsite(in, s.settings.Offsite)
+	s.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	if err := offsite.Test(ctx, in); err != nil {
+		httpErr(w, 400, err.Error())
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleOffsiteNow gör en säkerhetskopia och laddar upp den direkt.
+func (s *Server) handleOffsiteNow(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	off := s.settings.Offsite
+	s.mu.RUnlock()
+	if !off.Enabled() {
+		httpErr(w, 400, "off-site backup is not configured")
+		return
+	}
+	p := filepath.Join(s.dataDir, "pingvakt-"+time.Now().Format("20060102-1504")+".db")
+	if err := s.backupTo(p); err != nil {
+		httpErr(w, 500, "backup: "+err.Error())
+		return
+	}
+	defer os.Remove(p)
+	if err := s.uploadOffsite(off, p); err != nil {
+		httpErr(w, 400, err.Error())
+		return
+	}
+	s.audit(r, "settings", "", i18n.T("uploaded a backup off-site"))
+	writeJSON(w, s.offsiteStatus())
 }
 
 // BackupFile beskriver en sparad säkerhetskopia.
@@ -565,7 +678,7 @@ func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].T > out[j].T })
-	writeJSON(w, map[string]any{"dir": s.backupDir(), "files": out})
+	writeJSON(w, map[string]any{"dir": s.backupDir(), "files": out, "offsite": s.offsiteStatus()})
 }
 
 // handleDownloadBackup skapar en färsk kopia (eller hämtar en sparad) och skickar den.

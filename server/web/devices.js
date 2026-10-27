@@ -757,3 +757,103 @@ async function renderLogRx(agentId) {
       h('button', { class: 'btn sm', onclick: () => { document.querySelectorAll('.backdrop').forEach(b => b._close()); openLogs(customerOfAgent(a)); } }, T('Show logs')), status),
     o.logRx ? h('div', { class: 'notice bad' }, TE(o.logRx)) : '');
 }
+
+
+/* ---------------- säkerhetskopior utanför servern ---------------- */
+function showOffsiteStatus(st) {
+  const el = $('#offsiteStatus');
+  if (!el) return;
+  if (!st) { el.textContent = ''; return; }
+  el.className = st.err ? 'form-error' : 'form-ok';
+  el.textContent = st.err ? T('Last upload failed {0}: {1}', dateTime(st.t), TE(st.err)) : T('Last upload {0}: {1}', dateTime(st.t), st.file);
+}
+function offsiteFields(o) {
+  const inp = (v, ph, type) => h('input', { type: type || 'text', value: v || '', placeholder: ph || '', autocomplete: type === 'password' ? 'new-password' : 'off' });
+  const kind = select([['', T('Off')], ['s3', T('S3-compatible (AWS, Backblaze B2, Wasabi, MinIO …)')], ['webdav', 'WebDAV (Nextcloud, ownCloud …)']], o.kind || '');
+  const ep = inp(o.endpoint, 's3.eu-central-003.backblazeb2.com'), region = inp(o.region, 'eu-central-003'), bucket = inp(o.bucket), prefix = inp(o.prefix, 'pingvakt/');
+  const ak = inp(o.accessKey), sk = inp(o.secretKey, '', 'password');
+  const url = inp(o.url, 'https://cloud.example.se/remote.php/dav/files/jonas/PingVakt'), user = inp(o.username), pass = inp(o.password, T('App password'), 'password');
+  const keep = num(o.keep || 30, 0, 3650);
+  const res = h('span', { id: 'offsiteStatus' });
+  const F = { s3: [field(T('Endpoint'), ep), field(T('Region'), region), field('Bucket', bucket), field(T('Folder / prefix'), prefix), field(T('Access key'), ak), field(T('Secret key'), sk)],
+    webdav: [field(T('Folder address (WebDAV)'), url, T('Nextcloud: Files → Settings (bottom left) → WebDAV, plus the folder name. The folder must exist.'), true), field(T('Username'), user), field(T('Password'), pass)] };
+  const common = [field(T('Keep copies off-site'), keep, T('Older copies are deleted. 0 = keep all.'))];
+  const val = () => ({ kind: kind.value, endpoint: ep.value.trim(), region: region.value.trim(), bucket: bucket.value.trim(), prefix: prefix.value.trim(), accessKey: ak.value.trim(), secretKey: sk.value,
+    url: url.value.trim(), username: user.value.trim(), password: pass.value, keep: +keep.value });
+  const btns = h('div', { class: 'field full' }, h('div', { class: 'row' },
+    h('button', { class: 'btn', type: 'button', onclick: async () => { res.className = 'muted'; res.textContent = T('Testing…'); try { await POST('/api/settings/test-offsite', val()); res.className = 'form-ok'; res.textContent = T('The connection works – a test file was uploaded and deleted.'); } catch (e) { res.className = 'form-error'; res.textContent = TE(e.message); } } }, T('Test')),
+    h('button', { class: 'btn', type: 'button', onclick: async () => { res.className = 'muted'; res.textContent = T('Uploading… save the settings first if you changed them.'); try { showOffsiteStatus(await POST('/api/backup/offsite')); } catch (e) { res.className = 'form-error'; res.textContent = TE(e.message); } } }, T('Upload a backup now')), res));
+  const all = [...F.s3, ...F.webdav, ...common, btns];
+  const sync = () => { for (const f of F.s3) f.style.display = kind.value === 's3' ? '' : 'none'; for (const f of F.webdav) f.style.display = kind.value === 'webdav' ? '' : 'none';
+    for (const f of [...common, btns]) f.style.display = kind.value ? '' : 'none'; };
+  kind.onchange = sync; sync();
+  return { fields: [field(T('Copy backups off-site'), kind, T('Every nightly backup is also uploaded, encrypted in transit (HTTPS).'), true), ...all], val };
+}
+
+
+/* ---------------- ärendesystem ---------------- */
+function ticketFields(o) {
+  const inp = (v, ph, type) => h('input', { type: type || 'text', value: v || '', placeholder: ph || '', autocomplete: type === 'password' ? 'new-password' : 'off' });
+  const kind = select([['', T('Off')], ['jira', 'Jira (Cloud)'], ['freshdesk', 'Freshdesk'], ['zendesk', 'Zendesk']], o.kind || '');
+  const url = inp(o.url), user = inp(o.user), token = inp(o.token, '', 'password'), project = inp(o.project, 'NET'), itype = inp(o.issueType, 'Task');
+  const auto = h('input', { type: 'checkbox', checked: o.autoClose !== false && (o.kind ? !!o.autoClose : true) });
+  const res = h('span');
+  const fUser = field(T('User'), user), fProj = field(T('Project key'), project), fType = field(T('Issue type'), itype);
+  const rest = [field(T('Address'), url), fUser, field(T('API token'), token), fProj, fType,
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, auto, T('Close the ticket when the alert clears (otherwise only a comment is added)'))),
+    h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+      res.className = 'muted'; res.textContent = T('Creating a test ticket…');
+      try { const r = await POST('/api/settings/test-ticket', val()); res.className = 'form-ok'; res.replaceChildren(T('Test ticket created and closed: '), h('a', { href: r.url, target: '_blank', rel: 'noopener' }, r.url), r.warning ? ' (' + TE(r.warning) + ')' : ''); }
+      catch (e) { res.className = 'form-error'; res.textContent = TE(e.message); }
+    } }, T('Create test ticket')), res))];
+  const val = () => ({ kind: kind.value, url: url.value.trim(), user: user.value.trim(), token: token.value, project: project.value.trim(), issueType: itype.value.trim(), autoClose: auto.checked });
+  const sync = () => {
+    const k = kind.value;
+    for (const f of rest) f.style.display = k ? '' : 'none';
+    fProj.style.display = fType.style.display = k === 'jira' ? '' : 'none';
+    fUser.firstChild.textContent = k === 'freshdesk' ? T('Requester email') : T('User (email)');
+    url.placeholder = { jira: 'https://company.atlassian.net', freshdesk: 'https://company.freshdesk.com', zendesk: 'https://company.zendesk.com' }[k] || '';
+    token.placeholder = { jira: 'id.atlassian.com → Security → API tokens', freshdesk: T('Profile settings → API key'), zendesk: T('Admin Center → Apps and integrations → APIs → Zendesk API') }[k] || '';
+  };
+  kind.onchange = sync; sync();
+  return { fields: [h('div', { class: 'section-title' }, T('Ticket system')), field(T('Create tickets in'), kind, T('Alert rules with "Create ticket" open a ticket when the alert fires and resolve it when it clears.'), true), ...rest], val };
+}
+
+
+/* ---------------- kundportal ---------------- */
+const PORTAL_ST = () => ({ up: [T('All systems are working'), 'up'], warn: [T('Some systems are slow'), 'warn'], offline: [T('Some measurements are unavailable'), 'offline'], down: [T('Disruption'), 'down'] });
+const WEEKDAYS = () => [T('Sun'), T('Mon|day'), T('Tue'), T('Wed'), T('Thu'), T('Fri'), T('Sat')];
+async function renderPortal(page, cid) {
+  page.replaceChildren(h('p', { class: 'muted' }, T('Loading…')));
+  let p;
+  try { p = await GET('/api/portal' + (cid ? '?customer=' + cid : '')); } catch (e) { page.replaceChildren(h('p', { class: 'form-error' }, e.message)); return; }
+  const st = p.status, [ovText, ovCls] = PORTAL_ST()[st.overall] || PORTAL_ST().up;
+  const pct = v => v < 0 ? '–' : (v >= 99.995 ? '100' : v.toFixed(2)) + ' %';
+  const sub = h('input', { type: 'checkbox', checked: p.subscribed, onchange: async e => { try { await PUT('/api/me/subscribe', { on: e.target.checked }); toast({ kind: 'clear', title: e.target.checked ? T('You will get an email when something goes down or comes back') : T('Email notifications turned off') }); } catch (er) { e.target.checked = !e.target.checked; } } });
+  const preview = isAdmin() ? h('div', { class: 'notice', style: 'margin-bottom:14px' }, T('Preview: this is what users of {0} see when they sign in.', st.customer)) : '';
+  const repLink = (period, label) => h('a', { class: 'btn', href: `/api/customers/${p.customerId}/report.pdf?period=${period}`, target: '_blank' }, label);
+  const mText = m => m.weekly ? `${T('Every')} ${(m.days || []).map(d => WEEKDAYS()[d]).join(', ')} ${String(Math.floor(m.startMin / 60)).padStart(2, '0')}:${String(m.startMin % 60).padStart(2, '0')}, ${dur(m.durationMin * 60000)}`
+    : `${dateTime(m.start)} – ${dateTime(m.end)}`;
+  const kt = { fire: T('Down'), clear: T('Back'), repeat: T('Ongoing') };
+  page.replaceChildren(preview,
+    h('div', { class: 'page-head' }, h('div', null, h('h1', null, st.customer), st.company ? h('div', { class: 'sub' }, T('Monitored by {0}', st.company)) : null), connBadge()),
+    h('div', { class: 'portal-banner st-' + ovCls }, h('span', { class: 'dot' }), h('b', null, ovText), h('span', { class: 'muted' }, T('Updated {0}', clock(st.generated)))),
+    p.incidents.length ? h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Ongoing disruptions'))),
+      h('div', { class: 'portal-list' }, ...p.incidents.map(i => h('div', { class: 'portal-item bad' }, h('b', null, i.target), h('span', null, i.alert),
+        h('span', { class: 'muted' }, T('since {0} ({1})', clock(i.since), dur(Date.now() - i.since))), i.ack ? h('span', { class: 'pill' }, T('We are working on it')) : '')))) : '',
+    p.maintenance.length ? h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Planned maintenance'))),
+      h('div', { class: 'portal-list' }, ...p.maintenance.map(m => h('div', { class: 'portal-item' + (m.active ? ' active' : '') }, h('b', null, m.note || T('Maintenance window')),
+        h('span', null, mText(m)), m.scope ? h('span', { class: 'muted' }, m.scope) : '', m.active ? h('span', { class: 'pill' }, T('in progress')) : '')))) : '',
+    ...st.sites.map(s => h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, s.name)),
+      h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...['Status', T('Service'), T('Last 24 h'), T('Last 30 days')].map(x => h('th', null, x)))),
+        h('tbody', null, ...s.targets.map(t => h('tr', null, h('td', null, h('span', { class: 'pill st-' + (t.status === 'maint' ? 'paused' : t.status) }, h('span', { class: 'dot' }), STATUS_TEXT[t.status] || (t.status === 'maint' ? T('Maintenance') : t.status))),
+          h('td', null, h('b', null, t.name)), h('td', { class: 'mono' }, pct(t.uptime24)), h('td', { class: 'mono' }, pct(t.uptime30))))))))),
+    h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Reports'))),
+      h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, repLink('last-month', T('Last month (PDF)')), repLink('this-month', T('This month so far')), repLink('last-week', T('Last week')))),
+    h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Notifications'))),
+      h('label', { class: 'check' }, sub, T('Email me when something goes down or comes back')), h('small', { class: 'muted', style: 'display:block;margin-top:4px' }, T('Sent to {0}.', S.me.email))),
+    p.events.length ? h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Recent events'))),
+      h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, ...[T('Time'), T('Event'), T('Service'), T('Detail')].map(x => h('th', null, x)))),
+        h('tbody', null, ...p.events.filter(e => e.kind !== 'test').map(e => h('tr', null, h('td', { class: 'mono' }, dateTime(e.time)), h('td', null, h('span', { class: 'tag ' + e.kind }, kt[e.kind] || e.kind)),
+          h('td', null, (e.targetName || '').replace(st.customer + ' · ', '')), h('td', { class: 'muted' }, TE(e.detail)))))))) : '');
+}

@@ -567,3 +567,14 @@ svg.topo:active { cursor: grabbing; }
 .logs-tbl td.logtext { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; min-width: 260px; }
 .logs-tbl td.nowrap { white-space: nowrap; }
 .logs-tbl .sev { font-family: var(--mono); font-size: 11.5px; }
+.portal-banner { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); margin-bottom: 8px; font-size: 15px; }
+.portal-banner .dot { width: 12px; height: 12px; }
+.portal-banner.st-up { border-color: color-mix(in srgb, var(--up) 45%, transparent); background: color-mix(in srgb, var(--up) 8%, var(--panel)); }
+.portal-banner.st-down { border-color: color-mix(in srgb, var(--down) 45%, transparent); background: color-mix(in srgb, var(--down) 8%, var(--panel)); }
+.portal-banner.st-warn, .portal-banner.st-offline { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); }
+.portal-banner .muted { margin-left: auto; font-size: 12px; }
+.portal-list { display: flex; flex-direction: column; gap: 6px; }
+.portal-item { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.portal-item.bad { border-color: color-mix(in srgb, var(--down) 45%, transparent); }
+.portal-item.active { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }

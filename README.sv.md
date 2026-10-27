@@ -107,6 +107,14 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Syslog och SNMP-traps:** i agentens vy (CPU, minne och disk → *Syslog och SNMP-traps*) kan agenten ta emot syslog på UDP 514 och SNMP-traps (v1/v2c) på UDP 162 från enheterna på platsen och skicka dem vidare till servern. Meddelandena visas under **Loggar** med filter för kund, allvarlighet, typ och text, och sparas i 30 dagar. Regeln *Syslog eller SNMP-trap* larmar på meddelanden som innehåller en text (eller matchar ett `/reguljärt uttryck/`) med en viss allvarlighet eller värre, och släcks efter N minuter utan nya träffar. Servern kan också ta emot direkt: starta den med `--syslog :5514 --traps :1162` (eller `PINGVAKT_SYSLOG`/`PINGVAKT_TRAPS`) och publicera portarna, t.ex. `514:5514/udp` och `162:1162/udp` i Docker. Meddelandena kopplas då till en kund via avsändarens IP-adress (SNMP-enhet, pingmål eller integrationsenhet).
 
+**Ovanlig svarstid (dynamiska tröskelvärden):** i stället för en fast ms-gräns lär sig regeln *Ovanlig svarstid* vad som är normalt för varje mål och timme på dygnet från de senaste två veckorna, och larmar när svarstiden de senaste N minuterna ligger klart över det normala: mer än K × den normala spridningen, minst X ms och minst 25 %. Den börjar efter 5 dagars data. Målets detaljvy visar *Normalt nu* (t.ex. "12 ms ±2").
+
+**Ärendesystem:** under Inställningar → Ärendesystem kopplar du Jira Cloud, Freshdesk eller Zendesk. Larmregler med *Skapa ärende* öppnar ett ärende när larmet går (med kund, mål, detaljer och länk) och lägger en kommentar och stänger det när larmet upphör. Aktiva larm länkar till sitt ärende. *Skapa testärende* kontrollerar anslutningen.
+
+**Kundportal:** kundanvändare (rollen *Kund*) kommer nu till en portal med samlad status, pågående störningar, planerat underhåll, tillgänglighet per tjänst för 24 timmar och 30 dagar, PDF-rapporter att ladda ner och de senaste händelserna. De kan kryssa i *Mejla mig när något går ner eller kommer tillbaka* (administratörer får det för alla kunder). Förhandsvisa från kundmenyn → *Kundportal*.
+
+**Säkerhetskopior utanför servern:** under Inställningar → Säkerhetskopior kan den nattliga kopian också laddas upp till S3-kompatibel lagring (AWS S3, Backblaze B2, Wasabi, MinIO …) eller WebDAV (Nextcloud, ownCloud), där de N senaste kopiorna sparas. *Testa* laddar upp och tar bort en liten fil; *Ladda upp en säkerhetskopia nu* kör direkt.
+
 **Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
 
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
@@ -219,6 +227,8 @@ core/              Mätmotorn – delas av skrivbordsapp, agent och server
   speedtest/       Hastighetstest mot Cloudflare eller servern
   vendors/         Klienter för UniFi, Meraki och Aruba Central
   logrx/           Mottagare för syslog och SNMP-traps
+  offsite/         Säkerhetskopior utanför servern (S3 Signature V4, WebDAV)
+  tickets/         Ärenden i Jira, Freshdesk och Zendesk
   i18n/            Översättningar (sv.json: engelska → svenska)
   config/          JSON-konfiguration
 desktop/           Skrivbordsappen (Wails)

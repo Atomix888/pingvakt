@@ -16,6 +16,8 @@ import (
 	"pingvakt/core/alert"
 	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
+	"pingvakt/core/offsite"
+	"pingvakt/core/tickets"
 )
 
 // DB omsluter SQLite-databasen.
@@ -75,7 +77,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema + logsSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema + logsSchema + ticketSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	// nya kolumner i senare versioner (fel ignoreras om de redan finns)
@@ -93,6 +95,7 @@ func OpenDB(path string) (*DB, error) {
 		`ALTER TABLE users ADD COLUMN pushover TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN ntfy TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agent_opts ADD COLUMN syslog INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN subscribe INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE agent_opts ADD COLUMN traps INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE agent_opts ADD COLUMN trap_community TEXT NOT NULL DEFAULT ''`,
 	} {
@@ -179,6 +182,8 @@ type ServerSettings struct {
 	SMTP         alert.SMTP       `json:"smtp"`
 	Notify       NotifySettings   `json:"notify"`
 	Auth         AuthSettings     `json:"auth"`
+	Offsite      offsite.Config   `json:"offsite"` // kopior till S3/WebDAV
+	Tickets      tickets.Config   `json:"tickets"` // ärendesystem
 }
 
 func defaultServerSettings() ServerSettings {
