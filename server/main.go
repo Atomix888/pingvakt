@@ -20,7 +20,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.11.0"
+var Version = "0.12.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -38,6 +38,8 @@ func main() {
 	agentsDir := flag.String("agents", env("PINGVAKT_AGENTS_DIR", "./agents"), "folder with agent files for download")
 	tlsCert := flag.String("tls-cert", env("PINGVAKT_TLS_CERT", ""), "TLS certificate (optional – otherwise behind a reverse proxy)")
 	tlsKey := flag.String("tls-key", env("PINGVAKT_TLS_KEY", ""), "TLS-nyckel")
+	syslogAddr := flag.String("syslog", env("PINGVAKT_SYSLOG", ""), "receive syslog on this UDP address, e.g. :5514 (optional)")
+	trapAddr := flag.String("traps", env("PINGVAKT_TRAPS", ""), "receive SNMP traps on this UDP address, e.g. :1162 (optional)")
 	proxy := flag.Bool("trust-proxy", env("PINGVAKT_TRUST_PROXY", "") == "1", "trust X-Forwarded-* from a reverse proxy")
 	flag.Parse()
 	trustProxy = *proxy
@@ -69,6 +71,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	s.Run(ctx)
+	s.startLogReceiver(ctx, *syslogAddr, *trapAddr)
 
 	sub, _ := fs.Sub(webFS, "web")
 	web := spaHandler(http.FS(sub))

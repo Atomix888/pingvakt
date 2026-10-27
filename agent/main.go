@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 
 	"pingvakt/core/agentproto"
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/logrx"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
 	"pingvakt/core/snmp"
@@ -32,7 +34,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.11.0"
+var Version = "0.12.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -239,6 +241,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	snmpRunner := snmp.NewRunner(ctx, up.AddSNMP)
 	speed := newSpeedScheduler(ctx, up)
 	survey := newSurveyScheduler(ctx, up)
+	logs := &logController{ctx: ctx, up: up}
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)
@@ -268,6 +271,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 		snmpRunner.Set(cfg.SNMP)
 		speed.set(cfg.Speed)
 		survey.set(cfg.WiFiScanMin)
+		logs.set(cfg.Syslog, cfg.Traps, cfg.TrapCommunity)
 		log.Printf("configuration: %d targets, %d SNMP devices", len(cfg.Targets), len(cfg.SNMP))
 	}
 	// senaste kända konfiguration – agenten mäter även om servern inte nås vid start
@@ -421,4 +425,51 @@ func (s *surveyScheduler) loop(ctx context.Context) {
 		}
 		s.up.AddSurvey(sc)
 	}
+}
+
+// logController startar och stoppar mottagningen av syslog och SNMP-traps.
+type logController struct {
+	ctx           context.Context
+	up            *agentproto.Uploader
+	cancel        context.CancelFunc
+	syslog, traps bool
+	community     string
+}
+
+func (l *logController) set(syslog, traps bool, community string) {
+	if syslog == l.syslog && traps == l.traps && community == l.community && (l.cancel != nil || (!syslog && !traps)) {
+		return
+	}
+	if l.cancel != nil {
+		l.cancel()
+		l.cancel = nil
+	}
+	l.syslog, l.traps, l.community = syslog, traps, community
+	if !syslog && !traps {
+		l.up.SetLogStatus("")
+		return
+	}
+	ctx, cancel := context.WithCancel(l.ctx)
+	l.cancel = cancel
+	rx := logrx.NewReceiver(l.up.AddLog)
+	rx.Community = community
+	var errs []string
+	if syslog {
+		if err := rx.ListenSyslog(ctx, ":514"); err != nil {
+			errs = append(errs, "syslog UDP 514: "+err.Error())
+		} else {
+			log.Printf("receiving syslog on UDP 514")
+		}
+	}
+	if traps {
+		if err := rx.ListenTraps(ctx, "0.0.0.0:162"); err != nil {
+			errs = append(errs, "SNMP traps UDP 162: "+err.Error())
+		} else {
+			log.Printf("receiving SNMP traps on UDP 162")
+		}
+	}
+	for _, e := range errs {
+		log.Printf("%s", e)
+	}
+	l.up.SetLogStatus(strings.Join(errs, "; "))
 }

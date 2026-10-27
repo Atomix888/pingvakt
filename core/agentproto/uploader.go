@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/logrx"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
 	"pingvakt/core/snmp"
@@ -77,6 +78,8 @@ type Uploader struct {
 	snmpBuf       []snmp.Poll
 	speedBuf      []speedtest.Result
 	survey        *wifi.Scan
+	logBuf        []logrx.Message
+	logRx         string
 	netsTime      time.Time
 	status        Status
 	client        *http.Client
@@ -126,6 +129,23 @@ func (u *Uploader) AddSpeed(r speedtest.Result) {
 	if len(u.speedBuf) > 200 {
 		u.speedBuf = u.speedBuf[len(u.speedBuf)-200:]
 	}
+}
+
+// AddLog lägger ett mottaget syslog-meddelande eller en trap i kö.
+func (u *Uploader) AddLog(m logrx.Message) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.logBuf = append(u.logBuf, m)
+	if len(u.logBuf) > 5000 {
+		u.logBuf = u.logBuf[len(u.logBuf)-5000:]
+	}
+}
+
+// SetLogStatus anger fel från mottagaren (tomt = fungerar).
+func (u *Uploader) SetLogStatus(s string) {
+	u.mu.Lock()
+	u.logRx = s
+	u.mu.Unlock()
 }
 
 // AddSurvey lägger en avsökning av grannätverk i kö (bara den senaste skickas).
@@ -243,6 +263,12 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	rep.SNMP = append([]snmp.Poll(nil), u.snmpBuf[:nSNMP]...)
 	rep.Speed = append([]speedtest.Result(nil), u.speedBuf[:nSpeed]...)
 	rep.Survey = u.survey
+	nLogs := len(u.logBuf)
+	if nLogs > 1000 {
+		nLogs = 1000
+	}
+	rep.Logs = append([]logrx.Message(nil), u.logBuf[:nLogs]...)
+	rep.LogRx = u.logRx
 	needTargets := u.needTargets
 	u.mu.Unlock()
 
@@ -292,6 +318,7 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	u.buf = append(u.buf[:0:0], u.buf[n:]...)
 	u.snmpBuf = append(u.snmpBuf[:0:0], u.snmpBuf[nSNMP:]...)
 	u.speedBuf = append(u.speedBuf[:0:0], u.speedBuf[nSpeed:]...)
+	u.logBuf = append(u.logBuf[:0:0], u.logBuf[nLogs:]...)
 	if u.survey == rep.Survey {
 		u.survey = nil
 	}

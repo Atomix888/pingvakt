@@ -542,3 +542,28 @@ tr.hop-new td { background: rgba(242,179,61,.16); }
 #hvSurvey input[type=search] { max-width: 320px; }
 .integ-row { align-items: center; margin-top: -4px; }
 .vendor-chip b::before { content: "☁ "; color: var(--muted); font-weight: 400; }
+.topo-wrap { position: relative; }
+svg.topo { width: 100%; height: min(70vh, 640px); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; cursor: grab; touch-action: none; user-select: none; }
+svg.topo:active { cursor: grabbing; }
+.topo-link { fill: none; stroke: var(--muted); stroke-width: 1.6; opacity: .75; }
+.topo-link.down { stroke: var(--down); stroke-dasharray: 5 4; opacity: 1; }
+.topo-port { font-size: 9.5px; fill: var(--muted); font-family: var(--mono); }
+.topo-section { font-size: 12px; fill: var(--muted); }
+.topo-node rect { fill: var(--panel); stroke: var(--border); stroke-width: 1.2; }
+.topo-node.clickable { cursor: pointer; }
+.topo-node.clickable:hover rect { stroke: var(--accent); }
+.topo-node.st-down rect { stroke: var(--down); stroke-width: 2; }
+.topo-node .dot { fill: var(--pending, #8b95a3); }
+.topo-node.st-up .dot { fill: var(--up); }
+.topo-node.st-down .dot { fill: var(--down); }
+.topo-node.kind-neighbor rect { stroke-dasharray: 4 3; }
+.topo-node text.n { font-size: 12px; font-weight: 650; fill: var(--text); }
+.topo-node text.s { font-size: 10px; fill: var(--muted); font-family: var(--mono); }
+.topo-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; margin-bottom: 8px; align-items: center; }
+.topo-legend .lg { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.topo-legend .lg.up { background: var(--up); } .topo-legend .lg.down { background: var(--down); } .topo-legend .lg.unknown { background: var(--muted); }
+.log-filters { flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.log-filters select, .log-filters input[type=search] { max-width: 240px; }
+.logs-tbl td.logtext { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; min-width: 260px; }
+.logs-tbl td.nowrap { white-space: nowrap; }
+.logs-tbl .sev { font-family: var(--mono); font-size: 11.5px; }

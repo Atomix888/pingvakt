@@ -226,6 +226,9 @@ func (s *Server) extraInfo(id string) (name, cust string, ok bool) {
 	if n, c, ok := s.integInfo(id); ok {
 		return n, c, true
 	}
+	if n, c, ok := s.logInfo(id); ok {
+		return n, c, true
+	}
 	return s.speedInfo(id)
 }
 
@@ -300,7 +303,7 @@ func (s *Server) handleSpeedConfig(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.db.BumpConfig(id)
+	s.bumpConfig(id)
 	s.audit(r, "agent", id, i18n.T("changed the speed test schedule"))
 	writeJSON(w, in)
 }

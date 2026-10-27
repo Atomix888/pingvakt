@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"pingvakt/core/hostinfo"
+	"pingvakt/core/logrx"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
 	"pingvakt/core/snmp"
@@ -100,16 +101,21 @@ type Report struct {
 	SNMP             []snmp.Poll        `json:"snmp,omitempty"`
 	Speed            []speedtest.Result `json:"speed,omitempty"`
 	Survey           *wifi.Scan         `json:"survey,omitempty"` // senaste avsökningen av grannätverk
+	Logs             []logrx.Message    `json:"logs,omitempty"`   // syslog och traps som agenten tagit emot
+	LogRx            string             `json:"logRx,omitempty"`  // fel från syslog-/trapmottagaren
 }
 
 // Config är det servern bestämmer för en agent.
 type Config struct {
-	Targets     []monitor.Target  `json:"targets"`
-	Settings    monitor.Settings  `json:"settings"`
-	ReportSec   int               `json:"reportSec"`
-	SNMP        []snmp.Device     `json:"snmp,omitempty"`
-	Speed       *speedtest.Config `json:"speed,omitempty"`
-	WiFiScanMin int               `json:"wifiScanMin,omitempty"` // avsök grannätverk var N:e minut (0 = av)
+	Targets       []monitor.Target  `json:"targets"`
+	Settings      monitor.Settings  `json:"settings"`
+	ReportSec     int               `json:"reportSec"`
+	SNMP          []snmp.Device     `json:"snmp,omitempty"`
+	Speed         *speedtest.Config `json:"speed,omitempty"`
+	WiFiScanMin   int               `json:"wifiScanMin,omitempty"` // avsök grannätverk var N:e minut (0 = av)
+	Syslog        bool              `json:"syslog,omitempty"`      // ta emot syslog på UDP 514
+	Traps         bool              `json:"traps,omitempty"`       // ta emot SNMP-traps på UDP 162
+	TrapCommunity string            `json:"trapCommunity,omitempty"`
 }
 
 // Response är serverns svar.

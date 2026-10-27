@@ -304,7 +304,7 @@ func (s *Server) handleSurveyConfig(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	s.db.BumpConfig(id)
+	s.bumpConfig(id)
 	s.audit(r, "agent", id, i18n.T("changed the Wi-Fi scan schedule"))
 	writeJSON(w, in)
 }

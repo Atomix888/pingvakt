@@ -103,6 +103,10 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **UniFi, Meraki och Aruba Central:** under kundmenyn → *Lägg till integration* kopplar du kundens Ubiquiti UniFi-kontroller (API-nyckel eller lokalt konto), Cisco Meraki-organisation (API-nyckel) eller HPE Aruba Central-konto (API-klient med token, som förnyas automatiskt). Servern läser av status för alla åtkomstpunkter, switchar och gateways var 1–15:e minut. Enheterna visas under kunden med status, modell, IP, klienter, drifttid och firmware, och kan läggas till som pingmål med ett klick. Regeln *UniFi/Meraki/Aruba-enhet offline* larmar när en enhet varit offline i N avläsningar – för alla enheter, bara åtkomstpunkter eller allt utom åtkomstpunkter. Servern måste kunna nå UniFi-kontrollern; Meraki och Aruba Central är molntjänster.
 
+**Nätverkskarta:** *Nätverkskarta* på kundsidan ritar hur nätet hänger ihop, utifrån LLDP- och CDP-grannar på SNMP-enheterna (läses var 10:e minut) plus enheterna från UniFi, Meraki och Aruba. Varje enhet visar sin status, länkarna visar portarna i båda ändar och länkar på portar som är nere ritas röda. Grannar som inte övervakas (t.ex. åtkomstpunkter) ritas streckade; de får status när de också är pingmål eller kommer från en integration. Dra för att flytta, scrolla för att zooma och klicka på en enhet för att öppna den.
+
+**Syslog och SNMP-traps:** i agentens vy (CPU, minne och disk → *Syslog och SNMP-traps*) kan agenten ta emot syslog på UDP 514 och SNMP-traps (v1/v2c) på UDP 162 från enheterna på platsen och skicka dem vidare till servern. Meddelandena visas under **Loggar** med filter för kund, allvarlighet, typ och text, och sparas i 30 dagar. Regeln *Syslog eller SNMP-trap* larmar på meddelanden som innehåller en text (eller matchar ett `/reguljärt uttryck/`) med en viss allvarlighet eller värre, och släcks efter N minuter utan nya träffar. Servern kan också ta emot direkt: starta den med `--syslog :5514 --traps :1162` (eller `PINGVAKT_SYSLOG`/`PINGVAKT_TRAPS`) och publicera portarna, t.ex. `514:5514/udp` och `162:1162/udp` i Docker. Meddelandena kopplas då till en kund via avsändarens IP-adress (SNMP-enhet, pingmål eller integrationsenhet).
+
 **Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
 
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
@@ -144,6 +148,8 @@ Rapporten kan mejlas automatiskt varje vecka (måndag morgon) eller varje månad
 | `PINGVAKT_AGENTS_DIR` | Mapp med agentfiler som erbjuds för nedladdning |
 | `PINGVAKT_TRUST_PROXY=1` | Lita på `X-Forwarded-*` från den omvända proxyn |
 | `PINGVAKT_ADMIN_EMAIL` / `PINGVAKT_ADMIN_PASSWORD` | Skapar första administratören vid start |
+| `PINGVAKT_SYSLOG` | Ta emot syslog på den här UDP-adressen, t.ex. `:5514` (valfritt) |
+| `PINGVAKT_TRAPS` | Ta emot SNMP-traps på den här UDP-adressen, t.ex. `:1162` (valfritt) |
 
 ## Agenten
 
@@ -212,6 +218,7 @@ core/              Mätmotorn – delas av skrivbordsapp, agent och server
   snmp/            SNMP-avläsning (system, portar, CPU, minne) – körs i agenten
   speedtest/       Hastighetstest mot Cloudflare eller servern
   vendors/         Klienter för UniFi, Meraki och Aruba Central
+  logrx/           Mottagare för syslog och SNMP-traps
   i18n/            Översättningar (sv.json: engelska → svenska)
   config/          JSON-konfiguration
 desktop/           Skrivbordsappen (Wails)

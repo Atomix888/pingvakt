@@ -36,6 +36,7 @@ const (
 	CondSpeed    Condition = "speed"    // hastighetstestet visar lägre nedladdning än N Mbit/s
 	CondSticky   Condition = "sticky"   // klistrig klient: svag AP fast en starkare med samma SSID syns
 	CondRoamRate Condition = "roamrate" // fler än N roamingar under X minuter
+	CondLog      Condition = "log"      // syslog/trap som matchar Match med allvarlighet <= Threshold
 	CondVendor   Condition = "vendor"   // enhet i UniFi/Meraki/Aruba offline (Threshold: 0 = alla, 1 = bara AP, 2 = utom AP)
 	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
 )
@@ -71,6 +72,7 @@ type Alert struct {
 	Teams    bool   `json:"teams,omitempty"`    // Teams-kort till TeamsURL
 	TeamsURL string `json:"teamsUrl,omitempty"` // Teams Workflows/inkommande webhook
 	OnCall   string `json:"onCall,omitempty"`   // jourschema som också meddelas
+	Match    string `json:"match,omitempty"`    // loggmeddelanden: text (eller /reguljärt uttryck/) som ska finnas
 
 	RepeatMin int  `json:"repeatMin"` // upprepa medan larmet är aktivt (0 = nej)
 	OnClear   bool `json:"onClear"`   // meddela när larmet upphör
@@ -83,7 +85,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog:
 	default:
 		a.Condition = CondDown
 	}
@@ -143,6 +145,15 @@ func (a *Alert) Normalize() {
 		if a.Samples < 1 {
 			a.Samples = 10
 		}
+	case CondLog:
+		a.Match = strings.TrimSpace(a.Match)
+		if a.Threshold < 0 || a.Threshold > 7 {
+			a.Threshold = 7
+		}
+		if a.Samples < 1 || a.Samples > 1440 {
+			a.Samples = 15
+		}
+		a.Count = a.Samples
 	case CondVendor:
 		if a.Threshold < 0 || a.Threshold > 2 {
 			a.Threshold = 0
@@ -236,6 +247,11 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf(i18n.T("Port errors > %g per minute"), a.Threshold)
 	case CondSticky:
 		return fmt.Sprintf(i18n.T("Sticky client: below %g dBm while another AP is %d dB stronger (%d min)"), a.Threshold, a.Count, a.Samples)
+	case CondLog:
+		if a.Match == "" {
+			return fmt.Sprintf(i18n.T("Log message with severity %s or worse"), sevName(int(a.Threshold)))
+		}
+		return fmt.Sprintf(i18n.T("Log message containing \"%s\""), a.Match)
 	case CondVendor:
 		return fmt.Sprintf(i18n.T("UniFi/Meraki/Aruba device offline (%d polls)"), a.Samples)
 	case CondRoamRate:
@@ -618,3 +634,11 @@ func SplitAddresses(s string) []string {
 }
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
+
+func sevName(n int) string {
+	names := []string{"emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"}
+	if n >= 0 && n < len(names) {
+		return names[n]
+	}
+	return "debug"
+}

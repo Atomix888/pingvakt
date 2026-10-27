@@ -59,9 +59,14 @@ func (r *Runner) loop(ctx context.Context, d Device) {
 	}
 	tk := time.NewTicker(time.Duration(d.IntervalSec) * time.Second)
 	defer tk.Stop()
+	var lastNb time.Time
 	for {
 		pctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		p := PollDevice(pctx, d)
+		nb := time.Since(lastNb) >= 10*time.Minute // grannar ändras sällan – läs dem var tionde minut
+		p := poll(pctx, d, nb)
+		if nb && p.OK {
+			lastNb = time.Now()
+		}
 		cancel()
 		if ctx.Err() != nil {
 			return

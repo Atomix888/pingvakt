@@ -360,6 +360,20 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	if len(rep.SNMP) > 0 {
 		s.ingestSNMP(agentID, rep.SNMP)
 	}
+	if rep.Logs != nil || rep.LogRx != "" {
+		logState.Lock()
+		logState.rx[agentID] = rep.LogRx
+		logState.Unlock()
+	}
+	if len(rep.Logs) > 0 {
+		s.mu.RLock()
+		cust := ""
+		if a, ok := s.agents[agentID]; ok {
+			cust = s.customerOfAgent(a)
+		}
+		s.mu.RUnlock()
+		s.ingestLogs(agentID, cust, rep.Logs)
+	}
 	if len(rep.Speed) > 0 {
 		s.ingestSpeed(agentID, rep.Speed)
 	}
@@ -391,7 +405,7 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 func (s *Server) agentConfig(agentID string) *agentproto.Config {
 	devs := s.snmpForAgent(agentID)
 	speed := s.speedConfig(agentID)
-	scanMin := s.surveyMin(agentID)
+	opts := s.agentOpts(agentID)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var ts []Target
@@ -403,7 +417,7 @@ func (s *Server) agentConfig(agentID string) *agentproto.Config {
 	sort.Slice(ts, func(i, j int) bool { return ts[i].Sort < ts[j].Sort })
 	m := s.settings.Monitor
 	m.HistorySize = 600
-	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec, SNMP: devs, Speed: speed, WiFiScanMin: scanMin}
+	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec, SNMP: devs, Speed: speed, WiFiScanMin: opts.WiFiScanMin, Syslog: opts.Syslog, Traps: opts.Traps, TrapCommunity: opts.TrapCommunity}
 }
 
 func (s *Server) syncLocalTargets(agentID string, local []monitor.Target, hash string) error {
@@ -493,6 +507,7 @@ func (s *Server) Run(ctx context.Context) {
 				s.flushHost(false)
 				s.flushWiFi(false)
 				s.flushSNMP(false)
+				s.sweepLogAlerts()
 			}
 		}
 	}()
@@ -508,6 +523,7 @@ func (s *Server) Run(ctx context.Context) {
 			s.pruneSpeed(agg)
 			s.pruneSurvey(agg)
 			s.pruneIntegrations()
+			s.pruneLogs()
 			s.pruneMaintenance()
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)

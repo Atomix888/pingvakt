@@ -534,3 +534,226 @@ function onIntegrationEvent(m) {
   refreshIntegRows();
   if (integViewState && integViewState.id === m.id) refreshIntegView();
 }
+
+/* ---------------- nätverkskarta ---------------- */
+const TOPO_ICON = { switch: '⇄', ap: '((·))', gateway: '⛨', other: '◻' };
+async function networkMap(customerId) {
+  const box = h('div', { class: 'topo-wrap' }, h('p', { class: 'muted' }, T('Loading…')));
+  const c = byId(S.customers, customerId) || {};
+  modal({ title: T('Network map – {0}', c.name || ''), wide: true, body: h('div', null,
+    h('p', { class: 'muted', style: 'margin-top:0' }, T('Drawn from LLDP/CDP on the SNMP devices, plus devices from UniFi, Meraki and Aruba. Drag to move, scroll to zoom, click a device to open it.')), box) });
+  let res;
+  try { [res] = await Promise.all([GET(`/api/customers/${customerId}/topology`), loadSNMP(true)]); } catch (e) { box.replaceChildren(h('p', { class: 'form-error' }, e.message)); return; }
+  if (!res.nodes.length) { box.replaceChildren(h('p', { class: 'muted' }, T('No SNMP devices or integrations for this customer yet. Add an SNMP device on a switch with LLDP turned on to see how the network is connected.'))); return; }
+  drawTopology(box, res);
+}
+
+function topoLayout(nodes, links) {
+  const adj = new Map(nodes.map(n => [n.id, []]));
+  for (const l of links) { if (adj.has(l.a) && adj.has(l.b)) { adj.get(l.a).push(l.b); adj.get(l.b).push(l.a); } }
+  const byIdN = new Map(nodes.map(n => [n.id, n]));
+  const pos = new Map(), seen = new Set();
+  const NW = 150, LH = 120;
+  let offset = 0;
+  const comps = [];
+  for (const n of nodes) {
+    if (seen.has(n.id) || !adj.get(n.id).length) continue;
+    // komponent
+    const comp = [], q = [n.id]; seen.add(n.id);
+    while (q.length) { const x = q.shift(); comp.push(x); for (const y of adj.get(x)) if (!seen.has(y)) { seen.add(y); q.push(y); } }
+    comps.push(comp);
+  }
+  comps.sort((a, b) => b.length - a.length);
+  for (const comp of comps) {
+    const rank = id => { const n = byIdN.get(id); return (n.type === 'gateway' ? 1000 : 0) + (n.kind === 'snmp' ? 100 : 0) + adj.get(id).length; };
+    const root = comp.slice().sort((a, b) => rank(b) - rank(a))[0];
+    const kids = new Map(), depth = new Map([[root, 0]]), q = [root];
+    while (q.length) {
+      const x = q.shift(); kids.set(x, []);
+      for (const y of adj.get(x).slice().sort((a, b) => adj.get(b).length - adj.get(a).length || byIdN.get(a).name.localeCompare(byIdN.get(b).name))) {
+        if (!depth.has(y)) { depth.set(y, depth.get(x) + 1); kids.get(x).push(y); q.push(y); }
+      }
+    }
+    // breda löv (t.ex. många AP) radas i flera rader under sin switch
+    let cursor = offset;
+    const place = id => {
+      const ch = kids.get(id) || [];
+      const leaves = ch.filter(k => !(kids.get(k) || []).length), inner = ch.filter(k => (kids.get(k) || []).length);
+      const startX = cursor;
+      for (const k of inner) place(k);
+      const perRow = Math.max(4, inner.length ? 3 : 6);
+      if (leaves.length) {
+        const rows = Math.ceil(leaves.length / perRow), baseX = cursor;
+        leaves.forEach((k, i) => pos.set(k, { x: baseX + (i % perRow) * NW, y: (depth.get(id) + 1) * LH + Math.floor(i / perRow) * 70, d: depth.get(id) + 1 }));
+        cursor = baseX + Math.min(perRow, leaves.length) * NW;
+        if (rows > 1) for (const k of leaves) pos.get(k).multi = true;
+      }
+      if (!ch.length) cursor += NW;
+      const xs = ch.map(k => pos.get(k).x);
+      pos.set(id, { x: xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : startX, y: depth.get(id) * LH, d: depth.get(id) });
+    };
+    place(root);
+    offset = cursor + NW * 0.6;
+  }
+  // utan förbindelser: rader längst ner
+  const lone = nodes.filter(n => !adj.get(n.id).length);
+  const maxY = Math.max(0, ...[...pos.values()].map(p => p.y));
+  const top = pos.size ? maxY + LH * 1.2 : 0;
+  const perRow = Math.max(5, Math.floor(Math.max(offset, NW * 6) / NW));
+  lone.forEach((n, i) => pos.set(n.id, { x: (i % perRow) * NW, y: top + Math.floor(i / perRow) * 70, lone: true }));
+  return { pos, loneTop: lone.length ? top : null };
+}
+
+function drawTopology(box, res) {
+  const { nodes, links } = res;
+  const { pos, loneTop } = topoLayout(nodes, links);
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, ...kids) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v); for (const k of kids) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k)); return e; };
+  const W = 130, Hn = 44;
+  const xs = [...pos.values()].map(p => p.x), ys = [...pos.values()].map(p => p.y);
+  const minX = Math.min(...xs) - 90, maxX = Math.max(...xs) + 90, minY = Math.min(...ys) - 40, maxY = Math.max(...ys) + 60;
+  const svg = el('svg', { class: 'topo', viewBox: `${minX} ${minY} ${maxX - minX} ${maxY - minY}` });
+  const g = el('g');
+  svg.append(g);
+  if (loneTop != null) g.append(el('text', { x: minX + 20, y: loneTop - 34, class: 'topo-section' }, T('Not linked (no LLDP/CDP neighbour found)')));
+  for (const l of links) {
+    const a = pos.get(l.a), b = pos.get(l.b);
+    if (!a || !b) continue;
+    const [p, q] = a.y <= b.y ? [a, b] : [b, a];
+    const [pp, qp] = a.y <= b.y ? [l.aport, l.bport] : [l.bport, l.aport];
+    const x1 = p.x, y1 = p.y + Hn / 2, x2 = q.x, y2 = q.y - Hn / 2;
+    const my = (y1 + y2) / 2;
+    g.append(el('path', { d: `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`, class: 'topo-link' + (l.down ? ' down' : '') }, el('title', null, `${pp || '?'} ⟷ ${qp || '?'} (${l.proto.toUpperCase()})`)));
+    if (pp) g.append(el('text', { x: x1 + 4, y: y1 + 13, class: 'topo-port' }, pp.length > 14 ? pp.slice(0, 13) + '…' : pp));
+    if (qp && !q.multi) g.append(el('text', { x: x2 + 4, y: y2 - 5, class: 'topo-port' }, qp.length > 14 ? qp.slice(0, 13) + '…' : qp));
+  }
+  for (const n of nodes) {
+    const p = pos.get(n.id); if (!p) continue;
+    const clickable = n.kind === 'snmp' || n.kind === 'integ' || n.target;
+    const name = n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name;
+    const sub = n.ip || n.model || '';
+    const grp = el('g', { class: `topo-node st-${n.status} kind-${n.kind}${clickable ? ' clickable' : ''}`, transform: `translate(${p.x - W / 2},${p.y - Hn / 2})` },
+      el('title', null, [n.name, n.model, n.ip, n.mac].filter(Boolean).join('\n')),
+      el('rect', { width: W, height: Hn, rx: 9 }),
+      el('circle', { cx: 12, cy: 15, r: 4.5, class: 'dot' }),
+      el('text', { x: 22, y: 19, class: 'n' }, name),
+      el('text', { x: 12, y: 35, class: 's' }, `${TOPO_ICON[n.type] || ''}  ${sub.length > 19 ? sub.slice(0, 18) + '…' : sub}`));
+    if (clickable) grp.addEventListener('click', ev => {
+      if (svg._dragged) return;
+      if (n.kind === 'snmp') snmpView(n.ref); else if (n.kind === 'integ') integrationView(n.ref); else if (n.target) { document.querySelectorAll('.backdrop').forEach(b => b._close()); openDrawer(n.target); }
+    });
+    g.append(grp);
+  }
+  // panorera och zooma
+  let vb = svg.getAttribute('viewBox').split(' ').map(Number), drag = null;
+  const setVB = () => svg.setAttribute('viewBox', vb.join(' '));
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = svg.getBoundingClientRect(), k = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const mx = vb[0] + (e.clientX - r.left) / r.width * vb[2], my = vb[1] + (e.clientY - r.top) / r.height * vb[3];
+    vb = [mx - (mx - vb[0]) * k, my - (my - vb[1]) * k, vb[2] * k, vb[3] * k]; setVB();
+  }, { passive: false });
+  svg.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, vb: vb.slice() }; svg._dragged = false; });
+  svg.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const r = svg.getBoundingClientRect(), dx = (e.clientX - drag.x) / r.width * vb[2], dy = (e.clientY - drag.y) / r.height * vb[3];
+    if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4) svg._dragged = true;
+    vb = [drag.vb[0] - dx, drag.vb[1] - dy, vb[2], vb[3]]; setVB();
+  });
+  const end = () => { drag = null; setTimeout(() => { svg._dragged = false; }, 0); };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointerleave', end);
+  const counts = { up: 0, down: 0, unknown: 0 };
+  for (const n of nodes) counts[n.status] = (counts[n.status] || 0) + 1;
+  box.replaceChildren(h('div', { class: 'topo-legend muted' },
+    h('span', null, h('i', { class: 'lg up' }), T('{0} up', counts.up)), h('span', null, h('i', { class: 'lg down' }), T('{0} down', counts.down)),
+    h('span', null, h('i', { class: 'lg unknown' }), T('{0} not monitored', counts.unknown)), h('span', null, T('{0} links', links.length))), svg);
+}
+
+/* ---------------- syslog och SNMP-traps ---------------- */
+const SEV = ['emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug'];
+const sevClass = s => s <= 3 ? 'lvl-bad' : s === 4 ? 'lvl-high' : s >= 7 ? 'muted' : '';
+S.logFilter = { customer: '', sev: '', kind: '', q: '', host: '' };
+let logsState = null;
+
+function openLogs(customerId) { S.logFilter.customer = customerId || ''; location.hash = '#/logs'; }
+
+async function renderLogs(page) {
+  const f = S.logFilter;
+  if (!isAdmin()) f.customer = S.me.customerId || '';
+  const cust = isAdmin() ? select([['', T('All customers')], ...S.customers.map(c => [c.id, c.name]), ['-', T('Not linked to a customer')]], f.customer) : null;
+  const sev = select([['', T('All severities')], ...SEV.slice(0, 7).map((n, i) => [i, `${i} ${n} ${T('or worse')}`])], f.sev);
+  const kind = select([['', T('Syslog and traps')], ['syslog', 'Syslog'], ['trap', 'SNMP traps']], f.kind);
+  const q = h('input', { type: 'search', placeholder: T('Search text, program or device'), value: f.q });
+  const live = h('input', { type: 'checkbox', checked: true });
+  const tbody = h('tbody');
+  const more = h('button', { class: 'btn sm', style: 'display:none' }, T('Load more'));
+  const info = h('span', { class: 'muted' });
+  const st = logsState = { rows: [], tbody, live, more, info };
+  const params = before => {
+    const p = new URLSearchParams();
+    const cv = cust ? cust.value : f.customer;
+    if (cv === '-') p.set('customer', ''); else if (cv) p.set('customer', cv);
+    if (sev.value !== '') p.set('sev', sev.value);
+    if (kind.value) p.set('kind', kind.value);
+    if (q.value.trim()) p.set('q', q.value.trim());
+    if (before) p.set('before', before);
+    return p.toString();
+  };
+  const row = l => h('tr', null, h('td', { class: 'mono nowrap' }, dateTime(l.t)),
+    h('td', null, h('span', { class: 'sev ' + sevClass(l.sev) }, SEV[l.sev] || l.sev)),
+    h('td', { class: 'mono' }, l.host || l.src, l.host && l.host !== l.src ? h('div', { class: 'muted' }, l.src) : null),
+    h('td', { class: 'muted' }, l.kind === 'trap' ? 'trap' : l.app || ''), h('td', { class: 'logtext' }, l.text),
+    isAdmin() && !(cust && cust.value) ? h('td', { class: 'muted' }, (byId(S.customers, l.customerId) || {}).name || '–') : null);
+  const load = async append => {
+    const list = await GET('/api/logs?' + params(append && st.rows.length ? st.rows[st.rows.length - 1].id : 0));
+    st.rows = append ? st.rows.concat(list) : list;
+    if (append) tbody.append(...list.map(row)); else tbody.replaceChildren(...list.map(row));
+    more.style.display = list.length >= 200 ? '' : 'none';
+    info.textContent = st.rows.length ? T('{0} messages', st.rows.length) : '';
+    if (!st.rows.length) tbody.replaceChildren(h('tr', null, h('td', { colspan: 6, class: 'muted' }, T('No messages. Turn on reception in the agent view (CPU, memory and disk → Syslog and SNMP traps) and point the devices\' syslog/trap target at the agent\'s IP address.'))));
+  };
+  st.reload = () => load(false);
+  const onChange = () => { Object.assign(f, { customer: cust ? cust.value : f.customer, sev: sev.value, kind: kind.value, q: q.value }); load(false); };
+  for (const el of [cust, sev, kind].filter(Boolean)) el.onchange = onChange;
+  let qt; q.oninput = () => { clearTimeout(qt); qt = setTimeout(onChange, 300); };
+  more.onclick = () => load(true);
+  const showCust = isAdmin();
+  page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, T('Logs')), h('span', { class: 'sub' }, 'Syslog & SNMP traps'), connBadge()),
+    h('div', { class: 'row log-filters' }, cust, sev, kind, q, h('label', { class: 'row' }, live, T('Live')), info),
+    h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl compact logs-tbl' },
+      h('thead', null, h('tr', null, ...[T('Time'), T('Severity'), T('Device'), T('Program'), T('Message'), showCust ? T('Customer') : null].filter(Boolean).map(x => h('th', null, x)))), tbody)),
+    h('div', { style: 'margin-top:10px' }, more));
+  await load(false);
+}
+
+let logsT = 0, logsTimer = null;
+function onLogsEvent() {
+  if (!logsState || S.view.name !== 'logs' || !logsState.live.checked) return;
+  clearTimeout(logsTimer);
+  const wait = Math.max(0, 2000 - (Date.now() - logsT));
+  logsTimer = setTimeout(() => { logsT = Date.now(); if (logsState) logsState.reload(); }, wait);
+}
+
+async function renderLogRx(agentId) {
+  const box = $('#hvLogRx');
+  if (!box) return;
+  const a = agentOf(agentId);
+  if (!a || a.kind !== 'agent') { box.replaceChildren(); return; }
+  let o;
+  try { o = await GET(`/api/agents/${agentId}/opts`); } catch (e) { box.replaceChildren(); return; }
+  if (!$('#hvLogRx')) return;
+  const sl = h('input', { type: 'checkbox', checked: o.syslog, disabled: !isAdmin() });
+  const tp = h('input', { type: 'checkbox', checked: o.traps, disabled: !isAdmin() });
+  const comm = h('input', { type: 'text', value: o.trapCommunity || '', placeholder: T('Any community'), style: 'max-width:160px', disabled: !isAdmin() });
+  const status = h('span', { class: 'muted' });
+  const save = async () => {
+    try { const r = await PUT(`/api/agents/${agentId}/opts`, { syslog: sl.checked, traps: tp.checked, trapCommunity: comm.value.trim() }); status.className = 'form-ok'; status.textContent = T('Saved – the agent starts listening within a minute.'); }
+    catch (e) { status.className = 'form-error'; status.textContent = e.message; }
+  };
+  sl.onchange = tp.onchange = comm.onchange = save;
+  box.replaceChildren(h('h4', null, T('Syslog and SNMP traps')),
+    h('p', { class: 'muted', style: 'margin:0 0 8px' }, T('The agent receives messages from switches, firewalls and access points at the site and forwards them to PingVakt. Point the devices at {0}.', (o.addrs || []).join(' / ') || a.hostname || T('the agent\'s IP address'))),
+    h('div', { class: 'row speed-tools' }, h('label', { class: 'row' }, sl, T('Syslog (UDP 514)')), h('label', { class: 'row' }, tp, T('SNMP traps (UDP 162)')), comm,
+      h('button', { class: 'btn sm', onclick: () => { document.querySelectorAll('.backdrop').forEach(b => b._close()); openLogs(customerOfAgent(a)); } }, T('Show logs')), status),
+    o.logRx ? h('div', { class: 'notice bad' }, TE(o.logRx)) : '');
+}

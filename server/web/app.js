@@ -253,6 +253,7 @@ function renderNav() {
   items.push(h('div', { class: 'navhead' }, T('Manage')));
   items.push(link('#/agents', T('Agents')));
   items.push(link('#/alerts', T('Alerts')));
+  items.push(link('#/logs', T('Logs')));
   if (isAdmin()) { items.push(link('#/users', T('Users'))); items.push(link('#/audit', T('Audit log'))); items.push(link('#/settings', T('Settings'))); }
   items.push(link('#/tv', T('TV mode')));
   $('#nav').replaceChildren(...items);
@@ -294,6 +295,7 @@ function renderPage() {
   if (v.name === 'settings' && isAdmin()) return renderSettings(page);
   if (v.name === 'audit' && isAdmin()) return renderAudit(page);
   if (v.name === 'tv') return renderTV(page);
+  if (v.name === 'logs') return renderLogs(page);
   return renderOverview(page);
 }
 
@@ -361,9 +363,11 @@ function renderCustomer(page, id) {
     h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report')), isAdmin() ? [
       h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, T('+ Add targets')),
       h('button', { class: 'btn', onclick: () => templateDialog(id) }, T('From template…')),
+      h('button', { class: 'btn', onclick: () => networkMap(id) }, T('Network map')),
       h('button', { class: 'btn', onclick: () => agentDialog(id) }, T('+ New agent')),
       h('button', { class: 'btn', onclick: () => siteDialog(id) }, T('+ New site')),
       h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
+        { label: T('Logs (syslog and traps)'), action: () => openLogs(c.id) },
         { label: T('Add SNMP device…'), action: () => snmpDialog(null, c.id) },
         { label: T('Add integration (UniFi, Meraki, Aruba)…'), action: () => integrationDialog(null, c.id) },
         '-',
@@ -626,6 +630,7 @@ function connectLive() {
     else if (m.type === 'scan') onScan(m.scan);
     else if (m.type === 'snmp') onSnmpEvent(m);
     else if (m.type === 'integration') onIntegrationEvent(m);
+    else if (m.type === 'logs') onLogsEvent(m);
     else if (m.type === 'survey') { if (S.hostView && S.hostView.id === m.agentId && !document.querySelector('#hvSurvey select:focus')) renderSurvey(m.agentId); }
     else if (m.type === 'speed') { if (S.hostView && S.hostView.id === m.agentId) renderSpeed(m.agentId); }
   };
@@ -1102,7 +1107,8 @@ function hostView(id) {
     h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })),
     h('div', { class: 'full', id: 'hvWifi' }),
     h('div', { class: 'full', id: 'hvSurvey' }),
-    h('div', { class: 'full', id: 'hvSpeed' }));
+    h('div', { class: 'full', id: 'hvSpeed' }),
+    h('div', { class: 'full', id: 'hvLogRx' }));
   const title = isSrv ? T('PingVakt server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
   modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, T('History')), h('div', { class: 'tools' }, ranges)), charts),
     onClose: () => { S.hostView = null; surveyState = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
@@ -1162,7 +1168,7 @@ async function loadHostCharts() {
     { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
   mk('#hcMem', [{ label: T('Used{0}', hs.memTotal ? T(' of ') + gb(hs.memTotal) : ''), stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
   renderWifi(res, from, to, axis, hv);
-  if (hv.id !== '_server') { renderSpeed(hv.id); if (!surveyState || surveyState.agentId !== hv.id) renderSurvey(hv.id); else { const b = $('#hvSurvey'); if (b && !b.childNodes.length) renderSurvey(hv.id); } }
+  if (hv.id !== '_server') { renderSpeed(hv.id); renderLogRx(hv.id); if (!surveyState || surveyState.agentId !== hv.id) renderSurvey(hv.id); else { const b = $('#hvSurvey'); if (b && !b.childNodes.length) renderSurvey(hv.id); } }
   mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
 }
 
@@ -1351,7 +1357,7 @@ async function renderAlerts(page) {
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
       rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('Condition'), T('Actions'), T('Targets'), ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : ['snmp', 'ifdown', 'ifutil', 'iferrors'].includes(r.condition) ? T('SNMP devices') : r.condition === 'vendor' ? T('integrations') : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : ['snmp', 'ifdown', 'ifutil', 'iferrors'].includes(r.condition) ? T('SNMP devices') : r.condition === 'vendor' ? T('integrations') : r.condition === 'log' ? 'syslog/traps' : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
           h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, T('Edit')) : null)))))
         : h('p', { class: 'muted' }, T('No rules.')));
   }).filter(Boolean);
@@ -1399,6 +1405,7 @@ function describe(a) {
   if (a.condition === 'rssi') return T('Wi-Fi signal < {0} dBm for {1} min', a.threshold, a.samples);
   if (a.condition === 'path') return T('Path to target changes');
   if (a.condition === 'cert') return T('Certificate expires within {0} days', a.threshold);
+  if (a.condition === 'log') return a.match ? T('Log message containing "{0}"', a.match) : T('Log message with severity {0} or worse', ['emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug'][a.threshold] || 'debug');
   if (a.condition === 'vendor') return T('{0} offline ({1} polls)', [T('UniFi/Meraki/Aruba device'), T('Access point'), T('UniFi/Meraki/Aruba device except AP')][a.threshold || 0], a.samples);
   if (a.condition === 'sticky') return T('Sticky client: below {0} dBm, another AP {1} dB stronger for {2} min', a.threshold, a.count, a.samples);
   if (a.condition === 'roamrate') return T('More than {0} roams in {1} min', a.threshold, a.samples);
@@ -1787,7 +1794,9 @@ function ruleDialog(rule) {
   const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')], ['offline', 'Agent offline'],
     ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')],
     ['snmp', T('SNMP device not responding')], ['ifdown', T('Watched port down')], ['ifutil', T('Port traffic high')], ['iferrors', T('Port errors')], ['speed', T('Speed test slow')],
-    ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
+    ['log', T('Syslog or SNMP trap')], ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
+  const logMatch = h('input', { type: 'text', value: r.match || '', placeholder: T('e.g. link down, or /auth.*fail/ – empty = any message') });
+  const logSev = select([[0, '0 emerg'], [1, '1 alert'], [2, '2 crit'], [3, '3 err'], [4, '4 warning'], [5, '5 notice'], [6, '6 info'], [7, T('any')]], r.condition === 'log' ? r.threshold : 4);
   const vendorWhich = select([[0, T('All devices')], [1, T('Only access points')], [2, T('All except access points')]], r.condition === 'vendor' ? r.threshold : 0);
   const thr = num(r.threshold, -120, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
   const condRow = h('div', { class: 'field full' });
@@ -1814,6 +1823,9 @@ function ruleDialog(rule) {
       h('small', null, T('Applies to all ports of the customer\'s SNMP devices.')));
     if (c === 'speed') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Download below')), thr, h('span', null, T('Mbit/s in')), smp, h('span', null, T('tests in a row'))),
       h('small', null, T('Turn on automatic speed tests on the agent (CPU, memory and disk view).')));
+    if (c === 'log') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Message contains')), logMatch),
+      h('div', { class: 'row', style: 'margin-top:6px' }, h('span', null, T('Severity at least')), logSev, h('span', null, T('– clears after')), smp, h('span', null, T('minutes without new matches'))),
+      h('small', null, T('Applies to syslog and SNMP traps received by the customer\'s agents (agent view → Syslog and SNMP traps).')));
     if (c === 'vendor') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, vendorWhich, h('span', null, T('offline for')), smp, h('span', null, T('polls in a row'))),
       h('small', null, T('Applies to the integrations of the customer (customer menu → Add integration).')));
     if (c === 'sticky') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Signal below')), thr, h('span', null, T('dBm while another AP with the same SSID is')), cnt, h('span', null, T('dB stronger for')), smp, h('span', null, T('minutes'))),
@@ -1834,6 +1846,7 @@ function ruleDialog(rule) {
     if (c === 'sticky') { thr.value = +thr.value < 0 ? thr.value : -70; cnt.value = 10; smp.value = 10; }
     if (c === 'roamrate') { thr.value = 10; smp.value = 60; }
     if (c === 'vendor') smp.value = 2;
+    if (c === 'log') smp.value = 15;
     if (c === 'ifutil') { thr.value = +thr.value > 0 && +thr.value <= 100 ? thr.value : 90; smp.value = 10; }
     if (c === 'iferrors') thr.value = +thr.value > 0 ? thr.value : 10;
     if (c === 'speed') { thr.value = +thr.value > 0 ? thr.value : 50; smp.value = 2; }
@@ -1850,7 +1863,7 @@ function ruleDialog(rule) {
   const onCall = select([['', T('– none –')], ...(S.oncalls || []).map(o => [o.id, o.name])], r.onCall || '');
   const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear, push: !!r.push, sms: !!r.sms, teams: !!r.teams };
   const box = (label, key) => check(label, flags[key], e => { flags[key] = e.target.checked; });
-  const collect = () => Object.assign(r, { name: name.value.trim(), customerId: cust.value, condition: cond.value, threshold: cond.value === 'vendor' ? +vendorWhich.value : +thr.value, count: +cnt.value, samples: +smp.value,
+  const collect = () => Object.assign(r, { name: name.value.trim(), customerId: cust.value, condition: cond.value, threshold: cond.value === 'vendor' ? +vendorWhich.value : cond.value === 'log' ? +logSev.value : +thr.value, match: cond.value === 'log' ? logMatch.value.trim() : '', count: +cnt.value, samples: +smp.value,
     emailTo: emailTo.value, hookUrl: hook.value.trim(), soundName: sound.value, repeatMin: +repeat.value,
     smsTo: smsTo.value.trim(), teamsUrl: teamsUrl.value.trim(), onCall: onCall.value }, flags);
   const testRes = h('span');

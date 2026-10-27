@@ -85,6 +85,10 @@ type Poll struct {
 	CPU      float64 `json:"cpu"`          // -1 = okänt
 	Mem      float64 `json:"mem"`          // procent, -1 = okänt
 	Ifs      []If    `json:"ifs,omitempty"`
+	// Grannar (LLDP/CDP) läses bara ibland; NbT anger att listan är med i avläsningen.
+	Nb  []Neighbor `json:"nb,omitempty"`
+	NbT bool       `json:"nbt,omitempty"`
+	MAC string     `json:"mac,omitempty"` // LLDP-chassi-ID (MAC) för att känna igen enheten hos grannar
 }
 
 const (
@@ -141,7 +145,9 @@ func (d Device) client(timeout time.Duration) *gosnmp.GoSNMP {
 }
 
 // PollDevice läser av enheten.
-func PollDevice(ctx context.Context, d Device) Poll {
+func PollDevice(ctx context.Context, d Device) Poll { return poll(ctx, d, true) }
+
+func poll(ctx context.Context, d Device, neighbors bool) Poll {
 	d.Normalize()
 	p := Poll{DeviceID: d.ID, T: time.Now().UnixMilli(), CPU: -1, Mem: -1}
 	g := d.client(3 * time.Second)
@@ -267,6 +273,15 @@ func PollDevice(ctx context.Context, d Device) Poll {
 	})
 	if n > 0 {
 		p.CPU = sum / float64(n)
+	}
+	if neighbors {
+		p.Nb, _ = pollNeighbors(walk)
+		p.NbT = true
+		if r, err := g.Get([]string{oidLldpLocChass}); err == nil && len(r.Variables) == 1 {
+			if b, ok := r.Variables[0].Value.([]byte); ok {
+				p.MAC = macOf(b)
+			}
+		}
 	}
 	// minne: hrStorageRam
 	type st struct {

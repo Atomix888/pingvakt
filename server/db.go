@@ -75,7 +75,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema + logsSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	// nya kolumner i senare versioner (fel ignoreras om de redan finns)
@@ -92,6 +92,9 @@ func OpenDB(path string) (*DB, error) {
 		`ALTER TABLE sessions ADD COLUMN sso INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN pushover TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN ntfy TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agent_opts ADD COLUMN syslog INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE agent_opts ADD COLUMN traps INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE agent_opts ADD COLUMN trap_community TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.Exec(m)
 	}
@@ -621,3 +624,14 @@ func toProto(ts []Target) []monitor.Target {
 }
 
 var _ = agentproto.ReportPath
+
+// bumpConfig ökar agentens konfigurationsversion både i databasen och i minnet,
+// så att agenten hämtar den nya konfigurationen vid nästa rapport utan omladdning.
+func (s *Server) bumpConfig(agentID string) {
+	s.db.BumpConfig(agentID)
+	s.mu.Lock()
+	if a, ok := s.agents[agentID]; ok {
+		a.ConfigVersion++
+	}
+	s.mu.Unlock()
+}

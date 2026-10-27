@@ -105,6 +105,10 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **UniFi, Meraki and Aruba Central:** under the customer menu → *Add integration* you connect the customer's Ubiquiti UniFi controller (API key or local account), Cisco Meraki organisation (API key) or HPE Aruba Central account (API client with token, renewed automatically). The server reads the status of every access point, switch and gateway every 1–15 minutes. The devices are shown under the customer with status, model, IP, clients, uptime and firmware, and can be added as ping targets with one click. The rule *UniFi/Meraki/Aruba device offline* fires when a device has been offline for N polls – for all devices, only access points or everything except access points. The server must be able to reach the UniFi controller; Meraki and Aruba Central are cloud services.
 
+**Network map:** *Network map* on the customer page draws how the network is connected, from LLDP and CDP neighbours on the SNMP devices (read every 10 minutes) plus the devices from UniFi, Meraki and Aruba. Every device shows its status, links show the ports at both ends and links on ports that are down are drawn red. Neighbours that are not monitored (e.g. access points) are drawn dashed; they get a status when they are also ping targets or come from an integration. Drag to move, scroll to zoom and click a device to open it.
+
+**Syslog and SNMP traps:** in the agent view (CPU, memory and disk → *Syslog and SNMP traps*) the agent can receive syslog on UDP 514 and SNMP traps (v1/v2c) on UDP 162 from the devices at the site and forward them to the server. Messages are shown under **Logs** with filters for customer, severity, type and text, and are kept for 30 days. The rule *Syslog or SNMP trap* fires on messages that contain a text (or match a `/regular expression/`) with a given severity or worse, and clears after N minutes without new matches. The server can also receive directly: start it with `--syslog :5514 --traps :1162` (or `PINGVAKT_SYSLOG`/`PINGVAKT_TRAPS`) and publish the ports, e.g. `514:5514/udp` and `162:1162/udp` in Docker. Messages are then linked to a customer by the sender's IP address (SNMP device, ping target or integration device).
+
 **Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
 
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
@@ -144,6 +148,8 @@ The report can be emailed automatically every week (Monday morning) or every mon
 | `PINGVAKT_AGENTS_DIR` | Folder with agent files offered for download |
 | `PINGVAKT_TRUST_PROXY=1` | Trust `X-Forwarded-*` from the reverse proxy |
 | `PINGVAKT_ADMIN_EMAIL` / `PINGVAKT_ADMIN_PASSWORD` | Creates the first administrator at startup |
+| `PINGVAKT_SYSLOG` | Receive syslog on this UDP address, e.g. `:5514` (optional) |
+| `PINGVAKT_TRAPS` | Receive SNMP traps on this UDP address, e.g. `:1162` (optional) |
 
 ## The agent
 
@@ -212,6 +218,7 @@ core/              The measurement engine – shared by desktop app, agent and s
   snmp/            SNMP polling (system, ports, CPU, memory) – runs in the agent
   speedtest/       Speed test against Cloudflare or the server
   vendors/         UniFi, Meraki and Aruba Central clients
+  logrx/           Syslog and SNMP trap receiver
   monitor/         Per-target scheduling, history ring buffer, statistics and status
   alert/           Alert rules, evaluation, email (SMTP), system notifications, log file
   trace/           Traceroute via the system tool

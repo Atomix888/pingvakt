@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS snmp_if5 (
   device_id TEXT NOT NULL, if_index INTEGER NOT NULL, t INTEGER NOT NULL, in_bps REAL NOT NULL, out_bps REAL NOT NULL,
   in_max REAL NOT NULL, out_max REAL NOT NULL, errs REAL NOT NULL, up INTEGER NOT NULL,
   PRIMARY KEY (device_id, if_index, t)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS snmp_nb (device_id TEXT PRIMARY KEY, t INTEGER NOT NULL, mac TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS snmp_ifnames (device_id TEXT NOT NULL, if_index INTEGER NOT NULL, name TEXT NOT NULL, speed INTEGER NOT NULL,
   PRIMARY KEY (device_id, if_index)) WITHOUT ROWID;
 `
@@ -262,6 +263,16 @@ func (s *Server) ingestSNMP(agentID string, polls []snmp.Poll) {
 				}
 			}
 			st.prev, st.last = st.last, &pc
+			if p.NbT {
+				nbs := p.Nb
+				if nbs == nil {
+					nbs = []snmp.Neighbor{}
+				}
+				b, _ := json.Marshal(nbs)
+				flush = append(flush, func() {
+					_, _ = s.db.Exec(`INSERT OR REPLACE INTO snmp_nb(device_id,t,mac,data) VALUES(?,?,?,?)`, p.DeviceID, p.T, p.MAC, string(b))
+				})
+			}
 			st.lastErr = ""
 		} else {
 			st.fails++
@@ -689,9 +700,9 @@ func (s *Server) handleSNMPSave(w http.ResponseWriter, r *http.Request) {
 	cp := in
 	snmps.devs[in.ID] = &cp
 	snmps.mu.Unlock()
-	s.db.BumpConfig(in.AgentID)
+	s.bumpConfig(in.AgentID)
 	if oldAgent != "" && oldAgent != in.AgentID {
-		s.db.BumpConfig(oldAgent)
+		s.bumpConfig(oldAgent)
 	}
 	s.audit(r, "agent", in.AgentID, i18n.T("saved SNMP device ")+devName(in.Device))
 	writeJSON(w, s.snmpView(in, false))
@@ -719,7 +730,8 @@ func (s *Server) handleSNMPDelete(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.db.Exec(`DELETE FROM snmp_dev5 WHERE device_id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM snmp_if5 WHERE device_id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM snmp_ifnames WHERE device_id=?`, id)
-	s.db.BumpConfig(d.AgentID)
+	_, _ = s.db.Exec(`DELETE FROM snmp_nb WHERE device_id=?`, id)
+	s.bumpConfig(d.AgentID)
 	s.audit(r, "agent", d.AgentID, i18n.T("deleted SNMP device ")+devName(d.Device))
 	writeJSON(w, map[string]bool{"ok": true})
 }
