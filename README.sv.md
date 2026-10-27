@@ -216,7 +216,7 @@ scripts/build.sh   Byggskript för alla plattformar
 
 - Wi-Fi-survey (grannätverk och kanaler), larm för roaming
 - Integrationer med UniFi, Meraki och Aruba Central
-- Kodsignering (Windows/macOS)
+- Kodsignering: förberett i bygget – se [docs/code-signing.md](docs/code-signing.md) för vilka certifikat som behövs och vilka hemligheter som ska läggas in
 
 ## Licenser
 

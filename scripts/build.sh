@@ -27,11 +27,26 @@ logged() {
 }
 LDFLAGS="-s -w -X main.Version=${VERSION}"
 
+# Kodsignering för Windows (valfri). Sätts av CI när certifikat finns som hemligheter:
+#   JSIGN          sökväg till jsign.jar (https://ebourg.github.io/jsign/)
+#   WIN_SIGN_ARGS  jsign-flaggor för nyckellagret, t.ex.
+#                  "--storetype TRUSTEDSIGNING --keystore weu.codesigning.azure.net --storepass TOKEN --alias konto/profil"
+#                  eller "--storetype PKCS12 --keystore cert.pfx --storepass LÖSENORD"
+# Utan dem byggs osignerade filer som tidigare.
+sign_win() {
+  [ -n "${WIN_SIGN_ARGS:-}" ] && [ -n "${JSIGN:-}" ] || return 0
+  # shellcheck disable=SC2086
+  logged java -jar "$JSIGN" $WIN_SIGN_ARGS --name PingVakt --url https://github.com/Atomix888/pingvakt \
+    --tsaurl "${WIN_SIGN_TSA:-http://timestamp.acs.microsoft.com,http://timestamp.digicert.com}" --tsmode RFC3161 --alg SHA-256 --replace "$@"
+  echo "signerade: $*"
+}
+
 windows() {
   echo "==> Windows ${VERSION}"
   go run ./tools/winres -version "$VERSION"
   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -tags desktop,production \
     -ldflags "${LDFLAGS} -H windowsgui" -o "$DIST/PingVakt.exe" ./desktop
+  sign_win "$DIST/PingVakt.exe"
   local w=desktop/build/windows
   if [ ! -f "$w/icon.ico" ]; then
     convert desktop/build/appicon.png -define icon:auto-resize=256,128,64,48,32,16 "$w/icon.ico"
@@ -40,6 +55,7 @@ windows() {
   if command -v makensis >/dev/null; then
     makensis -V2 -DVERSION="$VERSION" -DEXE="$PWD/$DIST/PingVakt.exe" \
       -DOUT="$PWD/$DIST/PingVakt-${VERSION}-windows-x64-setup.exe" "$w/installer.nsi"
+    sign_win "$DIST/PingVakt-${VERSION}-windows-x64-setup.exe"
   else
     echo "makensis saknas – hoppar över installationsprogrammet"
   fi
@@ -86,7 +102,14 @@ macos() {
     logged sips -z $((s*2)) $((s*2)) desktop/build/appicon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
   done
   logged iconutil -c icns "$iconset" -o "$app/Contents/Resources/iconfile.icns"
-  logged codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
+  # Med ett Developer ID-certifikat (MAC_SIGN_ID, importerat i nyckelringen av CI) signeras appen
+  # med härdad körmiljö och notariseras; annars ad hoc-signering som tidigare.
+  if [ -n "${MAC_SIGN_ID:-}" ]; then
+    logged codesign --force --options runtime --timestamp -s "$MAC_SIGN_ID" "$app"
+    logged codesign --verify --strict --verbose=2 "$app"
+  else
+    logged codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
+  fi
   rm -f "$DIST/PingVakt-${VERSION}-macos.dmg"
   # hdiutil misslyckas ibland tillfälligt ("Resource busy") på byggservrar – försök igen
   local ok=0
@@ -95,6 +118,18 @@ macos() {
     sleep 5
   done
   [ "$ok" = 1 ] || { echo "::error::hdiutil kunde inte skapa .dmg"; exit 1; }
+  if [ -n "${MAC_SIGN_ID:-}" ]; then
+    logged codesign --force --timestamp -s "$MAC_SIGN_ID" "$DIST/PingVakt-${VERSION}-macos.dmg"
+    if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
+      echo "==> Notariserar (kan ta några minuter)"
+      logged xcrun notarytool submit "$DIST/PingVakt-${VERSION}-macos.dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+        --password "$APPLE_APP_PASSWORD" --wait --timeout 30m
+      logged xcrun stapler staple "$DIST/PingVakt-${VERSION}-macos.dmg"
+      logged xcrun stapler staple "$app"
+    else
+      echo "APPLE_ID/APPLE_TEAM_ID/APPLE_APP_PASSWORD saknas – signerad men inte notariserad"
+    fi
+  fi
   (cd "$DIST" && ditto -c -k --keepParent PingVakt.app "PingVakt-${VERSION}-macos-app.zip")
   echo "klart: $DIST/PingVakt-${VERSION}-macos.dmg"
 }
@@ -106,6 +141,7 @@ agents() {
     local os=${p%/*} arch=${p#*/} name ext=""
     name=$arch; [ "$arch" = arm ] && name=armv7; [ "$os" = windows ] && ext=.exe
     CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=7 logged go build -trimpath -ldflags "$LDFLAGS" -o "$DIST/agents/pingvakt-agent-$os-$name$ext" ./agent
+    if [ "$os" = windows ]; then sign_win "$DIST/agents/pingvakt-agent-$os-$name$ext"; fi
   done
 }
 
@@ -118,6 +154,7 @@ server() {
     local dir="$DIST/pingvakt-server-${VERSION}-$os-$arch"
     rm -rf "$dir"; mkdir -p "$dir"
     CGO_ENABLED=0 GOOS=$os GOARCH=$arch logged go build -trimpath -ldflags "$LDFLAGS" -o "$dir/pingvakt-server$ext" ./server
+    if [ "$os" = windows ]; then sign_win "$dir/pingvakt-server$ext"; fi
     cp -r "$DIST/agents" "$dir/agents"
     cp deploy/pingvakt-server.service deploy/docker-compose.yml deploy/Caddyfile LICENSE-THIRD-PARTY.txt "$dir/"
     if [ "$os" = windows ]; then (cd "$DIST" && rm -f "$(basename "$dir").zip" && zip -qr "$(basename "$dir").zip" "$(basename "$dir")")

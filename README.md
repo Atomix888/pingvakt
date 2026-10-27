@@ -219,7 +219,7 @@ scripts/build.sh   Build script for all platforms
 
 - Wi-Fi survey (neighbouring networks and channels), roaming alerts
 - UniFi, Meraki and Aruba Central integrations
-- Code signing (Windows/macOS)
+- Code signing: prepared in the build – see [docs/code-signing.md](docs/code-signing.md) for the certificates to buy and the secrets to add
 
 ## Licences
 

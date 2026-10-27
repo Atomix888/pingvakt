@@ -72,6 +72,38 @@ jobs:
         run: go run ./tools/genoui || echo "IEEE-listan kunde inte hämtas – reservlistan används"
       - name: Tester
         run: go test ./core/... ./server
+      # Valfri kodsignering. Lägg in ETT av alternativen som hemligheter (Settings → Secrets → Actions):
+      #  A) Azure Trusted Signing: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+      #     AZURE_SIGN_ENDPOINT (t.ex. weu.codesigning.azure.net), AZURE_SIGN_ACCOUNT, AZURE_SIGN_PROFILE
+      #  B) Certifikatfil (.pfx): WIN_CERT_PFX (base64) och WIN_CERT_PASSWORD
+      # Utan hemligheterna byggs osignerade filer som tidigare.
+      - name: Kodsignering (Windows)
+        if: github.event_name != 'pull_request'
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
+          AZURE_SIGN_ACCOUNT: ${{ secrets.AZURE_SIGN_ACCOUNT }}
+          AZURE_SIGN_PROFILE: ${{ secrets.AZURE_SIGN_PROFILE }}
+          WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
+          WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        run: |
+          if [[ -z "$AZURE_CLIENT_ID" && -z "$WIN_CERT_PFX" ]]; then echo "Inga signeringshemligheter – bygger osignerat"; exit 0; fi
+          curl -fsSL -o "$RUNNER_TEMP/jsign.jar" https://github.com/ebourg/jsign/releases/download/7.1/jsign-7.1.jar
+          echo "JSIGN=$RUNNER_TEMP/jsign.jar" >> "$GITHUB_ENV"
+          if [[ -n "$AZURE_CLIENT_ID" ]]; then
+            TOKEN=$(curl -fsS -X POST "https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token" \
+              --data-urlencode "client_id=$AZURE_CLIENT_ID" --data-urlencode "client_secret=$AZURE_CLIENT_SECRET" \
+              --data-urlencode "grant_type=client_credentials" --data-urlencode "scope=https://codesigning.azure.net/.default" | jq -r .access_token)
+            echo "::add-mask::$TOKEN"
+            echo "WIN_SIGN_ARGS=--storetype TRUSTEDSIGNING --keystore $AZURE_SIGN_ENDPOINT --storepass $TOKEN --alias $AZURE_SIGN_ACCOUNT/$AZURE_SIGN_PROFILE" >> "$GITHUB_ENV"
+            echo "Signerar med Azure Trusted Signing"
+          else
+            echo "$WIN_CERT_PFX" | base64 -d > "$RUNNER_TEMP/cert.pfx"
+            echo "WIN_SIGN_ARGS=--storetype PKCS12 --keystore $RUNNER_TEMP/cert.pfx --storepass $WIN_CERT_PASSWORD" >> "$GITHUB_ENV"
+            echo "Signerar med certifikatfil"
+          fi
       - name: Bygg Windows och Linux
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
@@ -143,7 +175,33 @@ jobs:
         run: go run ./tools/genoui || echo "IEEE-listan kunde inte hämtas – reservlistan används"
       - name: Tester
         run: go test ./core/... ./server
+      # Valfri signering och notarisering. Hemligheter:
+      #   APPLE_CERT_P12 (base64 av "Developer ID Application"-certifikatet exporterat som .p12), APPLE_CERT_PASSWORD
+      #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (app-specifikt lösenord från appleid.apple.com) för notarisering
+      - name: Signeringscertifikat (macOS)
+        if: github.event_name != 'pull_request'
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_CERT_P12" ]]; then echo "Inget certifikat – ad hoc-signering"; exit 0; fi
+          KC="$RUNNER_TEMP/sign.keychain-db"; KP=$(openssl rand -hex 16)
+          echo "$APPLE_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KP" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KP" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KP" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          ID=$(security find-identity -v -p codesigning "$KC" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')
+          if [[ -z "$ID" ]]; then echo "::error::Hittade inget Developer ID Application-certifikat i APPLE_CERT_P12"; exit 1; fi
+          echo "MAC_SIGN_ID=$ID" >> "$GITHUB_ENV"
+          echo "Signerar som $ID"
       - name: Bygg macOS
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
           if [[ -n "$RELEASE_TAG" ]]; then export VERSION="${RELEASE_TAG#v}"; fi
