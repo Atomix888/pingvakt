@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"sort"
 	"strconv"
@@ -27,7 +28,7 @@ import (
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.10.0"
+var Version = "0.11.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.
@@ -577,6 +578,51 @@ func (a *App) StopScan() {
 		a.scanCancel = nil
 	}
 	a.tmu.Unlock()
+}
+
+// SurveyBSS är ett grannät med tillverkare (för Wi-Fi-surveyn).
+type SurveyBSS struct {
+	wifi.BSS
+	Vendor string `json:"vendor,omitempty"`
+}
+
+// SurveyResult är en avsökning plus den nuvarande anslutningen.
+type SurveyResult struct {
+	T    int64       `json:"t"`
+	Err  string      `json:"err,omitempty"`
+	Tool string      `json:"tool,omitempty"`
+	BSS  []SurveyBSS `json:"bss"`
+	Cur  *wifi.Info  `json:"cur,omitempty"`
+}
+
+// WiFiSurvey söker av grannätverken (tar några sekunder).
+func (a *App) WiFiSurvey() SurveyResult {
+	sc := wifi.Survey(a.ctx)
+	r := SurveyResult{T: sc.T, Err: sc.Err, Tool: sc.Tool, BSS: []SurveyBSS{}, Cur: wifiCollector.Get()}
+	for _, b := range sc.BSS {
+		x := SurveyBSS{BSS: b}
+		if b.BSSID != "" {
+			x.Vendor = netscan.Vendor(b.BSSID)
+		}
+		r.BSS = append(r.BSS, x)
+	}
+	return r
+}
+
+// SaveTextFile låter användaren välja var en textfil (t.ex. CSV från surveyn) ska sparas.
+func (a *App) SaveTextFile(name, content string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(name))
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: i18n.T("Save file"), DefaultFilename: name,
+		Filters: []runtime.FileFilter{{DisplayName: strings.ToUpper(strings.TrimPrefix(ext, ".")) + " (*" + ext + ")", Pattern: "*" + ext}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if ext != "" && !strings.HasSuffix(strings.ToLower(path), ext) {
+		path += ext
+	}
+	return path, os.WriteFile(path, []byte("\ufeff"+content), 0o644)
 }
 
 // ExportCSV sparar historiken för angivna mål till en CSV-fil som användaren väljer.

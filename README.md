@@ -25,6 +25,7 @@ PingVakt has three parts that share the same measurement engine:
 
   When an alert fires the app can show a popup, play a sound, show a system notification, send **email via SMTP** and write to a **log file**. Alerts can repeat while active and notify when they clear. Email can be limited to one message per N minutes; events in between are collected in the next email.
 - **Traceroute** with buttons that add the hops as targets.
+- **Wi-Fi survey:** the *Wi-Fi* button lists every network the computer hears with a channel graph per band and hints about interference. Write a location (e.g. "Room 204"), tick *Repeat every 30 s* and walk around the site; *Export CSV* saves all scans with their locations.
 - **Network scan:** the *Scan network* button finds active devices in a network (e.g. `192.168.1.0/24`). It shows IP address, name (DNS/NetBIOS), MAC address, manufacturer, likely type (router, printer, NAS, camera, access point, Windows computer …) and open ports. Select the devices and add them as targets with one click.
 - **CSV export** of measurements. In Swedish the file uses semicolons and decimal commas so it opens directly in Swedish Excel.
 - Custom order with drag and drop, filtering, sorting, number of columns, compact mode and dark/light theme.
@@ -117,6 +118,9 @@ The desktop app connects under **Settings → Server** with the server address a
 - packet loss and latency
 - daily graphs
 - the agents' CPU, memory and disk
+- SNMP devices (reachability, CPU, memory) and the busiest ports
+- speed tests and Wi-Fi quality (signal, time below −70 dBm, roams)
+- UniFi/Meraki/Aruba devices and their outages
 - maintenance windows and alert events
 
 The report can be emailed automatically every week (Monday morning) or every month (on the 1st). The company name on the reports is set under Settings.

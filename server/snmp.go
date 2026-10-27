@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS snmp_if5 (
   device_id TEXT NOT NULL, if_index INTEGER NOT NULL, t INTEGER NOT NULL, in_bps REAL NOT NULL, out_bps REAL NOT NULL,
   in_max REAL NOT NULL, out_max REAL NOT NULL, errs REAL NOT NULL, up INTEGER NOT NULL,
   PRIMARY KEY (device_id, if_index, t)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS snmp_ifnames (device_id TEXT NOT NULL, if_index INTEGER NOT NULL, name TEXT NOT NULL, speed INTEGER NOT NULL,
+  PRIMARY KEY (device_id, if_index)) WITHOUT ROWID;
 `
 
 // SNMPDevice är en SNMP-enhet som en agent pollar.
@@ -312,6 +314,12 @@ func (s *Server) snmpFlushFn(devID string, st *devState) func() {
 	t := st.bucket
 	da := st.devAcc
 	accs := st.acc
+	names := map[int]snmpIfMeta{}
+	if st.last != nil {
+		for _, x := range st.last.Ifs {
+			names[x.Index] = snmpIfMeta{label: x.Label(), speed: x.Speed}
+		}
+	}
 	st.devAcc, st.acc = devAcc{}, map[int]*ifAcc{}
 	return func() {
 		if da.n > 0 {
@@ -335,6 +343,9 @@ func (s *Server) snmpFlushFn(devID string, st *devState) func() {
 			}
 			_, _ = s.db.Exec(`INSERT OR REPLACE INTO snmp_if5(device_id,if_index,t,in_bps,out_bps,in_max,out_max,errs,up) VALUES(?,?,?,?,?,?,?,?,?)`,
 				devID, idx, t, a.in/float64(a.n), a.out/float64(a.n), a.inMax, a.outMax, a.errs/float64(a.n), b2i(a.up))
+			if m, ok := names[idx]; ok {
+				_, _ = s.db.Exec(`INSERT OR REPLACE INTO snmp_ifnames(device_id,if_index,name,speed) VALUES(?,?,?,?)`, devID, idx, m.label, int64(m.speed))
+			}
 		}
 	}
 }
@@ -707,6 +718,7 @@ func (s *Server) handleSNMPDelete(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.db.Exec(`DELETE FROM snmp_devices WHERE id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM snmp_dev5 WHERE device_id=?`, id)
 	_, _ = s.db.Exec(`DELETE FROM snmp_if5 WHERE device_id=?`, id)
+	_, _ = s.db.Exec(`DELETE FROM snmp_ifnames WHERE device_id=?`, id)
 	s.db.BumpConfig(d.AgentID)
 	s.audit(r, "agent", d.AgentID, i18n.T("deleted SNMP device ")+devName(d.Device))
 	writeJSON(w, map[string]bool{"ok": true})

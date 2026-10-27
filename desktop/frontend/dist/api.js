@@ -191,6 +191,20 @@ function createDemoAPI() {
       }, 250);
     },
     StopScan: () => {},
+    WiFiSurvey: async () => {
+      await new Promise(r => setTimeout(r, 800));
+      const j = v => v + Math.round(Math.random() * 6 - 3);
+      const bss = [
+        ['Kontoret', '24:5a:4c:11:22:33', -58, 36, 5180, 80, 'WPA2/WPA3', 'Ubiquiti', true], ['Kontoret', '24:5a:4c:11:22:44', -66, 52, 5260, 80, 'WPA2/WPA3', 'Ubiquiti'],
+        ['Kontoret', '24:5a:4c:11:22:34', -55, 6, 2437, 20, 'WPA2/WPA3', 'Ubiquiti'], ['Kontoret-Gäst', '26:5a:4c:11:22:33', -59, 36, 5180, 80, 'Open', 'Private address'],
+        ['Granne AB', 'f0:9f:c2:aa:bb:cc', -71, 40, 5200, 40, 'WPA2 Enterprise', 'Ubiquiti'], ['Telia-7A2C', '00:1d:aa:12:34:56', -74, 3, 2422, 40, 'WPA2', 'DrayTek'],
+        ['HP-Print-3C', '3c:52:82:01:02:03', -80, 11, 2462, 20, 'WPA2', 'HP'], ['', '70:3a:cb:01:02:03', -84, 1, 2412, 20, 'WPA2', 'Google'],
+        ['Comhem_5G', 'e4:8d:8c:ab:cd:ef', -77, 100, 5500, 160, 'WPA2', 'Routerboard'], ['Lager', '24:5a:4c:99:88:77', -69, 37, 6135, 160, 'WPA3', 'Ubiquiti'],
+      ].map(([ssid, bssid, rssi, ch, freq, width, sec, vendor, conn]) => ({ ssid, bssid, rssi: j(rssi), ch, freq, width, sec, vendor, conn: !!conn, std: freq > 5900 ? '802.11ax' : '802.11ac' }));
+      bss.sort((a, b) => b.rssi - a.rssi);
+      return { t: Date.now(), tool: 'demo', bss, cur: { ssid: 'Kontoret', bssid: '24:5a:4c:11:22:33', rssi: bss.find(b => b.conn).rssi, ch: 36, freq: 5180 } };
+    },
+    SaveTextFile: async name => name,
     GetServer: () => ({ enabled: false, url: '', insecure: false, hasToken: false, status: {} }),
     TestServer: () => { throw new Error(T('Not available in demo mode')); },
     SaveServer: () => {},

@@ -58,6 +58,7 @@ type reportData struct {
 	Events   []alert.Event
 	Maint    []Maintenance
 	Lang     string
+	Extra    *reportExtra
 }
 
 // L översätter till rapportens språk.
@@ -217,6 +218,7 @@ func (s *Server) buildReport(customerID string, from, to time.Time) (*reportData
 		}
 	}
 	s.ops.mu.Unlock()
+	s.buildReportExtra(rd, customerID, f, t)
 	return rd, nil
 }
 
@@ -527,6 +529,8 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 		}
 		pdf.Ln(4)
 	}
+
+	rd.renderExtra(pdf, tr, section, tableHead, setC)
 
 	// servicefönster
 	if len(rd.Maint) > 0 {

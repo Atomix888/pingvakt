@@ -25,6 +25,7 @@ PingVakt består av tre delar som använder samma mätmotor:
 
   När ett larm går kan programmet visa en popup, spela ljud, visa en systemnotis, skicka **e-post via SMTP** och skriva till **loggfil**. Larmen kan upprepas medan de pågår och meddela när de upphör. E-post kan begränsas till högst ett mejl per N minuter, och händelser däremellan samlas i nästa mejl.
 - **Traceroute** med knappar som lägger till hoppen som mål.
+- **Wi-Fi-survey:** knappen *Wi-Fi* visar alla nät datorn hör, med en kanalgraf per band och tips om störningar. Skriv en plats (t.ex. "Rum 204"), kryssa i *Upprepa var 30:e s* och gå runt på platsen; *Exportera CSV* sparar alla avsökningar med sina platser.
 - **Nätverksskanning:** knappen *Skanna nätverk* hittar aktiva enheter i ett nät (t.ex. `192.168.1.0/24`). Den visar IP-adress, namn (DNS/NetBIOS), MAC-adress, tillverkare, trolig typ (router, skrivare, NAS, kamera, accesspunkt, Windows-dator …) och öppna portar. Markera enheterna och lägg till dem som mål med en knapp.
 - **Engelska och svenska:** engelska är standard. Språket väljs under Inställningar → Utseende.
 - **CSV-export** av mätdata. På svenska är filen semikolonseparerad med decimalkomma och öppnas direkt i svenskt Excel.
@@ -117,6 +118,9 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 - paketförlust och latens
 - grafer per dygn
 - agenternas CPU, minne och disk
+- SNMP-enheter (nåbarhet, CPU, minne) och de mest belastade portarna
+- hastighetstester och Wi-Fi-kvalitet (signal, tid under −70 dBm, roamingar)
+- UniFi/Meraki/Aruba-enheter och deras avbrott
 - servicefönster och larmhändelser
 
 Rapporten kan mejlas automatiskt varje vecka (måndag morgon) eller varje månad (den 1:a). Företagsnamnet på rapporterna ställer du in under Inställningar.

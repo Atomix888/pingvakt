@@ -451,6 +451,7 @@ function bindUI() {
     await api.call('PauseAll', !allPaused); await afterChange();
   };
   $('#btnScan').onclick = () => openScan();
+  $('#btnWifi').onclick = () => openWifi();
   $('#btnTrace').onclick = () => traceDialog('');
   $('#btnAlerts').onclick = () => alertsDialog();
   $('#btnSettings').onclick = () => settingsDialog();
@@ -979,6 +980,55 @@ async function openScan() {
     },
     onClose: () => { if (scanCtl === ctl) scanCtl = null; },
   });
+}
+
+/* --- Wi-Fi-survey --- */
+const wifiSession = { scans: [], view: {}, show: -1 };
+function openWifi() {
+  const loc = h('input', { type: 'text', placeholder: T('Location, e.g. Room 204 (optional)'), style: 'max-width:240px' });
+  const run = h('button', { class: 'btn primary' }, T('Scan now'));
+  const auto = h('input', { type: 'checkbox' });
+  const status = h('span', { class: 'muted' });
+  const hist = h('select');
+  const csv = h('button', { class: 'btn' }, T('Export CSV'));
+  const body = h('div');
+  let timer = null, busy = false, open = true;
+  const fillHist = () => {
+    hist.replaceChildren(...wifiSession.scans.map((x, i) => h('option', { value: i, selected: i === wifiSession.show }, `${new Date(x.scan.t).toLocaleTimeString('sv-SE')}${x.loc ? ' – ' + x.loc : ''} (${x.scan.bss.length})`)).reverse());
+    hist.style.display = wifiSession.scans.length > 1 ? '' : 'none';
+    csv.disabled = !wifiSession.scans.length;
+  };
+  const show = () => {
+    fillHist();
+    const x = wifiSession.scans[wifiSession.show];
+    if (!x) { body.replaceChildren(h('p', { class: 'muted' }, T('Click Scan now to see the Wi-Fi networks this computer hears. Tick Repeat to scan every 30 seconds while you walk around the site, and write the location before each scan.'))); return; }
+    body.replaceChildren(...[x.scan.err && !x.scan.bss.length ? h('div', { class: 'survey-err' }, TE(x.scan.err)) : null, surveyPanel({ scan: x.scan, cur: x.cur, state: wifiSession.view })].filter(Boolean));
+  };
+  const scan = async () => {
+    if (busy || !open) return;
+    busy = true; run.disabled = true; status.textContent = T('Scanning…');
+    try {
+      const r = await api.call('WiFiSurvey');
+      wifiSession.scans.push({ scan: r, cur: r.cur, loc: loc.value.trim() });
+      if (wifiSession.scans.length > 200) wifiSession.scans.shift();
+      wifiSession.show = wifiSession.scans.length - 1;
+      status.textContent = r.err && !r.bss.length ? '' : T('{0} access points', r.bss.length);
+      show();
+    } catch (e) { status.textContent = TE(e.message || String(e)); }
+    finally { busy = false; run.disabled = false; }
+  };
+  run.onclick = scan;
+  auto.onchange = () => { clearInterval(timer); timer = auto.checked ? setInterval(scan, 30000) : null; if (auto.checked) scan(); };
+  hist.onchange = () => { wifiSession.show = +hist.value; show(); };
+  csv.onclick = async () => {
+    try { const p = await api.call('SaveTextFile', `wifi-survey-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`, svCSV(wifiSession.scans, (window.PV_LANG || 'en') === 'sv'));
+      if (p) toast({ kind: 'clear', title: T('Saved'), text: p }); } catch (e) { toast({ kind: 'fire', title: T('Could not save'), text: String(e) }); }
+  };
+  modal({ title: T('Wi-Fi survey'), wide: true,
+    body: h('div', null, h('div', { class: 'survey-tools' }, loc, run, h('label', { class: 'row' }, auto, T('Repeat every 30 s')), hist, csv, status), body),
+    onClose: () => { open = false; clearInterval(timer); } });
+  show();
+  if (!wifiSession.scans.length) scan();
 }
 
 /* --- traceroute --- */

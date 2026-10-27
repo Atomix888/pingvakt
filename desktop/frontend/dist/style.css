@@ -283,3 +283,27 @@ body.compact .grid { gap: 6px; grid-template-columns: repeat(auto-fill, minmax(2
 .scan-ports { display: flex; flex-wrap: wrap; gap: 3px; }
 .scan-ports .tag, .scan-table td .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 .scan-table td { white-space: nowrap; } .scan-table td:nth-child(3), .scan-table td:nth-child(5) { white-space: normal; }
+
+/* Wi-Fi-survey (surveyui.js) */
+.survey-panel .facts { display: flex; flex-wrap: wrap; gap: 8px 26px; margin-bottom: 10px; }
+.survey-panel .facts small { display: block; color: var(--faint, var(--muted)); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.survey-panel .facts b { font-weight: 600; font-family: var(--mono, monospace); font-size: 12.5px; }
+.survey-panel .section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.survey-panel .section-head h2 { font-size: 14px; margin: 0; }
+.survey-panel .section-head .tools { margin-left: auto; display: flex; gap: 6px; }
+.survey-panel .tbl-wrap { overflow-x: auto; }
+.survey-panel table.tbl { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 12.5px; }
+.survey-panel table.tbl th { text-align: left; font-weight: 550; color: var(--muted); padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); white-space: nowrap; }
+.survey-panel table.tbl td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.survey-panel table.tbl td.mono { font-family: var(--mono, monospace); font-size: 12px; }
+.survey-panel tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.survey-panel .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.survey-panel .lvl-high { color: var(--warn); }
+.survey-panel .lvl-bad { color: var(--down); font-weight: 650; }
+.survey-panel .lvl-ok { color: var(--up); }
+.survey-panel .insights { margin: 4px 0 8px; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.survey-panel .insights li.lvl-ok { color: var(--text); }
+.survey-panel input[type=search] { max-width: 320px; }
+.chan-canvas { display: block; width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; margin-top: 4px; }
+.survey-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.survey-err { background: color-mix(in srgb, var(--down) 12%, transparent); border: 1px solid color-mix(in srgb, var(--down) 40%, transparent); border-radius: 8px; padding: 9px 12px; font-size: 12.5px; margin-bottom: 10px; }
