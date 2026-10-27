@@ -77,6 +77,17 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **More alert types:** *Agent Wi-Fi signal weak* (below N dBm for X minutes), *HTTPS certificate expiring* (within N days) and *Path (traceroute) changes*.
 
+**Push, SMS and Teams:** an alert rule can send
+- *push to phones* – to everyone who turned on notifications in the web app (account menu → Notifications; works on Android and, after "Add to Home Screen", on iPhone), to users' own ntfy topics or Pushover keys, and to a shared ntfy topic/Pushover key from Settings;
+- *SMS* via 46elks or Twilio (at most one SMS per alert and target every N minutes, plus one when it clears);
+- *Teams* cards via a Teams workflow ("Post to a channel when a webhook request is received").
+
+**On-call schedules:** under Alerts → *+ On-call schedule* you set who takes turns (daily, weekly or every two weeks) and add replacements for holidays. An alert rule can notify *on call*, and the person on call gets email, SMS and/or push. Phone numbers are set per user.
+
+**Sign-in:** under Settings → Sign-in you can require two-factor authentication for administrators or everyone – users without it must turn it on at their next sign-in. You can also allow sign-in with Microsoft (Entra ID) and Google: register an app with the redirect URI shown in Settings. Only existing users can sign in, matched on email address, and sign-in through Microsoft/Google counts as two-factor.
+
+**Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
+
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
 
 **Automatic updates:** when the server is updated, agents (from version 0.4.0) download the new version themselves. The agent verifies the checksum and restarts itself. This can be turned off under Settings.

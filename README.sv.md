@@ -75,6 +75,17 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Nätverksskanning från agenten:** i agentens meny (⋯ → *Skanna nätverk*) eller via *Lägg till mål*. Skanningen körs av agenten hos kunden, så du ser vad som finns i kundens nät på distans. Agenten skickar vilka nät den sitter på, och du kan också ange ett eget nät eller intervall (högst /20).
 
+**Push, SMS och Teams:** en larmregel kan skicka
+- *push till mobiler* – till alla som slagit på aviseringar i webbappen (kontomenyn → Aviseringar; fungerar på Android och, efter "Lägg till på hemskärmen", på iPhone), till användarnas egna ntfy-ämnen eller Pushover-nycklar, och till ett gemensamt ntfy-ämne/Pushover-nyckel från Inställningar;
+- *SMS* via 46elks eller Twilio (högst ett SMS per larm och mål var N:e minut, plus ett när det upphör);
+- *Teams*-kort via ett Teams-arbetsflöde ("Publicera i en kanal när en webhook-begäran tas emot").
+
+**Jourscheman:** under Larm → *+ Jourschema* anger du vilka som turas om (varje dag, vecka eller varannan vecka) och lägger in ersättare vid semester. En larmregel kan meddela *jour*, och den som har jour får e-post, SMS och/eller push. Telefonnummer anges per användare.
+
+**Inloggning:** under Inställningar → Inloggning kan du kräva tvåstegsinloggning för administratörer eller alla – den som saknar det måste slå på det vid nästa inloggning. Du kan också tillåta inloggning med Microsoft (Entra ID) och Google: registrera en app med omdirigerings-URI:n som visas i Inställningar. Bara befintliga användare kan logga in, kopplat via e-postadressen, och inloggning via Microsoft/Google räknas som tvåsteg.
+
+**Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
+
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
 
 **Nya larmtyper:** *Agentens Wi-Fi-signal svag* (under N dBm i X minuter), *HTTPS-certifikat går ut* (inom N dagar) och *Vägen (traceroute) ändras*.

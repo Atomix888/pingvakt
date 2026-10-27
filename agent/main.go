@@ -29,7 +29,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.7.2"
+var Version = "0.8.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`

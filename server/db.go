@@ -75,7 +75,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	// nya kolumner i senare versioner (fel ignoreras om de redan finns)
@@ -88,6 +88,10 @@ func OpenDB(path string) (*DB, error) {
 		`ALTER TABLE users ADD COLUMN totp_recovery TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE customers ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN sso INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN pushover TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN ntfy TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = d.Exec(m)
 	}
@@ -145,14 +149,17 @@ type Rule struct {
 }
 
 type User struct {
-	ID         string `json:"id"`
-	Email      string `json:"email"`
-	Name       string `json:"name"`
-	Role       string `json:"role"` // admin, viewer
-	CustomerID string `json:"customerId"`
-	Created    int64  `json:"created"`
-	TOTP       bool   `json:"totp"` // tvåstegsinloggning aktiverad
-	Lang       string `json:"lang"` // gränssnittets språk ("" = serverns)
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	Role        string `json:"role"` // admin, viewer
+	CustomerID  string `json:"customerId"`
+	Created     int64  `json:"created"`
+	TOTP        bool   `json:"totp"` // tvåstegsinloggning aktiverad
+	Lang        string `json:"lang"` // gränssnittets språk ("" = serverns)
+	Phone       string `json:"phone"`
+	SSO         bool   `json:"sso,omitempty"`         // sessionen kommer från Microsoft/Google
+	MFARequired bool   `json:"mfaRequired,omitempty"` // måste slå på tvåstegsinloggning innan något annat
 }
 
 // ServerSettings är serverns inställningar.
@@ -167,6 +174,8 @@ type ServerSettings struct {
 	ReportSec    int              `json:"reportSec"`
 	Monitor      monitor.Settings `json:"monitor"`
 	SMTP         alert.SMTP       `json:"smtp"`
+	Notify       NotifySettings   `json:"notify"`
+	Auth         AuthSettings     `json:"auth"`
 }
 
 func defaultServerSettings() ServerSettings {
@@ -563,7 +572,7 @@ func (d *DB) Prune(rawDays, aggDays int) (int64, error) {
 // ---------- användare ----------
 
 func (d *DB) Users() ([]User, error) {
-	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created,totp_secret<>'',lang FROM users ORDER BY email`)
+	rows, err := d.Query(`SELECT id,email,name,role,customer_id,created,totp_secret<>'',lang,phone FROM users ORDER BY email`)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +580,7 @@ func (d *DB) Users() ([]User, error) {
 	out := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang, &u.Phone); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -595,8 +604,8 @@ func (d *DB) UserByEmail(email string) (User, string, error) {
 
 func (d *DB) UserBySession(tokenHash string) (User, error) {
 	var u User
-	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created,u.totp_secret<>'',u.lang FROM sessions s JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang)
+	err := d.QueryRow(`SELECT u.id,u.email,u.name,u.role,u.customer_id,u.created,u.totp_secret<>'',u.lang,u.phone,s.sso FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=? AND s.expires>?`, tokenHash, now()).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.CustomerID, &u.Created, &u.TOTP, &u.Lang, &u.Phone, &u.SSO)
 	return u, err
 }
 

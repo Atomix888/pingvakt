@@ -38,10 +38,12 @@ func hashPassword(pw string) (string, error) {
 }
 
 // createSession skapar en session och sätter kakan.
-func (s *Server) createSession(w http.ResponseWriter, r *http.Request, userID string) error {
+// sso = true när inloggningen gjorts via Microsoft/Google (deras MFA gäller då).
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request, userID string, sso ...bool) error {
 	tok, h := newToken()
 	exp := time.Now().Add(sessionDays * 24 * time.Hour)
-	if _, err := s.db.Exec(`INSERT INTO sessions(token_hash,user_id,expires) VALUES(?,?,?)`, h, userID, exp.UnixMilli()); err != nil {
+	viaSSO := len(sso) > 0 && sso[0]
+	if _, err := s.db.Exec(`INSERT INTO sessions(token_hash,user_id,expires,sso) VALUES(?,?,?,?)`, h, userID, exp.UnixMilli(), b2i(viaSSO)); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
@@ -58,6 +60,7 @@ func (s *Server) withUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 			if u, err := s.db.UserBySession(hashToken(c.Value)); err == nil {
+				u.MFARequired = !u.TOTP && !u.SSO && s.mfaRequired(u.Role)
 				r = r.WithContext(context.WithValue(r.Context(), userKey, &u))
 			}
 		}
@@ -74,6 +77,10 @@ func need(admin bool, h http.HandlerFunc) http.HandlerFunc {
 			httpErr(w, http.StatusUnauthorized, "not signed in")
 			return
 		}
+		if u.MFARequired && !mfaAllowed[r.URL.Path] {
+			httpErr(w, http.StatusForbidden, "two-factor authentication is required – turn it on to continue")
+			return
+		}
 		if admin && u.Role != "admin" {
 			httpErr(w, http.StatusForbidden, "requires administrator")
 			return
@@ -87,6 +94,9 @@ func need(admin bool, h http.HandlerFunc) http.HandlerFunc {
 		h(w, r)
 	}
 }
+
+// mfaAllowed är det enda en användare som måste slå på tvåstegsinloggning får göra.
+var mfaAllowed = map[string]bool{"/api/me/totp/setup": true, "/api/me/totp/enable": true, "/api/me/lang": true, "/api/logout": true}
 
 // canSee avgör om användaren får se kunden.
 func canSee(u *User, customerID string) bool {

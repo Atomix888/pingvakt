@@ -69,6 +69,18 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/events", need(false, s.handleEvents))
 	mux.HandleFunc("GET /api/agents/{id}/metrics", need(false, s.handleAgentMetrics))
 	mux.HandleFunc("GET /i18n.js", s.handleI18n)
+	mux.HandleFunc("GET /api/auth/providers", s.handleAuthProviders)
+	mux.HandleFunc("GET /auth/{provider}/login", s.handleOIDCStart)
+	mux.HandleFunc("GET /auth/{provider}/callback", s.handleOIDCCallback)
+	mux.HandleFunc("GET /api/oncall", need(true, s.handleOnCallList))
+	mux.HandleFunc("POST /api/oncall", need(true, s.handleOnCallSave))
+	mux.HandleFunc("PUT /api/oncall/{id}", need(true, s.handleOnCallSave))
+	mux.HandleFunc("DELETE /api/oncall/{id}", need(true, s.handleOnCallDelete))
+	mux.HandleFunc("GET /api/me/notify", need(false, s.handleMyNotifyGet))
+	mux.HandleFunc("PUT /api/me/notify", need(false, s.handleMyNotify))
+	mux.HandleFunc("POST /api/me/notify/test", need(false, s.handleNotifyTest))
+	mux.HandleFunc("POST /api/push/subscribe", need(false, s.handlePushSubscribe))
+	mux.HandleFunc("POST /api/push/unsubscribe", need(false, s.handlePushUnsubscribe))
 	mux.HandleFunc("GET /api/agents/{id}/scan", need(true, s.handleScanInfo))
 	mux.HandleFunc("POST /api/agents/{id}/scan", need(true, s.handleStartScan))
 	mux.HandleFunc("PUT /api/me/lang", need(false, s.handleMyLang))
@@ -968,7 +980,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Email, Name, Role, CustomerID, Password string
+		Email, Name, Role, CustomerID, Password, Phone string
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -979,6 +991,9 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			httpErr(w, 400, err.Error())
 			return
+		}
+		if in.Phone != "" {
+			_, _ = s.db.Exec(`UPDATE users SET phone=? WHERE id=?`, normPhone(in.Phone), u.ID)
 		}
 		s.audit(r, "user", u.ID, i18n.T("created the user ")+u.Email+" ("+u.Role+")")
 		writeJSON(w, u)
@@ -1001,6 +1016,7 @@ func (s *Server) handleSaveUser(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, err.Error())
 		return
 	}
+	_, _ = s.db.Exec(`UPDATE users SET phone=? WHERE id=?`, normPhone(in.Phone), id)
 	if in.Password != "" {
 		h, err := hashPassword(in.Password)
 		if err != nil {
@@ -1041,6 +1057,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	has := st.SMTP.Password != ""
 	st.SMTP.Password = ""
+	st.Notify = st.Notify.redact()
+	st.Auth = st.Auth.redact()
 	writeJSON(w, settingsOut{st, has})
 }
 
@@ -1057,6 +1075,8 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		in.SMTP.Password = s.settings.SMTP.Password
 	}
 	st := in.ServerSettings
+	st.Notify = st.Notify.merge(s.settings.Notify)
+	st.Auth = st.Auth.merge(s.settings.Auth)
 	if st.RawDays < 1 {
 		st.RawDays = 1
 	}

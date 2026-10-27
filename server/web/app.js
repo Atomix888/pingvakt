@@ -87,10 +87,43 @@ window.addEventListener('DOMContentLoaded', start);
 async function start() {
   try { S.me = await GET('/api/me'); }
   catch (e) { if (e.status === 401) return e.data && e.data.setup ? showSetup() : showLogin(); throw e; }
+  if (S.me.mfaRequired) return showMfaSetup();
   await boot();
 }
 
+// afterSignIn hämtar användaren igen (med krav på tvåstegsinloggning) och startar.
+async function afterSignIn() {
+  S.me = await GET('/api/me');
+  location.hash = '';
+  if (S.me.mfaRequired) return showMfaSetup();
+  await boot();
+}
+
+// showMfaSetup visas när administratören kräver tvåstegsinloggning och användaren saknar den.
+async function showMfaSetup() {
+  const err = h('div', { class: 'form-error' });
+  let setup;
+  try { setup = await POST('/api/me/totp/setup'); } catch (e) { err.textContent = e.message; }
+  const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456', style: 'text-align:center;font-size:20px;letter-spacing:4px' });
+  const form = h('form', { onsubmit: async e => {
+    e.preventDefault(); err.textContent = '';
+    try {
+      const r = await POST('/api/me/totp/enable', { code: code.value });
+      authShell(T('Save your backup codes'), T('If you lose your phone you can sign in with one of these codes (each code works once). Keep them somewhere safe – they are only shown now.'),
+        h('div', { class: 'auth-form' }, copyBox(r.recovery.join('  ')), h('button', { class: 'btn primary', onclick: () => location.reload() }, T('Continue'))));
+    } catch (x) { err.textContent = x.message; }
+  } },
+    h('p', { class: 'muted', style: 'margin:0' }, T('Scan the QR code with an authenticator app (e.g. Microsoft Authenticator, Google Authenticator, 1Password or Bitwarden) and enter the code shown.')),
+    setup ? h('img', { src: setup.qr, width: 200, height: 200, alt: T('QR code'), style: 'background:#fff;border-radius:8px;padding:6px;align-self:center' }) : null,
+    setup ? h('code', { style: 'word-break:break-all;text-align:center' }, setup.secret) : null,
+    code, err, h('button', { class: 'btn primary', type: 'submit' }, T('Enable')),
+    h('button', { class: 'btn ghost', type: 'button', onclick: async () => { await POST('/api/logout'); location.reload(); } }, T('Sign out')));
+  authShell(T('Two-factor authentication'), T('Your administrator requires two-factor authentication. Turn it on to continue.'), form);
+  setTimeout(() => code.focus(), 30);
+}
+
 async function boot() {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
   await loadState();
   renderShell();
   connectLive();
@@ -121,19 +154,39 @@ function showLogin() {
     try {
       const r = await POST('/api/login', { email: email.value, password: pw.value });
       if (r.needTotp) return showTotpLogin(r.ticket);
-      S.me = r; location.hash = ''; await boot();
+      await afterSignIn();
     }
     catch (x) { err.textContent = x.message; }
   } }, email, pw, err, h('button', { class: 'btn primary', type: 'submit' }, T('Sign in')));
+  const sso = h('div', { class: 'sso' });
+  form.append(sso);
   authShell(T('Sign in'), T('Sign in to view monitoring'), form);
+  const m = /ssoerr=([^&]*)/.exec(location.hash);
+  if (m) { err.textContent = TE(decodeURIComponent(m[1])); history.replaceState(null, '', location.pathname); }
+  GET('/api/auth/providers').then(p => {
+    const btns = [];
+    if (p.microsoft) btns.push(h('a', { class: 'btn sso-btn', href: '/auth/microsoft/login' }, msLogo(), T('Sign in with Microsoft')));
+    if (p.google) btns.push(h('a', { class: 'btn sso-btn', href: '/auth/google/login' }, gLogo(), T('Sign in with Google')));
+    if (btns.length) sso.replaceChildren(h('div', { class: 'sso-or' }, h('span', null, T('or'))), ...btns);
+  }).catch(() => {});
   setTimeout(() => email.focus(), 30);
+}
+function msLogo() {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 21 21'); s.setAttribute('width', '16'); s.setAttribute('height', '16');
+  s.innerHTML = '<rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>';
+  return s;
+}
+function gLogo() {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 48 48'); s.setAttribute('width', '16'); s.setAttribute('height', '16');
+  s.innerHTML = '<path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>';
+  return s;
 }
 function showTotpLogin(ticket) {
   const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '123456', style: 'text-align:center;font-size:20px;letter-spacing:4px' });
   const err = h('div', { class: 'form-error' });
   const form = h('form', { onsubmit: async e => {
     e.preventDefault(); err.textContent = '';
-    try { S.me = await POST('/api/login/totp', { ticket, code: code.value }); location.hash = ''; await boot(); }
+    try { await POST('/api/login/totp', { ticket, code: code.value }); await afterSignIn(); }
     catch (x) { err.textContent = x.message; if (x.status === 401 && /start over|börja om/.test(x.message)) setTimeout(showLogin, 1500); }
   } }, code, err, h('button', { class: 'btn primary', type: 'submit' }, T('Sign in')),
     h('small', { class: 'muted', style: 'text-align:center' }, T('Enter the code from your authenticator app, or a backup code (xxxx-xxxx).')));
@@ -166,6 +219,7 @@ function renderShell() {
         h('div', { class: 'who' }, h('b', null, S.me.name || S.me.email), h('small', null, isAdmin() ? T('Administrator') : T('Customer (read-only)'))),
         h('button', { class: 'icon-btn', title: T('Account'), onclick: e => showMenu(e.currentTarget, [
           { label: T('Change password…'), action: passwordDialog },
+          { label: T('Notifications…'), action: notifyDialog },
           { label: 'Language / Språk…', action: langDialog },
           { label: S.me.totp ? T('Two-factor authentication (on)…') : T('Enable two-factor authentication…'), action: totpDialog },
           { label: T('TV mode'), action: () => { location.hash = '#/tv'; } },
@@ -1266,8 +1320,12 @@ function customerName(a) { const s = siteOf(a.siteId); const c = s && byId(S.cus
 
 /* ---------------- larm ---------------- */
 async function renderAlerts(page) {
+  if (isAdmin()) {
+    try { [S.oncalls, S.userList] = await Promise.all([GET('/api/oncall'), GET('/api/users')]); } catch (e) { S.oncalls = S.oncalls || []; }
+  }
   const head = h('div', { class: 'page-head' }, h('h1', null, T('Alerts')),
-    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => ruleDialog(null) }, T('+ New alert rule')) : null));
+    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn', onclick: () => onCallDialog(null) }, T('+ On-call schedule')) : null,
+      isAdmin() ? h('button', { class: 'btn primary', onclick: () => ruleDialog(null) }, T('+ New alert rule')) : null));
   const groups = [['', T('Applies to all customers')], ...S.customers.map(c => [c.id, c.name])];
   const ruleTables = groups.map(([cid, label]) => {
     const rs = S.rules.filter(r => (r.customerId || '') === cid);
@@ -1292,7 +1350,17 @@ async function renderAlerts(page) {
           h('button', { class: 'btn sm primary', onclick: async () => { await ackAlert(a.key); renderPage(); } }, T('Acknowledge'))) : null)))))
       : h('p', { class: 'muted' }, T('No active alerts.')));
   }).catch(e => actBox.replaceChildren(h('p', { class: 'form-error' }, e.message)));
-  page.replaceChildren(head, h('div', { class: 'section', style: 'margin-top:0' }, h('div', { class: 'section-head' }, h('h2', null, T('Active alerts'))), actBox), ...ruleTables, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Recent events'))), evBox));
+  const ocBox = isAdmin() && (S.oncalls || []).length ? h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('On-call schedules'))),
+    h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('On call now'), T('Next'), T('Channels'), ''].map(x => h('th', null, x)))),
+      h('tbody', null, ...S.oncalls.map(o => {
+        const nx = (o.upcoming || []).find(u => u.from > Date.now());
+        return h('tr', null, h('td', null, h('b', null, o.name), h('div', { class: 'muted' }, o.customerId ? (byId(S.customers, o.customerId) || {}).name : T('All customers'))),
+          h('td', null, userName(o.now) || h('span', { class: 'muted' }, '–')),
+          h('td', null, nx ? `${userName(nx.userId)} · ${dateTime(nx.from)}` : '–'),
+          h('td', null, [o.email ? T('email') : '', o.sms ? 'SMS' : '', o.push ? 'push' : ''].filter(Boolean).join(', ') || '–'),
+          h('td', { class: 'actions' }, h('button', { class: 'btn sm', onclick: () => onCallDialog(o) }, T('Edit'))));
+      })))) : null;
+  page.replaceChildren(head, h('div', { class: 'section', style: 'margin-top:0' }, h('div', { class: 'section-head' }, h('h2', null, T('Active alerts'))), actBox), ...ruleTables, ocBox, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Recent events'))), evBox));
   try {
     const evs = await GET('/api/events?limit=300');
     const kt = { fire: T('Fired'), repeat: T('Ongoing'), clear: T('Cleared'), test: 'Test' };
@@ -1317,8 +1385,72 @@ function describe(a) {
 }
 function actionsText(r) {
   const a = [];
-  if (r.email) a.push(T('email')); if (r.webhook) a.push('webhook'); if (r.popup) a.push('popup'); if (r.sound) a.push(T('sound'));
+  if (r.email) a.push(T('email')); if (r.push) a.push('push'); if (r.sms) a.push('SMS'); if (r.teams) a.push('Teams'); if (r.webhook) a.push('webhook');
+  if (r.onCall) { const o = (S.oncalls || []).find(x => x.id === r.onCall); a.push(T('on call') + (o ? ': ' + o.name : '')); }
+  if (r.popup) a.push('popup'); if (r.sound) a.push(T('sound'));
   return a.join(', ') || '–';
+}
+
+/* ---------------- jourscheman ---------------- */
+function userName(id) { const u = (S.userList || []).find(x => x.id === id); return u ? (u.name || u.email) : ''; }
+function onCallDialog(o) {
+  const r = o ? JSON.parse(JSON.stringify(o)) : { name: '', customerId: '', members: [], start: 0, periodDays: 7, email: true, sms: true, push: true, overrides: [] };
+  const users = (S.userList || []).filter(u => u.role === 'admin' || !r.customerId || u.customerId === r.customerId);
+  const name = h('input', { type: 'text', value: r.name, placeholder: T('e.g. Weekend on-call') });
+  const cust = select([['', T('All customers')], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
+  const startD = new Date(r.start || nextMonday());
+  const pad = n => String(n).padStart(2, '0');
+  const date = h('input', { type: 'date', value: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}` });
+  const time = h('input', { type: 'time', value: `${pad(startD.getHours())}:${pad(startD.getMinutes())}` });
+  const period = select([[1, T('Every day')], [7, T('Every week')], [14, T('Every two weeks')]], r.periodDays || 7);
+  const members = [...(r.members || [])];
+  const list = h('div', { class: 'oc-members' });
+  const addSel = h('select');
+  const renderMembers = () => {
+    list.replaceChildren(...(members.length ? members.map((id, i) => h('div', { class: 'oc-member' },
+      h('span', { class: 'oc-n' }, String(i + 1)), h('span', { style: 'flex:1' }, userName(id) || id,
+        (S.userList.find(u => u.id === id) || {}).phone ? null : h('small', { class: 'muted' }, ' – ' + T('no phone number'))),
+      h('button', { class: 'icon-btn', title: T('Move up'), disabled: i === 0, onclick: () => { [members[i - 1], members[i]] = [members[i], members[i - 1]]; renderMembers(); } }, '↑'),
+      h('button', { class: 'icon-btn', title: T('Delete'), onclick: () => { members.splice(i, 1); renderMembers(); } }, '✕')))
+      : [h('small', { class: 'muted' }, T('Add the people who take turns, in order.'))]));
+    addSel.replaceChildren(h('option', { value: '' }, T('+ Add person…')), ...users.filter(u => !members.includes(u.id)).map(u => h('option', { value: u.id }, u.name || u.email)));
+  };
+  addSel.onchange = () => { if (addSel.value) { members.push(addSel.value); renderMembers(); } };
+  renderMembers();
+  const flags = { email: r.email, sms: r.sms, push: r.push };
+  const ovBox = h('div');
+  const overrides = [...(r.overrides || [])];
+  const renderOv = () => ovBox.replaceChildren(...overrides.map((ov, i) => h('div', { class: 'row', style: 'margin-bottom:4px' },
+    h('span', { class: 'mono' }, `${dateTime(ov.from)} – ${dateTime(ov.to)}`), h('b', null, userName(ov.userId)),
+    h('button', { class: 'icon-btn', onclick: () => { overrides.splice(i, 1); renderOv(); } }, '✕'))),
+    h('button', { class: 'btn sm', onclick: () => overrideDialog(ov => { overrides.push(ov); renderOv(); }, users) }, T('+ Replacement (e.g. holiday)')));
+  renderOv();
+  formDialog({ title: o ? T('Edit on-call schedule') : T('New on-call schedule'), wide: true, fields: [
+    field(T('Name'), name), field(T('Applies to'), cust),
+    field(T('First shift starts'), h('div', { class: 'row' }, date, time)), field(T('Shift length'), period),
+    field(T('People in turn'), h('div', null, list, addSel), null, true),
+    h('div', { class: 'field full' }, h('span', null, T('The person on call gets')), h('div', { class: 'checks' },
+      check(T('Email'), flags.email, e => { flags.email = e.target.checked; }), check('SMS', flags.sms, e => { flags.sms = e.target.checked; }),
+      check(T('Push'), flags.push, e => { flags.push = e.target.checked; }))),
+    field(T('Replacements'), ovBox, null, true),
+    h('small', { class: 'field full muted' }, T('Choose the schedule under "Notify on call" in an alert rule. Phone numbers and push are set per user (account menu → Notifications).')),
+    o ? h('div', { class: 'field full' }, h('button', { class: 'btn danger sm', onclick: async e => {
+      if (!await confirmDialog(T('Delete'), T('Delete "{0}"?', o.name), T('Delete'))) return;
+      await DEL('/api/oncall/' + o.id); e.target.closest('.backdrop')._close(); renderPage(); } }, T('Delete'))) : null],
+    onSave: async () => {
+      const start = new Date(date.value + 'T' + (time.value || '08:00')).getTime();
+      const body = Object.assign(r, { name: name.value, customerId: cust.value, start, periodDays: +period.value, members, overrides }, flags);
+      if (o) await PUT('/api/oncall/' + o.id, body); else await POST('/api/oncall', body);
+      renderPage();
+    } });
+}
+function nextMonday() { const d = new Date(); d.setHours(8, 0, 0, 0); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return d.getTime(); }
+function overrideDialog(onAdd, users) {
+  const today = new Date().toISOString().slice(0, 10);
+  const from = h('input', { type: 'date', value: today }), to = h('input', { type: 'date', value: today });
+  const who = select(users.map(u => [u.id, u.name || u.email]), users.length ? users[0].id : '');
+  formDialog({ title: T('Replacement'), saveLabel: T('Add'), fields: [field(T('From'), from), field(T('To (inclusive)'), to), field(T('On call instead'), who, null, true)],
+    onSave: async () => { onAdd({ from: new Date(from.value + 'T00:00').getTime(), to: new Date(to.value + 'T00:00').getTime() + 86400000, userId: who.value }); } });
 }
 
 /* ---------------- användare ---------------- */
@@ -1359,6 +1491,51 @@ async function renderSettings(page) {
   sSec.onchange = () => { sPort.value = { starttls: 587, tls: 465, none: 25 }[sSec.value]; };
   const smtpVal = () => ({ host: sHost.value.trim(), port: +sPort.value, security: sSec.value, username: sUser.value.trim(), password: sPass.value, from: sFrom.value.trim(), minMinutes: +sMin.value });
   const testTo = h('input', { type: 'email', placeholder: 'recipient@example.com' }), testRes = h('span');
+  // push och SMS
+  const nt = st.notify || {};
+  const inp = (v, ph, type) => h('input', { type: type || 'text', value: v || '', placeholder: ph || '', autocomplete: 'off' });
+  const ntUrl = inp(nt.ntfyUrl, 'https://ntfy.sh'), ntTopic = inp(nt.ntfyTopic, T('e.g. pingvakt-alerts-x7k2')), ntTok = inp(nt.ntfyToken, T('Only for a protected ntfy server'), 'password');
+  const poTok = inp(nt.pushoverToken, T('Application API token'), 'password'), poUser = inp(nt.pushoverUser, T('User or group key (optional)'));
+  const smsProv = select([['', T('Off')], ['46elks', '46elks'], ['twilio', 'Twilio']], nt.smsProvider || '');
+  const smsUser = inp(nt.smsUser), smsPass = inp(nt.smsPass, '', 'password'), smsFrom = inp(nt.smsFrom, 'PingVakt'), smsMin = num(nt.smsMinMinutes || 10, 1, 1440);
+  const smsUserF = field('', smsUser), smsPassF = field('', smsPass);
+  const syncSms = () => {
+    const v = smsProv.value;
+    [smsUserF, smsPassF].forEach(f => { f.style.display = v ? '' : 'none'; });
+    smsUserF.firstChild.textContent = v === 'twilio' ? 'Account SID' : T('API username');
+    smsPassF.firstChild.textContent = v === 'twilio' ? 'Auth Token' : T('API password');
+  };
+  smsProv.onchange = syncSms; syncSms();
+  const notifyVal = () => ({ ntfyUrl: ntUrl.value.trim(), ntfyTopic: ntTopic.value.trim(), ntfyToken: ntTok.value, pushoverToken: poTok.value.trim(), pushoverUser: poUser.value.trim(),
+    smsProvider: smsProv.value, smsUser: smsUser.value.trim(), smsPass: smsPass.value, smsFrom: smsFrom.value.trim(), smsMinMinutes: +smsMin.value });
+  const notifyFields = [
+    h('div', { class: 'section-title' }, T('Push and SMS')),
+    field(T('ntfy server'), ntUrl, T('Free app for Android/iPhone. Empty = ntfy.sh')), field(T('ntfy topic for all alerts'), ntTopic, T('Optional – users can also have their own topic')),
+    field(T('ntfy token'), ntTok), h('span'),
+    field(T('Pushover application token'), poTok, T('Create an application at pushover.net')), field(T('Pushover user/group key'), poUser),
+    field(T('SMS provider'), smsProv), field(T('SMS sender'), smsFrom, T('Name (max 11 characters) or phone number')),
+    smsUserF, smsPassF,
+    field(T('At most one SMS per alert and target every (minutes)'), smsMin),
+    h('small', { class: 'field full muted' }, T('Push in the web app needs no account: each user turns it on under the account menu → Notifications.'))];
+  // inloggning
+  const au = st.auth || {};
+  const mfa = select([['', T('Optional')], ['admins', T('Required for administrators')], ['all', T('Required for everyone')]], au.requireMfa || '');
+  const ms = au.microsoft || {}, gg = au.google || {};
+  const msOn = h('input', { type: 'checkbox', checked: !!ms.enabled }), msId = inp(ms.clientId, 'Application (client) ID'), msSec = inp(ms.secret, 'Client secret', 'password'), msTen = inp(ms.tenant, T('Directory (tenant) ID or "organizations"'));
+  const gOn = h('input', { type: 'checkbox', checked: !!gg.enabled }), gId = inp(gg.clientId, 'Client ID'), gSec = inp(gg.secret, 'Client secret', 'password');
+  const base = (st.publicUrl || location.origin).replace(/\/$/, '');
+  const authVal = () => ({ requireMfa: mfa.value, microsoft: { enabled: msOn.checked, clientId: msId.value.trim(), secret: msSec.value, tenant: msTen.value.trim() },
+    google: { enabled: gOn.checked, clientId: gId.value.trim(), secret: gSec.value } });
+  const authFields = [
+    h('div', { class: 'section-title' }, T('Sign-in')),
+    field(T('Two-factor authentication'), mfa, T('Users without it must turn it on at their next sign-in. Sign-in with Microsoft/Google counts as two-factor.')), h('span'),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, msOn, h('b', null, T('Sign in with Microsoft (Entra ID)')))),
+    field('Client ID', msId), field('Client secret', msSec), field(T('Tenant'), msTen, T('Your directory ID, or "organizations" for any work account')),
+    field(T('Redirect URI'), copyBox(base + '/auth/microsoft/callback')),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, gOn, h('b', null, T('Sign in with Google')))),
+    field('Client ID', gId), field('Client secret', gSec),
+    field(T('Redirect URI'), copyBox(base + '/auth/google/callback'), null, true),
+    h('small', { class: 'field full muted' }, T('Only existing PingVakt users can sign in – the email address must match the account. Set Public address first so the redirect URI is correct.'))];
   const msg = h('span');
   page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, T('Settings'))),
     h('div', { class: 'modal', style: 'width:auto;max-width:860px;max-height:none' }, h('div', { class: 'modal-body', style: 'padding-top:16px' }, h('div', { class: 'form' },
@@ -1384,7 +1561,8 @@ async function renderSettings(page) {
         testRes.className = ''; testRes.replaceChildren(h('span', { class: 'spin' }), T(' Sending…'));
         try { await POST('/api/settings/test-email', { to: testTo.value, smtp: smtpVal(), newPassword: sPass.value !== '' }); testRes.className = 'form-ok'; testRes.textContent = T('The test email was sent.'); }
         catch (e) { testRes.className = 'form-error'; testRes.textContent = e.message; }
-      } }, T('Send test email'))), testRes))),
+      } }, T('Send test email'))), testRes),
+      ...notifyFields, ...authFields)),
     h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('PingVakt server {0}', S.version))),
       h('button', { class: 'btn primary', onclick: async () => {
         msg.className = ''; msg.textContent = '';
@@ -1393,7 +1571,7 @@ async function renderSettings(page) {
           await PUT('/api/settings', { language: lang.value, publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
             noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value, reportName: repName.value.trim(),
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
-            smtp: smtpVal(), newPassword: sPass.value !== '' });
+            smtp: smtpVal(), newPassword: sPass.value !== '', notify: notifyVal(), auth: authVal() });
           msg.className = 'form-ok'; msg.textContent = T('Saved.'); await loadState();
           if (langChanged && !S.me.lang) location.reload();
         } catch (e) { msg.className = 'form-error'; msg.textContent = e.message; }
@@ -1612,10 +1790,14 @@ function ruleDialog(rule) {
   const hook = h('input', { type: 'text', value: r.hookUrl, placeholder: T('https://… (Teams, Slack, your own service)') });
   const sound = select([['beep', T('Beep')], ['alarm', T('Alerts')], ['chime', T('Chime')]], r.soundName || 'alarm');
   const repeat = num(r.repeatMin, 0, 1440);
-  const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear };
+  const smsTo = h('input', { type: 'text', value: r.smsTo || '', placeholder: T('070-123 45 67, +46701234567') });
+  const teamsUrl = h('input', { type: 'text', value: r.teamsUrl || '', placeholder: T('Teams workflow URL (Post to a channel when a webhook request is received)') });
+  const onCall = select([['', T('– none –')], ...(S.oncalls || []).map(o => [o.id, o.name])], r.onCall || '');
+  const flags = { popup: r.popup, sound: r.sound, email: r.email, webhook: r.webhook, onClear: r.onClear, push: !!r.push, sms: !!r.sms, teams: !!r.teams };
   const box = (label, key) => check(label, flags[key], e => { flags[key] = e.target.checked; });
   const collect = () => Object.assign(r, { name: name.value.trim(), customerId: cust.value, condition: cond.value, threshold: +thr.value, count: +cnt.value, samples: +smp.value,
-    emailTo: emailTo.value, hookUrl: hook.value.trim(), soundName: sound.value, repeatMin: +repeat.value }, flags);
+    emailTo: emailTo.value, hookUrl: hook.value.trim(), soundName: sound.value, repeatMin: +repeat.value,
+    smsTo: smsTo.value.trim(), teamsUrl: teamsUrl.value.trim(), onCall: onCall.value }, flags);
   const testRes = h('span');
   const err = h('span', { class: 'form-error' });
   const close = modal({ title: rule ? T('Edit alert rule') : T('New alert rule'), wide: true,
@@ -1623,7 +1805,11 @@ function ruleDialog(rule) {
       h('div', { class: 'section-title' }, T('Actions')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
         h('div', { class: 'row' }, box(T('Send email to'), 'email'), emailTo),
+        h('div', { class: 'row' }, box(T('Push to phones'), 'push'), h('small', { class: 'muted' }, T('ntfy/Pushover from Settings, and everyone who turned on notifications under their account'))),
+        h('div', { class: 'row' }, box('SMS', 'sms'), smsTo),
+        h('div', { class: 'row' }, box('Teams', 'teams'), teamsUrl),
         h('div', { class: 'row' }, box('Webhook', 'webhook'), hook),
+        h('div', { class: 'row' }, h('span', null, T('Notify on call')), onCall),
         box(T('Popup in the browser for anyone with PingVakt open'), 'popup'),
         h('div', { class: 'row' }, box(T('Sound in the browser'), 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')))),
       h('div', { class: 'section-title' }, T('When')),
@@ -1652,8 +1838,9 @@ function userDialog(u) {
   const role = select([['admin', T('Administrator (everything)')], ['viewer', T('Customer (read-only)')]], u ? u.role : 'viewer');
   const cust = select(S.customers.map(c => [c.id, c.name]), u ? u.customerId : (S.customers[0] || {}).id);
   const pw = h('input', { type: 'password', autocomplete: 'new-password', placeholder: u ? T('Leave empty to keep') : T('At least 8 characters') });
+  const phone = h('input', { type: 'tel', value: u ? u.phone || '' : '', placeholder: '070-123 45 67' });
   const cf = field(T('Customer'), cust); const sync = () => { cf.style.display = role.value === 'viewer' ? '' : 'none'; }; role.onchange = sync; sync();
-  const fields = [field(T('Email'), email), field(T('Name'), name), field(T('Role'), role), cf, field(T('Password'), pw, null, true)];
+  const fields = [field(T('Email'), email), field(T('Name'), name), field(T('Role'), role), cf, field(T('Password'), pw), field(T('Mobile phone (SMS, on call)'), phone)];
   if (u && u.totp) fields.push(h('div', { class: 'field full' }, h('button', { class: 'btn', onclick: async e => {
     if (!await confirmDialog(T('Reset two-factor authentication'), T('{0} can then sign in with just the password and needs to enable two-factor authentication again.', u.email), T('Reset'))) return;
     await POST(`/api/users/${u.id}/totp/reset`); e.target.closest('.backdrop')._close(); renderPage();
@@ -1662,10 +1849,64 @@ function userDialog(u) {
     if (!await confirmDialog(T('Delete user'), T('Delete {0}?', u.email), T('Delete'))) return; await DEL('/api/users/' + u.id); e.target.closest('.backdrop')._close(); renderPage();
   } }, T('Delete the user'))));
   formDialog({ title: u ? T('Edit user') : T('New user'), fields, onSave: async () => {
-    const body = { email: email.value, name: name.value, role: role.value, customerId: role.value === 'viewer' ? cust.value : '', password: pw.value };
+    const body = { email: email.value, name: name.value, role: role.value, customerId: role.value === 'viewer' ? cust.value : '', password: pw.value, phone: phone.value };
     u ? await PUT('/api/users/' + u.id, body) : await POST('/api/users', body);
     renderPage();
   } });
+}
+
+/* ---------------- egna aviseringar och webbpush ---------------- */
+function urlB64ToUint8(s) { const p = '='.repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+async function pushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.getRegistration('/');
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function enablePush(vapid) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error(T('This browser does not support push notifications. On iPhone: share → Add to Home Screen, then open PingVakt from the home screen.'));
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error(T('Notifications were not allowed in the browser.'));
+  const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(vapid) });
+  await POST('/api/push/subscribe', sub.toJSON());
+}
+async function notifyDialog() {
+  const n = await GET('/api/me/notify');
+  const phone = h('input', { type: 'tel', value: n.phone, placeholder: '070-123 45 67' });
+  const po = h('input', { type: 'text', value: n.pushover, placeholder: T('Your Pushover user key') });
+  const nt = h('input', { type: 'text', value: n.ntfy, placeholder: T('e.g. pingvakt-jonas-x7k2 (hard to guess)') });
+  const devState = h('span', { class: 'muted' });
+  const devBtn = h('button', { class: 'btn' });
+  const res = h('span');
+  const refreshDev = async () => {
+    const sub = await pushSubscription().catch(() => null);
+    devState.textContent = sub ? T('On for this device') : T('Off for this device');
+    devBtn.textContent = sub ? T('Turn off on this device') : T('Turn on on this device');
+    devBtn.onclick = async () => {
+      res.className = ''; res.textContent = '';
+      try {
+        if (sub) { await POST('/api/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+        else await enablePush(n.vapidPublic);
+      } catch (e) { res.className = 'form-error'; res.textContent = e.message; }
+      refreshDev();
+    };
+  };
+  refreshDev();
+  formDialog({ title: T('Notifications'), saveLabel: T('Save'), fields: [
+    h('div', { class: 'field full' }, h('span', null, T('Push to this phone or computer')), h('div', { class: 'row' }, devBtn, devState),
+      h('small', null, T('Works in Chrome, Edge, Firefox and Safari. On iPhone, first add PingVakt to the home screen (share → Add to Home Screen) and turn it on from there.'))),
+    field(T('Mobile phone (SMS, on call)'), phone, n.hasSMS ? null : T('SMS is not configured on the server yet.')),
+    n.hasPushover ? field('Pushover', po) : null,
+    field(T('ntfy topic'), nt, T('Subscribe to the same topic in the ntfy app ({0}).', n.ntfyUrl || 'https://ntfy.sh')),
+    h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn', onclick: async () => {
+      res.className = ''; res.textContent = '';
+      try { await PUT('/api/me/notify', { phone: phone.value, pushover: po.value, ntfy: nt.value }); const r = await POST('/api/me/notify/test'); res.className = 'form-ok'; res.textContent = T('Test sent to {0} channels.', r.sent); }
+      catch (e) { res.className = 'form-error'; res.textContent = e.message; }
+    } }, T('Save and send a test')), res)),
+    h('small', { class: 'field full muted' }, T('You get push for alert rules with "Push to phones" for the customers you can see, and SMS/push when you are on call.'))],
+    onSave: async () => { await PUT('/api/me/notify', { phone: phone.value, pushover: po.value, ntfy: nt.value }); } });
 }
 
 function passwordDialog() {

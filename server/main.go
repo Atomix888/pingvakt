@@ -9,6 +9,7 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,7 +20,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.7.2"
+var Version = "0.8.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -94,6 +95,7 @@ func main() {
 
 // spaHandler serverar webbgränssnittet; okända sökvägar ger index.html.
 func spaHandler(root http.FileSystem) http.Handler {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	fsrv := http.FileServer(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path

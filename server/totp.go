@@ -157,6 +157,10 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
+	if s.mfaRequired(u.Role) {
+		httpErr(w, 400, "two-factor authentication is required by the administrator")
+		return
+	}
 	var in struct{ Password string }
 	if !readJSON(w, r, &in) {
 		return

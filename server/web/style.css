@@ -500,3 +500,13 @@ tr.hop-new td { background: rgba(242,179,61,.16); }
 .scan-ports { display: flex; flex-wrap: wrap; gap: 3px; }
 .scan-ports .tag, .scan-table td .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 .scan-table td { white-space: nowrap; } .scan-table td:nth-child(3), .scan-table td:nth-child(5) { white-space: normal; }
+
+/* ---------- inloggning med Microsoft/Google ---------- */
+.auth .auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth .sso { display: flex; flex-direction: column; gap: 8px; }
+.auth .sso:empty { display: none; }
+.sso-or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; margin: 4px 0; }
+.sso-or::before, .sso-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.sso-btn { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; padding: 9px 12px; }
+.auth p.muted { text-align: left; margin: 0; }
+.sso-btn, .sso-btn:visited { color: var(--text); }

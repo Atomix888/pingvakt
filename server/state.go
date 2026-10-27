@@ -65,12 +65,15 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 	s.mailer.OnError = func(err error) { log.Printf("e-post: %v", err) }
 	s.eng = alert.NewEngineFor(engineSource{s}, s.mailer, "", s.onAlertEvent)
 	s.eng.Filter = s.alertFilter
+	s.eng.Extra = s.notifyExtra
+	s.eng.TestExtra = func(a alert.Alert, ev alert.Event) error { return s.notify(a, ev, true) }
 	s.loadOps()
 	if err := s.reload(); err != nil {
 		return nil, err
 	}
 	s.loadHostLatest()
 	s.loadTraces()
+	s.ensureVAPID()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
 		tr := monitor.NewTracker(s.settings.Monitor.HistorySize)

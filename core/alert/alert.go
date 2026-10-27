@@ -56,6 +56,14 @@ type Alert struct {
 	Webhook   bool   `json:"webhook"`
 	HookURL   string `json:"hookUrl"` // tar emot JSON via POST (Teams, Slack, egen tjänst)
 
+	// Serverns kanaler (används inte av skrivbordsappen)
+	Push     bool   `json:"push,omitempty"`     // push till mobilen (ntfy, Pushover, webbappen)
+	SMS      bool   `json:"sms,omitempty"`      // SMS till SMSTo
+	SMSTo    string `json:"smsTo,omitempty"`    // telefonnummer, kommaseparerade
+	Teams    bool   `json:"teams,omitempty"`    // Teams-kort till TeamsURL
+	TeamsURL string `json:"teamsUrl,omitempty"` // Teams Workflows/inkommande webhook
+	OnCall   string `json:"onCall,omitempty"`   // jourschema som också meddelas
+
 	RepeatMin int  `json:"repeatMin"` // upprepa medan larmet är aktivt (0 = nej)
 	OnClear   bool `json:"onClear"`   // meddela när larmet upphör
 }
@@ -106,6 +114,8 @@ func (a *Alert) Normalize() {
 		a.Samples, a.Count = 1, 1
 	}
 	a.HookURL = strings.TrimSpace(a.HookURL)
+	a.TeamsURL = strings.TrimSpace(a.TeamsURL)
+	a.SMSTo = strings.TrimSpace(a.SMSTo)
 	if a.Samples < 1 {
 		a.Samples = map[Condition]int{CondDown: 3, CondLatency: 10, CondLoss: 60}[a.Condition]
 	}
@@ -266,6 +276,10 @@ type Engine struct {
 	// Filter anropas före åtgärderna. Returnerar den false utförs inga åtgärder
 	// (händelsen skickas ändå till onEvent med Suppressed = true).
 	Filter func(a Alert, ev *Event) bool
+	// Extra anropas för varje händelse som inte stoppats av Filter (serverns egna kanaler).
+	Extra func(a Alert, ev Event)
+	// TestExtra anropas när en regel testas och provar serverns egna kanaler.
+	TestExtra func(a Alert, ev Event) error
 }
 
 // NewEngine skapar en larmmotor och kopplar den till monitorn.
@@ -453,6 +467,9 @@ func (e *Engine) dispatch(a Alert, ev Event, logPath string) {
 	if a.Webhook && a.HookURL != "" {
 		go func() { _ = PostWebhook(a.HookURL, ev) }()
 	}
+	if e.Extra != nil {
+		e.Extra(a, ev)
+	}
 }
 
 // Test skickar en testhändelse genom alla åtgärder för larmet.
@@ -467,7 +484,7 @@ func (e *Engine) Test(a Alert) error {
 	}
 	if a.Log && logPath != "" {
 		if err := appendLog(logPath, ev); err != nil {
-			return fmt.Errorf("loggfil: %w", err)
+			return fmt.Errorf("log file: %w", err)
 		}
 	}
 	if a.Notify {
@@ -476,6 +493,11 @@ func (e *Engine) Test(a Alert) error {
 	if a.Webhook && a.HookURL != "" {
 		if err := PostWebhook(a.HookURL, ev); err != nil {
 			return fmt.Errorf("webhook: %w", err)
+		}
+	}
+	if e.TestExtra != nil {
+		if err := e.TestExtra(a, ev); err != nil {
+			return err
 		}
 	}
 	if a.Email && e.mailer != nil {
