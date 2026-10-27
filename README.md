@@ -96,6 +96,14 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **Target templates:** *From template…* on the customer page adds a ready-made set of targets to an agent: *Basic network* (gateway, DNS server, DNS lookup, internet), *Microsoft 365*, *Google Workspace* and *Internet quality*. `{gateway}`, `{dns1}` and `{dns2}` are replaced with the values the agent reports for its network, and the other targets are set to depend on the gateway. Make your own templates under Settings → Target templates, or choose *Save targets as template* in the agent menu.
 
+**Wi-Fi survey:** in the agent view (CPU, memory and disk) under *Wi-Fi networks nearby* the agent scans the air and shows every network it hears: SSID, BSSID, manufacturer, band, channel, channel width, signal, security and standard. A channel graph per band (2.4, 5 and 6 GHz) shows how the networks overlap, and PingVakt points out common problems: co-channel interference on your own channel, 2.4 GHz networks outside channels 1, 6 and 11, 40 MHz in 2.4 GHz and open or WEP networks. Scan on demand or every 5, 15 or 60 minutes; earlier scans from the last week can be opened again. Linux uses `iw` (or `nmcli`), Windows `netsh` (Windows 11 may require location access) and macOS `system_profiler` (no BSSID on newer macOS).
+
+**Roaming alerts:**
+- *Sticky Wi-Fi client* – the computer stays on an access point below N dBm although another access point with the same SSID is X dB stronger, for Y minutes. Needs automatic Wi-Fi scanning on the agent.
+- *Too many roams* – more than N roams in X minutes, which often points to overlapping cells or a client that roams too eagerly.
+
+**UniFi, Meraki and Aruba Central:** under the customer menu → *Add integration* you connect the customer's Ubiquiti UniFi controller (API key or local account), Cisco Meraki organisation (API key) or HPE Aruba Central account (API client with token, renewed automatically). The server reads the status of every access point, switch and gateway every 1–15 minutes. The devices are shown under the customer with status, model, IP, clients, uptime and firmware, and can be added as ping targets with one click. The rule *UniFi/Meraki/Aruba device offline* fires when a device has been offline for N polls – for all devices, only access points or everything except access points. The server must be able to reach the UniFi controller; Meraki and Aruba Central are cloud services.
+
 **Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
 
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
@@ -199,6 +207,7 @@ core/              The measurement engine – shared by desktop app, agent and s
   netscan/         Network scan (ping, ports, ARP, manufacturer, NetBIOS), gateway and DNS
   snmp/            SNMP polling (system, ports, CPU, memory) – runs in the agent
   speedtest/       Speed test against Cloudflare or the server
+  vendors/         UniFi, Meraki and Aruba Central clients
   monitor/         Per-target scheduling, history ring buffer, statistics and status
   alert/           Alert rules, evaluation, email (SMTP), system notifications, log file
   trace/           Traceroute via the system tool
@@ -217,8 +226,6 @@ scripts/build.sh   Build script for all platforms
 
 ## Roadmap
 
-- Wi-Fi survey (neighbouring networks and channels), roaming alerts
-- UniFi, Meraki and Aruba Central integrations
 - Code signing: prepared in the build – see [docs/code-signing.md](docs/code-signing.md) for the certificates to buy and the secrets to add
 
 ## Licences

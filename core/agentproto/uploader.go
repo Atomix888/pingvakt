@@ -76,6 +76,7 @@ type Uploader struct {
 	netsSent      string
 	snmpBuf       []snmp.Poll
 	speedBuf      []speedtest.Result
+	survey        *wifi.Scan
 	netsTime      time.Time
 	status        Status
 	client        *http.Client
@@ -125,6 +126,13 @@ func (u *Uploader) AddSpeed(r speedtest.Result) {
 	if len(u.speedBuf) > 200 {
 		u.speedBuf = u.speedBuf[len(u.speedBuf)-200:]
 	}
+}
+
+// AddSurvey lägger en avsökning av grannätverk i kö (bara den senaste skickas).
+func (u *Uploader) AddSurvey(s wifi.Scan) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.survey = &s
 }
 
 // SpeedEndpoints ger adresserna för ett hastighetstest mot målet ("server" eller Cloudflare).
@@ -234,6 +242,7 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	}
 	rep.SNMP = append([]snmp.Poll(nil), u.snmpBuf[:nSNMP]...)
 	rep.Speed = append([]speedtest.Result(nil), u.speedBuf[:nSpeed]...)
+	rep.Survey = u.survey
 	needTargets := u.needTargets
 	u.mu.Unlock()
 
@@ -283,6 +292,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	u.buf = append(u.buf[:0:0], u.buf[n:]...)
 	u.snmpBuf = append(u.snmpBuf[:0:0], u.snmpBuf[nSNMP:]...)
 	u.speedBuf = append(u.speedBuf[:0:0], u.speedBuf[nSpeed:]...)
+	if u.survey == rep.Survey {
+		u.survey = nil
+	}
 	u.status.Connected = true
 	u.status.LastOK = time.Now().UnixMilli()
 	u.status.LastError = ""
@@ -454,6 +466,12 @@ func (u *Uploader) runCommand(c Command) {
 		cancel()
 		res.Speed = &r
 		u.AddSpeed(r)
+	case CmdWiFiScan:
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		sc := wifi.Survey(ctx)
+		cancel()
+		res.Survey = &sc
+		u.AddSurvey(sc)
 	default:
 		res.Err = "unknown command"
 	}

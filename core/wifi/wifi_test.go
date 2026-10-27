@@ -15,7 +15,7 @@ const iwOut = `Connected to 3c:84:6a:aa:bb:cc (on wlp2s0)
 	tx bitrate: 650.0 MBit/s VHT-MCS 7 80MHz short GI VHT-NSS 2
 `
 
-const survey = `Survey data from wlp2s0
+const surveyDump = `Survey data from wlp2s0
 	frequency:			5170 MHz
 	noise:				-96 dBm
 Survey data from wlp2s0
@@ -99,7 +99,7 @@ func TestParsers(t *testing.T) {
 	if parseIwLink("Not connected.\n") != nil {
 		t.Fatal("iw: inte ansluten")
 	}
-	if n := parseSurveyNoise(survey); n != -92 {
+	if n := parseSurveyNoise(surveyDump); n != -92 {
 		t.Fatalf("survey: %d", n)
 	}
 	if s, n := parseProcWireless("Inter-| sta-|   Quality        |\n face | tus | link level noise |\nwlp2s0: 0000   52.  -58.  -256        0      0      0      0      0        0\n", "wlp2s0"); s != -58 || n != 0 {

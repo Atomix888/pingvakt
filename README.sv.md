@@ -94,6 +94,14 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Mallar för mål:** *Från mall…* på kundsidan lägger till en färdig uppsättning mål på en agent: *Grundläggande nätverk* (gateway, DNS-server, DNS-uppslag, internet), *Microsoft 365*, *Google Workspace* och *Internetkvalitet*. `{gateway}`, `{dns1}` och `{dns2}` ersätts med de värden agenten rapporterar för sitt nät, och övriga mål sätts att ligga bakom gatewayen. Gör egna mallar under Inställningar → Mallar för mål, eller välj *Spara mål som mall* i agentens meny.
 
+**Wi-Fi-survey:** i agentens vy (CPU, minne och disk) under *Wi-Fi-nät i närheten* söker agenten av luften och visar alla nät den hör: SSID, BSSID, tillverkare, band, kanal, kanalbredd, signal, säkerhet och standard. En kanalgraf per band (2,4, 5 och 6 GHz) visar hur näten överlappar, och PingVakt pekar ut vanliga problem: samkanalsstörning på den egna kanalen, nät i 2,4 GHz utanför kanal 1, 6 och 11, 40 MHz i 2,4 GHz samt öppna nät och WEP. Sök av direkt eller var 5:e, 15:e eller 60:e minut; tidigare avsökningar från den senaste veckan kan öppnas igen. Linux använder `iw` (eller `nmcli`), Windows `netsh` (Windows 11 kan kräva platsåtkomst) och macOS `system_profiler` (utan BSSID i nyare macOS).
+
+**Larm för roaming:**
+- *Klistrig Wi-Fi-klient* – datorn sitter kvar på en åtkomstpunkt under N dBm fast en annan åtkomstpunkt med samma SSID är X dB starkare, i Y minuter. Kräver automatisk Wi-Fi-avsökning på agenten.
+- *För många roamingar* – fler än N roamingar på X minuter, vilket ofta tyder på överlappande celler eller en klient som roamar för ivrigt.
+
+**UniFi, Meraki och Aruba Central:** under kundmenyn → *Lägg till integration* kopplar du kundens Ubiquiti UniFi-kontroller (API-nyckel eller lokalt konto), Cisco Meraki-organisation (API-nyckel) eller HPE Aruba Central-konto (API-klient med token, som förnyas automatiskt). Servern läser av status för alla åtkomstpunkter, switchar och gateways var 1–15:e minut. Enheterna visas under kunden med status, modell, IP, klienter, drifttid och firmware, och kan läggas till som pingmål med ett klick. Regeln *UniFi/Meraki/Aruba-enhet offline* larmar när en enhet varit offline i N avläsningar – för alla enheter, bara åtkomstpunkter eller allt utom åtkomstpunkter. Servern måste kunna nå UniFi-kontrollern; Meraki och Aruba Central är molntjänster.
+
 **Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
 
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
@@ -199,6 +207,7 @@ core/              Mätmotorn – delas av skrivbordsapp, agent och server
   netscan/         Nätverksskanning (ping, portar, ARP, tillverkare, NetBIOS), gateway och DNS
   snmp/            SNMP-avläsning (system, portar, CPU, minne) – körs i agenten
   speedtest/       Hastighetstest mot Cloudflare eller servern
+  vendors/         Klienter för UniFi, Meraki och Aruba Central
   i18n/            Översättningar (sv.json: engelska → svenska)
   config/          JSON-konfiguration
 desktop/           Skrivbordsappen (Wails)
@@ -214,8 +223,6 @@ scripts/build.sh   Byggskript för alla plattformar
 
 ## Färdplan
 
-- Wi-Fi-survey (grannätverk och kanaler), larm för roaming
-- Integrationer med UniFi, Meraki och Aruba Central
 - Kodsignering: förberett i bygget – se [docs/code-signing.md](docs/code-signing.md) för vilka certifikat som behövs och vilka hemligheter som ska läggas in
 
 ## Licenser

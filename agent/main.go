@@ -32,7 +32,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.9.0"
+var Version = "0.10.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -238,6 +238,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	up.Nets = netscan.Networks
 	snmpRunner := snmp.NewRunner(ctx, up.AddSNMP)
 	speed := newSpeedScheduler(ctx, up)
+	survey := newSurveyScheduler(ctx, up)
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)
@@ -266,6 +267,7 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 		mon.Reorder(ids)
 		snmpRunner.Set(cfg.SNMP)
 		speed.set(cfg.Speed)
+		survey.set(cfg.WiFiScanMin)
 		log.Printf("configuration: %d targets, %d SNMP devices", len(cfg.Targets), len(cfg.SNMP))
 	}
 	// senaste kända konfiguration – agenten mäter även om servern inte nås vid start
@@ -374,5 +376,49 @@ func (s *speedScheduler) loop(ctx context.Context) {
 			log.Printf("speed test: %s", r.Err)
 		}
 		s.up.AddSpeed(r)
+	}
+}
+
+// surveyScheduler söker av grannätverken med det intervall servern anger.
+type surveyScheduler struct {
+	mu  sync.Mutex
+	min int
+	up  *agentproto.Uploader
+}
+
+func newSurveyScheduler(ctx context.Context, up *agentproto.Uploader) *surveyScheduler {
+	s := &surveyScheduler{up: up}
+	go s.loop(ctx)
+	return s
+}
+
+func (s *surveyScheduler) set(min int) {
+	s.mu.Lock()
+	s.min = min
+	s.mu.Unlock()
+}
+
+func (s *surveyScheduler) loop(ctx context.Context) {
+	var last time.Time
+	tk := time.NewTicker(20 * time.Second)
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+		}
+		s.mu.Lock()
+		min := s.min
+		s.mu.Unlock()
+		if min <= 0 || time.Since(last) < time.Duration(min)*time.Minute {
+			continue
+		}
+		last = time.Now()
+		sc := wifi.Survey(ctx)
+		if sc.Err != "" && len(sc.BSS) == 0 {
+			log.Printf("Wi-Fi scan: %s", sc.Err)
+		}
+		s.up.AddSurvey(sc)
 	}
 }

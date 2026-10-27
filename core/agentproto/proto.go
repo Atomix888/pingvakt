@@ -49,15 +49,17 @@ type CommandResult struct {
 	Devices  []netscan.Device  `json:"devices,omitempty"` // nätverksskanning
 	SNMP     *snmp.Poll        `json:"snmp,omitempty"`
 	Speed    *speedtest.Result `json:"speed,omitempty"`
+	Survey   *wifi.Scan        `json:"survey,omitempty"`
 	Err      string            `json:"err,omitempty"`
 }
 
 // Kommandon.
 const (
-	CmdTrace = "trace" // traceroute mot Host
-	CmdScan  = "scan"  // nätverksskanning av Host (t.ex. 192.168.1.0/24)
-	CmdSNMP  = "snmp"  // testavläsning av en SNMP-enhet
-	CmdSpeed = "speed" // hastighetstest (Host = "cloudflare" eller "server")
+	CmdTrace    = "trace"    // traceroute mot Host
+	CmdScan     = "scan"     // nätverksskanning av Host (t.ex. 192.168.1.0/24)
+	CmdSNMP     = "snmp"     // testavläsning av en SNMP-enhet
+	CmdSpeed    = "speed"    // hastighetstest (Host = "cloudflare" eller "server")
+	CmdWiFiScan = "wifiscan" // avsökning av grannätverk
 )
 
 // Kind för klienten.
@@ -97,15 +99,17 @@ type Report struct {
 	Nets             []netscan.Network  `json:"nets,omitempty"` // datorns nät (skickas när de ändras)
 	SNMP             []snmp.Poll        `json:"snmp,omitempty"`
 	Speed            []speedtest.Result `json:"speed,omitempty"`
+	Survey           *wifi.Scan         `json:"survey,omitempty"` // senaste avsökningen av grannätverk
 }
 
 // Config är det servern bestämmer för en agent.
 type Config struct {
-	Targets   []monitor.Target  `json:"targets"`
-	Settings  monitor.Settings  `json:"settings"`
-	ReportSec int               `json:"reportSec"`
-	SNMP      []snmp.Device     `json:"snmp,omitempty"`
-	Speed     *speedtest.Config `json:"speed,omitempty"`
+	Targets     []monitor.Target  `json:"targets"`
+	Settings    monitor.Settings  `json:"settings"`
+	ReportSec   int               `json:"reportSec"`
+	SNMP        []snmp.Device     `json:"snmp,omitempty"`
+	Speed       *speedtest.Config `json:"speed,omitempty"`
+	WiFiScanMin int               `json:"wifiScanMin,omitempty"` // avsök grannätverk var N:e minut (0 = av)
 }
 
 // Response är serverns svar.

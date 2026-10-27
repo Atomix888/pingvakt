@@ -114,6 +114,7 @@ func (s *Server) ingestWiFi(agentID string, in wifi.Info) {
 		}
 	}
 	s.checkWiFiAlerts(agentID)
+	s.checkRoamRate(agentID)
 }
 
 func (tr *wifiTrack) reset() { tr.n, tr.rssiSum, tr.rssiMin, tr.noiseSum, tr.noiseN = 0, 0, 0, 0, 0 }

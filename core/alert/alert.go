@@ -34,6 +34,9 @@ const (
 	CondIfUtil   Condition = "ifutil"   // portens trafik över N % av hastigheten i X minuter
 	CondIfErrors Condition = "iferrors" // fel på en port över N per minut
 	CondSpeed    Condition = "speed"    // hastighetstestet visar lägre nedladdning än N Mbit/s
+	CondSticky   Condition = "sticky"   // klistrig klient: svag AP fast en starkare med samma SSID syns
+	CondRoamRate Condition = "roamrate" // fler än N roamingar under X minuter
+	CondVendor   Condition = "vendor"   // enhet i UniFi/Meraki/Aruba offline (Threshold: 0 = alla, 1 = bara AP, 2 = utom AP)
 	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
 )
 
@@ -80,7 +83,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor:
 	default:
 		a.Condition = CondDown
 	}
@@ -130,6 +133,32 @@ func (a *Alert) Normalize() {
 			a.Threshold = 10
 		}
 		a.Samples, a.Count = 1, 1
+	case CondSticky:
+		if a.Threshold >= 0 || a.Threshold < -100 {
+			a.Threshold = -70
+		}
+		if a.Count < 3 || a.Count > 40 {
+			a.Count = 10
+		}
+		if a.Samples < 1 {
+			a.Samples = 10
+		}
+	case CondVendor:
+		if a.Threshold < 0 || a.Threshold > 2 {
+			a.Threshold = 0
+		}
+		if a.Samples < 1 || a.Samples > 30 {
+			a.Samples = 2
+		}
+		a.Count = a.Samples
+	case CondRoamRate:
+		if a.Threshold < 1 {
+			a.Threshold = 10
+		}
+		if a.Samples < 5 || a.Samples > 1440 {
+			a.Samples = 60
+		}
+		a.Count = 1
 	case CondSpeed:
 		if a.Threshold <= 0 {
 			a.Threshold = 50
@@ -157,7 +186,7 @@ func (a *Alert) Normalize() {
 	if a.Samples > 3600 {
 		a.Samples = 3600
 	}
-	if a.Count < 1 || a.Count > a.Samples {
+	if a.Condition != CondSticky && (a.Count < 1 || a.Count > a.Samples) { // för klistrig klient är Count en skillnad i dB
 		a.Count = a.Samples
 		if a.Condition == CondLatency {
 			a.Count = (a.Samples + 1) / 2
@@ -205,6 +234,12 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf(i18n.T("Port traffic > %g %% for %d min"), a.Threshold, a.Samples)
 	case CondIfErrors:
 		return fmt.Sprintf(i18n.T("Port errors > %g per minute"), a.Threshold)
+	case CondSticky:
+		return fmt.Sprintf(i18n.T("Sticky client: below %g dBm while another AP is %d dB stronger (%d min)"), a.Threshold, a.Count, a.Samples)
+	case CondVendor:
+		return fmt.Sprintf(i18n.T("UniFi/Meraki/Aruba device offline (%d polls)"), a.Samples)
+	case CondRoamRate:
+		return fmt.Sprintf(i18n.T("More than %g roams in %d min"), a.Threshold, a.Samples)
 	case CondSpeed:
 		return fmt.Sprintf(i18n.T("Download < %g Mbit/s (%d tests in a row)"), a.Threshold, a.Samples)
 	case CondPath:

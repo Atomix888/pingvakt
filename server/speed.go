@@ -223,6 +223,9 @@ func (s *Server) extraInfo(id string) (name, cust string, ok bool) {
 	if n, c, ok := s.snmpInfo(id); ok {
 		return n, c, true
 	}
+	if n, c, ok := s.integInfo(id); ok {
+		return n, c, true
+	}
 	return s.speedInfo(id)
 }
 

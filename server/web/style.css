@@ -534,3 +534,11 @@ tr.hop-new td { background: rgba(242,179,61,.16); }
 .tpl-edit input, .tpl-edit select { width: 100%; min-width: 70px; }
 .tpl-edit td:nth-child(3) input { min-width: 150px; }
 .tpl-admin .tag { margin-left: 6px; border: 1px solid var(--border); color: var(--muted); }
+.chan-canvas { display: block; width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px; margin-top: 6px; }
+.insights { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.insights li.lvl-ok { color: var(--text); }
+.survey-tbl .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.survey-tbl tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#hvSurvey input[type=search] { max-width: 320px; }
+.integ-row { align-items: center; margin-top: -4px; }
+.vendor-chip b::before { content: "☁ "; color: var(--muted); font-weight: 400; }

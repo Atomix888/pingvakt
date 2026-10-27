@@ -133,6 +133,16 @@ func (s *Server) scopeOf(id string) (target, agent, site, customer string) {
 		}
 		snmps.mu.Unlock()
 	}
+	if rest, ok := strings.CutPrefix(id, "int:"); ok {
+		// kopplingar till UniFi/Meraki/Aruba hör till kunden
+		iid, _, _ := strings.Cut(rest, ":")
+		integs.Lock()
+		if in, ok := integs.list[iid]; ok {
+			customer = in.CustomerID
+		}
+		integs.Unlock()
+		return
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if t, ok := s.targets[id]; ok {

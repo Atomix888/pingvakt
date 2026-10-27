@@ -75,6 +75,7 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 	s.loadTraces()
 	s.ensureVAPID()
 	s.loadSNMP()
+	s.loadIntegrations()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
 		tr := monitor.NewTracker(s.settings.Monitor.HistorySize)
@@ -365,6 +366,9 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	if rep.WiFi != nil && rep.WiFi.RSSI < 0 && rep.WiFi.RSSI > -120 {
 		s.ingestWiFi(agentID, *rep.WiFi)
 	}
+	if rep.Survey != nil {
+		s.ingestSurvey(agentID, *rep.Survey)
+	}
 
 	if kind == agentproto.KindAgent {
 		resp.Update = s.agentUpdate(rep.Agent.OS, rep.Agent.Version)
@@ -387,6 +391,7 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 func (s *Server) agentConfig(agentID string) *agentproto.Config {
 	devs := s.snmpForAgent(agentID)
 	speed := s.speedConfig(agentID)
+	scanMin := s.surveyMin(agentID)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var ts []Target
@@ -398,7 +403,7 @@ func (s *Server) agentConfig(agentID string) *agentproto.Config {
 	sort.Slice(ts, func(i, j int) bool { return ts[i].Sort < ts[j].Sort })
 	m := s.settings.Monitor
 	m.HistorySize = 600
-	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec, SNMP: devs, Speed: speed}
+	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec, SNMP: devs, Speed: speed, WiFiScanMin: scanMin}
 }
 
 func (s *Server) syncLocalTargets(agentID string, local []monitor.Target, hash string) error {
@@ -473,6 +478,7 @@ func (s *Server) Run(ctx context.Context) {
 	go s.selfLoop(ctx)
 	go s.nightlyBackupLoop(ctx.Done())
 	go s.reportLoop(ctx.Done())
+	go s.integrationLoop(ctx)
 	go func() {
 		tk := time.NewTicker(10 * time.Second)
 		defer tk.Stop()
@@ -500,6 +506,8 @@ func (s *Server) Run(ctx context.Context) {
 			s.pruneTraces(agg)
 			s.pruneSNMP(agg)
 			s.pruneSpeed(agg)
+			s.pruneSurvey(agg)
+			s.pruneIntegrations()
 			s.pruneMaintenance()
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
