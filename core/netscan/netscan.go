@@ -18,10 +18,12 @@ import (
 
 // Network är ett IPv4-nät som datorn sitter på.
 type Network struct {
-	Iface string `json:"iface"`
-	Addr  string `json:"addr"` // datorns adress i nätet
-	CIDR  string `json:"cidr"` // t.ex. 192.168.1.0/24
-	Hosts int    `json:"hosts"`
+	Iface   string   `json:"iface"`
+	Addr    string   `json:"addr"` // datorns adress i nätet
+	CIDR    string   `json:"cidr"` // t.ex. 192.168.1.0/24
+	Hosts   int      `json:"hosts"`
+	Gateway string   `json:"gateway,omitempty"` // standard-gateway via gränssnittet
+	DNS     []string `json:"dns,omitempty"`     // datorns DNS-servrar
 }
 
 // Device är en enhet som svarade.
@@ -65,6 +67,16 @@ func Networks() []Network {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Iface < out[j].Iface })
+	if len(out) > 0 {
+		gws, dns := gatewayInfo()
+		for i := range out {
+			_, nw, _ := net.ParseCIDR(out[i].CIDR)
+			if g := net.ParseIP(gws[out[i].Iface]); g != nil && nw != nil && nw.Contains(g) {
+				out[i].Gateway = g.String()
+			}
+			out[i].DNS = dns
+		}
+	}
 	return out
 }
 

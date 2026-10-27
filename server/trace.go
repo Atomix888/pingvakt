@@ -224,6 +224,10 @@ func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "invalid response")
 		return
 	}
+	if deliverWaiter(res) {
+		writeJSON(w, map[string]bool{"ok": true})
+		return
+	}
 	if res.Kind == agentproto.CmdScan {
 		s.scanResult(w, agentID, res)
 		return

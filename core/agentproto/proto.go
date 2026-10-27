@@ -13,6 +13,8 @@ import (
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
+	"pingvakt/core/snmp"
+	"pingvakt/core/speedtest"
 	"pingvakt/core/trace"
 	"pingvakt/core/wifi"
 )
@@ -20,34 +22,42 @@ import (
 // ReportPath är serverns endpoint för rapporter.
 const ReportPath = "/api/agent/v1/report"
 
+// SpeedPath är serverns endpoints för hastighetstest mot servern (/down och /up).
+const SpeedPath = "/api/agent/v1/speed"
+
 // ResultPath tar emot svar på kommandon (t.ex. traceroute).
 const ResultPath = "/api/agent/v1/result"
 
 // Command är ett uppdrag från servern som agenten utför och svarar på via ResultPath.
 type Command struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"` // "trace"
-	TargetID string `json:"targetId,omitempty"`
-	Host     string `json:"host"`
-	MaxHops  int    `json:"maxHops,omitempty"`
+	ID       string       `json:"id"`
+	Kind     string       `json:"kind"` // "trace"
+	TargetID string       `json:"targetId,omitempty"`
+	Host     string       `json:"host"`
+	MaxHops  int          `json:"maxHops,omitempty"`
+	SNMP     *snmp.Device `json:"snmp,omitempty"` // för CmdSNMP (testavläsning)
 }
 
 // CommandResult är svaret på ett Command.
 type CommandResult struct {
-	ID       string           `json:"id"`
-	Kind     string           `json:"kind"`
-	TargetID string           `json:"targetId,omitempty"`
-	Start    int64            `json:"start"`
-	End      int64            `json:"end"`
-	Hops     []trace.Hop      `json:"hops,omitempty"`
-	Devices  []netscan.Device `json:"devices,omitempty"` // nätverksskanning
-	Err      string           `json:"err,omitempty"`
+	ID       string            `json:"id"`
+	Kind     string            `json:"kind"`
+	TargetID string            `json:"targetId,omitempty"`
+	Start    int64             `json:"start"`
+	End      int64             `json:"end"`
+	Hops     []trace.Hop       `json:"hops,omitempty"`
+	Devices  []netscan.Device  `json:"devices,omitempty"` // nätverksskanning
+	SNMP     *snmp.Poll        `json:"snmp,omitempty"`
+	Speed    *speedtest.Result `json:"speed,omitempty"`
+	Err      string            `json:"err,omitempty"`
 }
 
 // Kommandon.
 const (
 	CmdTrace = "trace" // traceroute mot Host
 	CmdScan  = "scan"  // nätverksskanning av Host (t.ex. 192.168.1.0/24)
+	CmdSNMP  = "snmp"  // testavläsning av en SNMP-enhet
+	CmdSpeed = "speed" // hastighetstest (Host = "cloudflare" eller "server")
 )
 
 // Kind för klienten.
@@ -77,21 +87,25 @@ type Sample struct {
 
 // Report skickas från klienten.
 type Report struct {
-	Agent            AgentInfo         `json:"agent"`
-	ConfigVersion    int64             `json:"configVersion"`
-	LocalTargetsHash string            `json:"localTargetsHash,omitempty"`
-	LocalTargets     []monitor.Target  `json:"localTargets,omitempty"`
-	Samples          []Sample          `json:"samples"`
-	Host             *hostinfo.Metrics `json:"host,omitempty"` // CPU, minne och disk (agenter)
-	WiFi             *wifi.Info        `json:"wifi,omitempty"` // trådlös anslutning (om datorn har en)
-	Nets             []netscan.Network `json:"nets,omitempty"` // datorns nät (skickas när de ändras)
+	Agent            AgentInfo          `json:"agent"`
+	ConfigVersion    int64              `json:"configVersion"`
+	LocalTargetsHash string             `json:"localTargetsHash,omitempty"`
+	LocalTargets     []monitor.Target   `json:"localTargets,omitempty"`
+	Samples          []Sample           `json:"samples"`
+	Host             *hostinfo.Metrics  `json:"host,omitempty"` // CPU, minne och disk (agenter)
+	WiFi             *wifi.Info         `json:"wifi,omitempty"` // trådlös anslutning (om datorn har en)
+	Nets             []netscan.Network  `json:"nets,omitempty"` // datorns nät (skickas när de ändras)
+	SNMP             []snmp.Poll        `json:"snmp,omitempty"`
+	Speed            []speedtest.Result `json:"speed,omitempty"`
 }
 
 // Config är det servern bestämmer för en agent.
 type Config struct {
-	Targets   []monitor.Target `json:"targets"`
-	Settings  monitor.Settings `json:"settings"`
-	ReportSec int              `json:"reportSec"`
+	Targets   []monitor.Target  `json:"targets"`
+	Settings  monitor.Settings  `json:"settings"`
+	ReportSec int               `json:"reportSec"`
+	SNMP      []snmp.Device     `json:"snmp,omitempty"`
+	Speed     *speedtest.Config `json:"speed,omitempty"`
 }
 
 // Response är serverns svar.
@@ -104,6 +118,7 @@ type Response struct {
 	ConfigVersion    int64       `json:"configVersion"`
 	Config           *Config     `json:"config,omitempty"`
 	NeedLocalTargets bool        `json:"needLocalTargets,omitempty"`
+	NeedNets         bool        `json:"needNets,omitempty"` // servern saknar agentens nät (t.ex. efter omstart)
 	Update           *UpdateInfo `json:"update,omitempty"`
 	Commands         []Command   `json:"commands,omitempty"`
 }

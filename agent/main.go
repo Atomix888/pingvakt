@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
@@ -25,11 +26,13 @@ import (
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
+	"pingvakt/core/snmp"
+	"pingvakt/core/speedtest"
 	"pingvakt/core/wifi"
 )
 
 // Version sätts vid bygge.
-var Version = "0.8.0"
+var Version = "0.9.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -233,6 +236,8 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
 	up.WiFi = wifi.New().Get
 	up.Nets = netscan.Networks
+	snmpRunner := snmp.NewRunner(ctx, up.AddSNMP)
+	speed := newSpeedScheduler(ctx, up)
 
 	apply := func(cfg agentproto.Config) {
 		mon.SetSettings(cfg.Settings)
@@ -259,7 +264,9 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 			ids = append(ids, t.ID)
 		}
 		mon.Reorder(ids)
-		log.Printf("configuration: %d targets", len(cfg.Targets))
+		snmpRunner.Set(cfg.SNMP)
+		speed.set(cfg.Speed)
+		log.Printf("configuration: %d targets, %d SNMP devices", len(cfg.Targets), len(cfg.SNMP))
 	}
 	// senaste kända konfiguration – agenten mäter även om servern inte nås vid start
 	if b, err := os.ReadFile(cachePath); err == nil {
@@ -312,4 +319,60 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 	defer cancel()
 	_ = up.SendAll(fctx)
 	log.Printf("agent stopped")
+}
+
+// speedScheduler kör hastighetstest med det intervall servern anger.
+type speedScheduler struct {
+	mu  sync.Mutex
+	cfg speedtest.Config
+	up  *agentproto.Uploader
+}
+
+func newSpeedScheduler(ctx context.Context, up *agentproto.Uploader) *speedScheduler {
+	s := &speedScheduler{up: up}
+	go s.loop(ctx)
+	return s
+}
+
+func (s *speedScheduler) set(c *speedtest.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c == nil {
+		s.cfg = speedtest.Config{}
+		return
+	}
+	s.cfg = *c
+}
+
+func (s *speedScheduler) loop(ctx context.Context) {
+	var last time.Time
+	tk := time.NewTicker(30 * time.Second)
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+		}
+		s.mu.Lock()
+		c := s.cfg
+		s.mu.Unlock()
+		if c.IntervalMin <= 0 {
+			continue
+		}
+		if last.IsZero() {
+			last = time.Now().Add(-time.Duration(c.IntervalMin)*time.Minute + 2*time.Minute) // första testet efter ett par minuter
+		}
+		if time.Since(last) < time.Duration(c.IntervalMin)*time.Minute {
+			continue
+		}
+		last = time.Now()
+		rctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		r := speedtest.Run(rctx, s.up.SpeedEndpoints(c.Target), c.Seconds, c.Target)
+		cancel()
+		if r.Err != "" {
+			log.Printf("speed test: %s", r.Err)
+		}
+		s.up.AddSpeed(r)
+	}
 }

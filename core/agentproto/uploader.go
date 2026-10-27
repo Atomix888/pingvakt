@@ -21,6 +21,8 @@ import (
 	"pingvakt/core/hostinfo"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
+	"pingvakt/core/snmp"
+	"pingvakt/core/speedtest"
 	"pingvakt/core/trace"
 	"pingvakt/core/wifi"
 )
@@ -72,6 +74,8 @@ type Uploader struct {
 	reportSec     int
 	running       map[string]bool
 	netsSent      string
+	snmpBuf       []snmp.Poll
+	speedBuf      []speedtest.Result
 	netsTime      time.Time
 	status        Status
 	client        *http.Client
@@ -101,6 +105,39 @@ func (u *Uploader) Add(targetID string, s monitor.Sample, errText, addr string) 
 		drop := len(u.buf) - max
 		u.buf = append(u.buf[:0:0], u.buf[drop:]...)
 	}
+}
+
+// AddSNMP lägger en SNMP-avläsning i kö.
+func (u *Uploader) AddSNMP(p snmp.Poll) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.snmpBuf = append(u.snmpBuf, p)
+	if len(u.snmpBuf) > 2000 {
+		u.snmpBuf = u.snmpBuf[len(u.snmpBuf)-2000:]
+	}
+}
+
+// AddSpeed lägger ett hastighetstest i kö.
+func (u *Uploader) AddSpeed(r speedtest.Result) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.speedBuf = append(u.speedBuf, r)
+	if len(u.speedBuf) > 200 {
+		u.speedBuf = u.speedBuf[len(u.speedBuf)-200:]
+	}
+}
+
+// SpeedEndpoints ger adresserna för ett hastighetstest mot målet ("server" eller Cloudflare).
+func (u *Uploader) SpeedEndpoints(target string) speedtest.Endpoints {
+	if target != "server" {
+		return speedtest.Cloudflare()
+	}
+	base, _ := BaseURL(u.ServerURL)
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+u.Token)
+	tr := u.httpClient().Transport
+	return speedtest.Endpoints{Ping: base + SpeedPath + "/down?bytes=0", Down: base + SpeedPath + "/down?bytes=%d", Up: base + SpeedPath + "/up",
+		Header: h, Client: &http.Client{Timeout: 60 * time.Second, Transport: tr}}
 }
 
 // AddUpdate lägger en mätning från monitor i kö (med HTTP-status och certifikat).
@@ -191,6 +228,12 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	}
 	batch := append([]Sample(nil), u.buf[:n]...)
 	rep := Report{Agent: u.Info, ConfigVersion: u.configVersion, Samples: batch}
+	nSNMP, nSpeed := len(u.snmpBuf), len(u.speedBuf)
+	if nSNMP > 500 {
+		nSNMP = 500
+	}
+	rep.SNMP = append([]snmp.Poll(nil), u.snmpBuf[:nSNMP]...)
+	rep.Speed = append([]speedtest.Result(nil), u.speedBuf[:nSpeed]...)
 	needTargets := u.needTargets
 	u.mu.Unlock()
 
@@ -238,6 +281,8 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	}
 	// ta bort det som skickats (nya mätpunkter kan ha lagts till under tiden)
 	u.buf = append(u.buf[:0:0], u.buf[n:]...)
+	u.snmpBuf = append(u.snmpBuf[:0:0], u.snmpBuf[nSNMP:]...)
+	u.speedBuf = append(u.speedBuf[:0:0], u.speedBuf[nSpeed:]...)
 	u.status.Connected = true
 	u.status.LastOK = time.Now().UnixMilli()
 	u.status.LastError = ""
@@ -249,6 +294,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 		u.netsSent, u.netsTime = netsKey, time.Now()
 	}
 	u.needTargets = resp.NeedLocalTargets
+	if resp.NeedNets {
+		u.netsSent = ""
+	}
 	if resp.Update != nil && u.OnUpdate != nil {
 		upd := *resp.Update
 		go u.OnUpdate(upd)
@@ -268,7 +316,7 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 			go u.OnConfig(cfg)
 		}
 	}
-	return len(u.buf) > 0 && n == maxBatch, nil
+	return (len(u.buf) > 0 && n == maxBatch) || len(u.snmpBuf) > 0, nil
 }
 
 func (u *Uploader) post(ctx context.Context, rep Report) (*Response, error) {
@@ -393,6 +441,19 @@ func (u *Uploader) runCommand(c Command) {
 		if err != nil {
 			res.Err = err.Error()
 		}
+	case CmdSNMP:
+		if c.SNMP != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			p := snmp.PollDevice(ctx, *c.SNMP)
+			cancel()
+			res.SNMP = &p
+		}
+	case CmdSpeed:
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		r := speedtest.Run(ctx, u.SpeedEndpoints(c.Host), 8, c.Host)
+		cancel()
+		res.Speed = &r
+		u.AddSpeed(r)
 	default:
 		res.Err = "unknown command"
 	}

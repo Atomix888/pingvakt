@@ -20,16 +20,21 @@ import (
 type Condition string
 
 const (
-	CondDown    Condition = "down"    // förlorade paket
-	CondLatency Condition = "latency" // latens över gränsvärde (förlorat paket räknas också)
-	CondLoss    Condition = "loss"    // paketförlust i procent över fönstret
-	CondOffline Condition = "offline" // agenten har slutat rapportera (bara på servern)
-	CondCPU     Condition = "cpu"     // agentens CPU över gränsvärde (procent) i N minuter
-	CondMem     Condition = "mem"     // agentens minne över gränsvärde (procent) i N minuter
-	CondDisk    Condition = "disk"    // någon av agentens diskar fylld över gränsvärde (procent)
-	CondRSSI    Condition = "rssi"    // agentens Wi-Fi-signal under gränsvärde (dBm) i N minuter
-	CondPath    Condition = "path"    // vägen (traceroute) till ett bevakat mål har ändrats (bara på servern)
-	CondCert    Condition = "cert"    // HTTPS-certifikatet går ut inom N dagar (bara på servern)
+	CondDown     Condition = "down"     // förlorade paket
+	CondLatency  Condition = "latency"  // latens över gränsvärde (förlorat paket räknas också)
+	CondLoss     Condition = "loss"     // paketförlust i procent över fönstret
+	CondOffline  Condition = "offline"  // agenten har slutat rapportera (bara på servern)
+	CondCPU      Condition = "cpu"      // agentens CPU över gränsvärde (procent) i N minuter
+	CondMem      Condition = "mem"      // agentens minne över gränsvärde (procent) i N minuter
+	CondDisk     Condition = "disk"     // någon av agentens diskar fylld över gränsvärde (procent)
+	CondRSSI     Condition = "rssi"     // agentens Wi-Fi-signal under gränsvärde (dBm) i N minuter
+	CondPath     Condition = "path"     // vägen (traceroute) till ett bevakat mål har ändrats (bara på servern)
+	CondSNMP     Condition = "snmp"     // SNMP-enheten svarar inte
+	CondIfDown   Condition = "ifdown"   // en bevakad port går ner
+	CondIfUtil   Condition = "ifutil"   // portens trafik över N % av hastigheten i X minuter
+	CondIfErrors Condition = "iferrors" // fel på en port över N per minut
+	CondSpeed    Condition = "speed"    // hastighetstestet visar lägre nedladdning än N Mbit/s
+	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
 )
 
 // ForTargets anger om villkoret gäller mätmål (annars agenten/datorn).
@@ -75,7 +80,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed:
 	default:
 		a.Condition = CondDown
 	}
@@ -101,6 +106,36 @@ func (a *Alert) Normalize() {
 		}
 		if a.Samples > 120 {
 			a.Samples = 120
+		}
+		a.Count = a.Samples
+	}
+	switch a.Condition {
+	case CondSNMP:
+		if a.Samples < 1 || a.Samples > 100 {
+			a.Samples = 3
+		}
+		a.Count = a.Samples
+	case CondIfDown:
+		a.Samples, a.Count = 1, 1
+	case CondIfUtil:
+		if a.Threshold <= 0 || a.Threshold > 100 {
+			a.Threshold = 90
+		}
+		if a.Samples < 1 {
+			a.Samples = 10
+		}
+		a.Count = a.Samples
+	case CondIfErrors:
+		if a.Threshold <= 0 {
+			a.Threshold = 10
+		}
+		a.Samples, a.Count = 1, 1
+	case CondSpeed:
+		if a.Threshold <= 0 {
+			a.Threshold = 50
+		}
+		if a.Samples < 1 || a.Samples > 20 {
+			a.Samples = 2
 		}
 		a.Count = a.Samples
 	}
@@ -162,6 +197,16 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf("Disk > %g %% full", a.Threshold)
 	case CondRSSI:
 		return fmt.Sprintf(i18n.T("Wi-Fi signal < %g dBm for %d min"), a.Threshold, a.Samples)
+	case CondSNMP:
+		return fmt.Sprintf(i18n.T("SNMP device not responding (%d attempts)"), a.Samples)
+	case CondIfDown:
+		return i18n.T("Watched port down")
+	case CondIfUtil:
+		return fmt.Sprintf(i18n.T("Port traffic > %g %% for %d min"), a.Threshold, a.Samples)
+	case CondIfErrors:
+		return fmt.Sprintf(i18n.T("Port errors > %g per minute"), a.Threshold)
+	case CondSpeed:
+		return fmt.Sprintf(i18n.T("Download < %g Mbit/s (%d tests in a row)"), a.Threshold, a.Samples)
 	case CondPath:
 		return i18n.T("Path to target changes")
 	case CondCert:

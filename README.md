@@ -86,6 +86,16 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **Sign-in:** under Settings → Sign-in you can require two-factor authentication for administrators or everyone – users without it must turn it on at their next sign-in. You can also allow sign-in with Microsoft (Entra ID) and Google: register an app with the redirect URI shown in Settings. Only existing users can sign in, matched on email address, and sign-in through Microsoft/Google counts as two-factor.
 
+**SNMP:** switches, routers, firewalls and servers can be read over SNMP v1, v2c or v3 (MD5/SHA/SHA-256/SHA-512, DES/AES). The agent at the site does the polling, so nothing has to be opened towards the server. Add a device from the customer menu, the site menu or the agent menu (*Add SNMP device…*) and click *Test* to check the settings. The device shows up as a chip under the site. Click it to see uptime, CPU, memory and every port with status, speed, traffic in/out, load in % and errors per minute, plus a traffic graph per port (1 hour to 30 days). Tick *Watch* on the ports that matter. Four alert types use this:
+- *SNMP device not responding* for N polls in a row.
+- *Watched port down* – an enabled, watched port goes down.
+- *Port traffic high* – over X % of the port speed for N minutes.
+- *Port errors* – more than N errors per minute.
+
+**Speed tests:** in the agent view (CPU, memory and disk) you can run a speed test against Cloudflare or against the PingVakt server, and schedule it every hour, every 4 hours, twice a day or once a day. Results are shown as a graph, and the *Speed test slow* rule fires when the download speed is below N Mbit/s in X tests in a row. A test uses roughly 50–500 MB depending on the line, so do not run it too often on metered connections.
+
+**Target templates:** *From template…* on the customer page adds a ready-made set of targets to an agent: *Basic network* (gateway, DNS server, DNS lookup, internet), *Microsoft 365*, *Google Workspace* and *Internet quality*. `{gateway}`, `{dns1}` and `{dns2}` are replaced with the values the agent reports for its network, and the other targets are set to depend on the gateway. Make your own templates under Settings → Target templates, or choose *Save targets as template* in the agent menu.
+
 **Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
 
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
@@ -186,7 +196,9 @@ core/              The measurement engine – shared by desktop app, agent and s
   agentproto/      Agent ↔ server protocol and the client that sends measurements
   probe/           ICMP (Windows API / unprivileged sockets), TCP ping, HTTP(S) and DNS checks
   wifi/            Wi-Fi readings (iw, netsh, wdutil, system_profiler)
-  netscan/         Network scan (ping, ports, ARP, manufacturer, NetBIOS)
+  netscan/         Network scan (ping, ports, ARP, manufacturer, NetBIOS), gateway and DNS
+  snmp/            SNMP polling (system, ports, CPU, memory) – runs in the agent
+  speedtest/       Speed test against Cloudflare or the server
   monitor/         Per-target scheduling, history ring buffer, statistics and status
   alert/           Alert rules, evaluation, email (SMTP), system notifications, log file
   trace/           Traceroute via the system tool
@@ -205,8 +217,9 @@ scripts/build.sh   Build script for all platforms
 
 ## Roadmap
 
+- Wi-Fi survey (neighbouring networks and channels), roaming alerts
+- UniFi, Meraki and Aruba Central integrations
 - Code signing (Windows/macOS)
-- Sign-in with Microsoft/Google for customers
 
 ## Licences
 

@@ -84,6 +84,16 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Inloggning:** under Inställningar → Inloggning kan du kräva tvåstegsinloggning för administratörer eller alla – den som saknar det måste slå på det vid nästa inloggning. Du kan också tillåta inloggning med Microsoft (Entra ID) och Google: registrera en app med omdirigerings-URI:n som visas i Inställningar. Bara befintliga användare kan logga in, kopplat via e-postadressen, och inloggning via Microsoft/Google räknas som tvåsteg.
 
+**SNMP:** switchar, routrar, brandväggar och servrar kan läsas av med SNMP v1, v2c eller v3 (MD5/SHA/SHA-256/SHA-512, DES/AES). Agenten på platsen gör avläsningen, så inget behöver öppnas mot servern. Lägg till en enhet från kundens meny, platsens meny eller agentens meny (*Lägg till SNMP-enhet…*) och klicka på *Testa* för att kontrollera inställningarna. Enheten visas som en bricka under platsen. Klicka på den för att se drifttid, CPU, minne och alla portar med status, hastighet, trafik in/ut, last i % och fel per minut, samt en trafikgraf per port (1 timme till 30 dagar). Bocka i *Bevaka* på de portar som är viktiga. Fyra larmtyper använder detta:
+- *SNMP-enhet svarar inte* under N avläsningar i rad.
+- *Bevakad port nere* – en påslagen, bevakad port går ner.
+- *Hög porttrafik* – över X % av porthastigheten i N minuter.
+- *Portfel* – fler än N fel per minut.
+
+**Hastighetstester:** i agentens vy (CPU, minne och disk) kan du köra ett hastighetstest mot Cloudflare eller mot PingVakt-servern, och schemalägga det varje timme, var 4:e timme, två gånger om dagen eller en gång om dagen. Resultaten visas som en graf, och regeln *Hastighetstest långsamt* larmar när nedladdningen är under N Mbit/s i X tester i rad. Ett test använder ungefär 50–500 MB beroende på linan, så kör det inte för ofta på anslutningar med datatak.
+
+**Mallar för mål:** *Från mall…* på kundsidan lägger till en färdig uppsättning mål på en agent: *Grundläggande nätverk* (gateway, DNS-server, DNS-uppslag, internet), *Microsoft 365*, *Google Workspace* och *Internetkvalitet*. `{gateway}`, `{dns1}` och `{dns2}` ersätts med de värden agenten rapporterar för sitt nät, och övriga mål sätts att ligga bakom gatewayen. Gör egna mallar under Inställningar → Mallar för mål, eller välj *Spara mål som mall* i agentens meny.
+
 **Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
 
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
@@ -186,7 +196,9 @@ core/              Mätmotorn – delas av skrivbordsapp, agent och server
   monitor/         Schemaläggning per mål, ringbuffert med historik, statistik och status
   alert/           Larmregler, utvärdering, e-post (SMTP), systemnotiser, loggfil
   trace/           Traceroute via systemets verktyg
-  netscan/         Nätverksskanning (ping, portar, ARP, tillverkare, NetBIOS)
+  netscan/         Nätverksskanning (ping, portar, ARP, tillverkare, NetBIOS), gateway och DNS
+  snmp/            SNMP-avläsning (system, portar, CPU, minne) – körs i agenten
+  speedtest/       Hastighetstest mot Cloudflare eller servern
   i18n/            Översättningar (sv.json: engelska → svenska)
   config/          JSON-konfiguration
 desktop/           Skrivbordsappen (Wails)
@@ -202,8 +214,9 @@ scripts/build.sh   Byggskript för alla plattformar
 
 ## Färdplan
 
+- Wi-Fi-survey (grannätverk och kanaler), larm för roaming
+- Integrationer med UniFi, Meraki och Aruba Central
 - Kodsignering (Windows/macOS)
-- Inloggning via Microsoft/Google för kunder
 
 ## Licenser
 

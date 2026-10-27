@@ -83,6 +83,23 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/push/unsubscribe", need(false, s.handlePushUnsubscribe))
 	mux.HandleFunc("GET /api/agents/{id}/scan", need(true, s.handleScanInfo))
 	mux.HandleFunc("POST /api/agents/{id}/scan", need(true, s.handleStartScan))
+	mux.HandleFunc("GET /api/snmp", need(false, s.handleSNMPList))
+	mux.HandleFunc("POST /api/snmp", need(true, s.handleSNMPSave))
+	mux.HandleFunc("POST /api/snmp/test", need(true, s.handleSNMPTest))
+	mux.HandleFunc("GET /api/snmp/{id}", need(false, s.handleSNMPGet))
+	mux.HandleFunc("PUT /api/snmp/{id}", need(true, s.handleSNMPSave))
+	mux.HandleFunc("DELETE /api/snmp/{id}", need(true, s.handleSNMPDelete))
+	mux.HandleFunc("GET /api/snmp/{id}/history", need(false, s.handleSNMPHistory))
+	mux.HandleFunc("GET /api/agents/{id}/speed", need(false, s.handleSpeedGet))
+	mux.HandleFunc("PUT /api/agents/{id}/speed", need(true, s.handleSpeedConfig))
+	mux.HandleFunc("POST /api/agents/{id}/speed/run", need(false, s.handleSpeedRun))
+	mux.HandleFunc("GET "+agentproto.SpeedPath+"/down", s.handleSpeedDown)
+	mux.HandleFunc("POST "+agentproto.SpeedPath+"/up", s.handleSpeedUp)
+	mux.HandleFunc("GET /api/templates", need(false, s.handleTemplates))
+	mux.HandleFunc("POST /api/templates", need(true, s.handleSaveTemplate))
+	mux.HandleFunc("PUT /api/templates/{id}", need(true, s.handleSaveTemplate))
+	mux.HandleFunc("DELETE /api/templates/{id}", need(true, s.handleDeleteTemplate))
+	mux.HandleFunc("POST /api/templates/{id}/apply", need(true, s.handleApplyTemplate))
 	mux.HandleFunc("PUT /api/me/lang", need(false, s.handleMyLang))
 	mux.HandleFunc("POST /api/targets/{id}/trace", need(false, s.handleStartTrace))
 	mux.HandleFunc("GET /api/targets/{id}/traces", need(false, s.handleTraces))
@@ -887,6 +904,14 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "alert rule", id, i18n.T("deleted the alert rule ")+s.rules[id].Name)
+	// aktiva larm från regeln försvinner
+	s.host.mu.Lock()
+	for k := range s.host.alerts {
+		if strings.HasPrefix(k, id+"|") {
+			delete(s.host.alerts, k)
+		}
+	}
+	s.host.mu.Unlock()
 	// ta bort kopplingen från målen
 	ts, _ := s.db.Targets()
 	for _, t := range ts {

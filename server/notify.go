@@ -320,7 +320,10 @@ func (s *Server) customerOfEvent(ev alert.Event) string {
 	if a, ok := s.agents[ev.TargetID]; ok {
 		return s.customerOfAgent(a)
 	}
-	return ""
+	s.mu.RUnlock()
+	_, c, _ := s.extraInfo(ev.TargetID)
+	s.mu.RLock()
+	return c
 }
 
 func (s *Server) eventLink(ev alert.Event) string {

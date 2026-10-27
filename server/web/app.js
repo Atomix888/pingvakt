@@ -360,9 +360,12 @@ function renderCustomer(page, id) {
     h('div', null, h('h1', null, c.name), c.notes ? h('div', { class: 'sub' }, c.notes) : null), connBadge(),
     h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report')), isAdmin() ? [
       h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, T('+ Add targets')),
+      h('button', { class: 'btn', onclick: () => templateDialog(id) }, T('From template…')),
       h('button', { class: 'btn', onclick: () => agentDialog(id) }, T('+ New agent')),
       h('button', { class: 'btn', onclick: () => siteDialog(id) }, T('+ New site')),
       h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
+        { label: T('Add SNMP device…'), action: () => snmpDialog(null, c.id) },
+        '-',
         { label: T('Edit customer…'), action: () => customerDialog(c) },
         { label: T('Maintenance windows…'), action: () => maintDialog(c.id) },
         { label: T('Public status page…'), action: () => statusPageDialog(c) },
@@ -381,13 +384,15 @@ function renderCustomer(page, id) {
     return h('div', { class: 'section' },
       h('div', { class: 'section-head' }, h('h2', null, site.name), h('span', { class: 'muted' }, T('{0} targets', ts.length)),
         isAdmin() ? h('div', { class: 'tools' }, h('button', { class: 'btn ghost sm', onclick: e => showMenu(e.currentTarget, [
+          { label: T('Add SNMP device…'), action: () => snmpDialog(null, id, (ags.find(a => a.kind !== 'desktop') || {}).id) },
           { label: T('Rename…'), action: () => siteDialog(id, site) },
           { label: T('Delete site…'), danger: true, action: () => deleteSite(site) },
         ]) }, '⋯')) : null),
-      agentChips,
+      agentChips, snmpRow(site),
       ts.length ? grid : (ags.length ? h('p', { class: 'muted' }, isAdmin() ? T('No targets yet – click "Add targets".') : T('No targets.')) : null));
   });
   page.replaceChildren(head, ...sections);
+  loadSNMP().then(refreshSnmpRows);
   requestAnimationFrame(() => { for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
   // fyll minigraferna med de senaste mätpunkterna
   const since = Date.now() - SPARK_MAX * 1000;
@@ -429,6 +434,9 @@ function agentMenu(a, anchor) {
       const r = await POST(`/api/agents/${a.id}/token`); await afterChange(); installDialog(a, r.token);
     } },
     isAdmin() && a.kind ? { label: T('Scan network…'), action: () => openScan(a) } : null,
+    a.kind === 'agent' ? { label: T('Add targets from template…'), action: () => templateDialog(customerOfAgent(a), a.id) } : null,
+    a.kind === 'agent' ? { label: T('Add SNMP device…'), action: () => snmpDialog(null, customerOfAgent(a), a.id) } : null,
+    S.targets.some(t => t.agentId === a.id) ? { label: T('Save targets as template…'), action: () => saveAsTemplateDialog(a) } : null,
     { label: T('Rename / move…'), action: () => editAgentDialog(a) },
     '-',
     { label: T('Delete agent…'), danger: true, action: async () => {
@@ -615,6 +623,8 @@ function connectLive() {
     else if (m.type === 'alert') onAlert(m.event);
     else if (m.type === 'trace') onTrace(m.trace);
     else if (m.type === 'scan') onScan(m.scan);
+    else if (m.type === 'snmp') onSnmpEvent(m);
+    else if (m.type === 'speed') { if (S.hostView && S.hostView.id === m.agentId) renderSpeed(m.agentId); }
   };
 }
 function updateConn() { const b = $('#connBadge'); if (b) b.replaceWith(connBadge()); }
@@ -645,6 +655,8 @@ function onTick(m) {
     if (a) { const n = agentChip(a); if (n.dataset.sig !== ch.dataset.sig) ch.replaceWith(n); }
   });
   if (S.selected) updateDrawerHead();
+  const snmpSig = Object.keys(S.active).filter(k => k.includes('|snmp:')).sort().join();
+  if (snmpSig !== S.snmpSig) { S.snmpSig = snmpSig; refreshSnmpRows(); }
   renderNavThrottled();
 }
 let navT = 0;
@@ -1085,7 +1097,8 @@ function hostView(id) {
     h('div', null, h('h4', null, 'CPU'), h('div', { class: 'hchart', id: 'hcCpu' })),
     h('div', null, h('h4', null, T('Memory')), h('div', { class: 'hchart', id: 'hcMem' })),
     h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })),
-    h('div', { class: 'full', id: 'hvWifi' }));
+    h('div', { class: 'full', id: 'hvWifi' }),
+    h('div', { class: 'full', id: 'hvSpeed' }));
   const title = isSrv ? T('PingVakt server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
   modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, T('History')), h('div', { class: 'tools' }, ranges)), charts),
     onClose: () => { S.hostView = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
@@ -1145,6 +1158,7 @@ async function loadHostCharts() {
     { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
   mk('#hcMem', [{ label: T('Used{0}', hs.memTotal ? T(' of ') + gb(hs.memTotal) : ''), stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
   renderWifi(res, from, to, axis, hv);
+  if (hv.id !== '_server') renderSpeed(hv.id);
   mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
 }
 
@@ -1333,7 +1347,7 @@ async function renderAlerts(page) {
     return h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, label)),
       rs.length ? h('table', { class: 'tbl' }, h('thead', null, h('tr', null, ...[T('Name'), T('Condition'), T('Actions'), T('Targets'), ''].map(x => h('th', null, x)))),
         h('tbody', null, ...rs.map(r => h('tr', null, h('td', null, h('b', null, r.name)), h('td', null, describe(r)),
-          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
+          h('td', null, actionsText(r)), h('td', null, r.condition === 'cert' ? T('all HTTPS targets') : r.condition === 'path' ? T('targets with path monitoring') : ['snmp', 'ifdown', 'ifutil', 'iferrors'].includes(r.condition) ? T('SNMP devices') : !['down', 'latency', 'loss'].includes(r.condition) ? T('all agents') : String(S.targets.filter(t => (t.alertIds || []).includes(r.id)).length)),
           h('td', { class: 'actions' }, isAdmin() ? h('button', { class: 'btn sm', onclick: () => ruleDialog(r) }, T('Edit')) : null)))))
         : h('p', { class: 'muted' }, T('No rules.')));
   }).filter(Boolean);
@@ -1381,6 +1395,11 @@ function describe(a) {
   if (a.condition === 'rssi') return T('Wi-Fi signal < {0} dBm for {1} min', a.threshold, a.samples);
   if (a.condition === 'path') return T('Path to target changes');
   if (a.condition === 'cert') return T('Certificate expires within {0} days', a.threshold);
+  if (a.condition === 'snmp') return T('SNMP device not responding ({0} polls)', a.samples);
+  if (a.condition === 'ifdown') return T('Watched port down');
+  if (a.condition === 'ifutil') return T('Port traffic > {0} % for {1} min', a.threshold, a.samples);
+  if (a.condition === 'iferrors') return T('Port errors > {0} per minute', a.threshold);
+  if (a.condition === 'speed') return T('Download < {0} Mbit/s ({1} tests in a row)', a.threshold, a.samples);
   return T('Down: {0} of {1} lost', a.count, a.samples);
 }
 function actionsText(r) {
@@ -1562,7 +1581,9 @@ async function renderSettings(page) {
         try { await POST('/api/settings/test-email', { to: testTo.value, smtp: smtpVal(), newPassword: sPass.value !== '' }); testRes.className = 'form-ok'; testRes.textContent = T('The test email was sent.'); }
         catch (e) { testRes.className = 'form-error'; testRes.textContent = e.message; }
       } }, T('Send test email'))), testRes),
-      ...notifyFields, ...authFields)),
+      ...notifyFields, ...authFields,
+      h('div', { class: 'section-title', id: 'tplSection' }, T('Target templates')),
+      h('div', { class: 'field full', id: 'tplBox' }))),
     h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('PingVakt server {0}', S.version))),
       h('button', { class: 'btn primary', onclick: async () => {
         msg.className = ''; msg.textContent = '';
@@ -1576,6 +1597,7 @@ async function renderSettings(page) {
           if (langChanged && !S.me.lang) location.reload();
         } catch (e) { msg.className = 'form-error'; msg.textContent = e.message; }
       } }, T('Save')))));
+  templateSection().then(b => { const el = $('#tplBox'); if (el) el.replaceChildren(b); });
 }
 
 /* ---------------- dialoger ---------------- */
@@ -1702,7 +1724,8 @@ function addTargetsDialog(customerId) {
   kind.onchange();
   formDialog({ title: T('Add targets'), saveLabel: T('Add'), fields: [field(T('Measuring agent'), agent, null, true),
     field(T('Hosts'), hosts, T('One or more, separated by commas or line breaks. Write host:port for TCP.'), true),
-    h('div', { class: 'field full' }, h('button', { class: 'btn sm', type: 'button', onclick: e => { const ag = ags.find(x => x.id === agent.value); e.target.closest('.backdrop')._close(); if (ag) openScan(ag); } }, T('Find devices with a network scan…'))),
+    h('div', { class: 'field full' }, h('div', { class: 'row' }, h('button', { class: 'btn sm', type: 'button', onclick: e => { const ag = ags.find(x => x.id === agent.value); e.target.closest('.backdrop')._close(); if (ag) openScan(ag); } }, T('Find devices with a network scan…')),
+      h('button', { class: 'btn sm', type: 'button', onclick: e => { e.target.closest('.backdrop')._close(); templateDialog(customerId, agent.value); } }, T('Use a template…')))),
     field(T('Check type'), kind), pf, kf, df, field(T('Group'), group, null, true)],
     onSave: async () => { await POST('/api/targets', { agentId: agent.value, hosts: hosts.value, kind: kind.value, port: +port.value, group: group.value, keyword: kw.value.trim(), dnsServer: dns.value.trim() }); await afterChange(); } });
 }
@@ -1755,7 +1778,8 @@ function ruleDialog(rule) {
   const name = h('input', { type: 'text', value: r.name, placeholder: T('Rule name') });
   const cust = select([['', T('All customers')], ...S.customers.map(c => [c.id, c.name])], r.customerId || '');
   const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')], ['offline', 'Agent offline'],
-    ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')]], r.condition);
+    ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')],
+    ['snmp', T('SNMP device not responding')], ['ifdown', T('Watched port down')], ['ifutil', T('Port traffic high')], ['iferrors', T('Port errors')], ['speed', T('Speed test slow')]], r.condition);
   const thr = num(r.threshold, -120, 100000, .5), cnt = num(r.count, 1, 3600), smp = num(r.samples, 1, 3600);
   const condRow = h('div', { class: 'field full' });
   const syncCond = () => {
@@ -1772,6 +1796,15 @@ function ruleDialog(rule) {
     if (c === 'path') condRow.replaceChildren(h('small', null, T('Triggers when traceroute shows a new path twice in a row. Turn on "Path monitoring" on the targets to watch.')));
     if (c === 'cert') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Certificate expires within')), thr, h('span', null, T('days'))),
       h('small', null, T('Applies to all HTTPS targets of the customer.')));
+    if (c === 'snmp') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('No response')), smp, h('span', null, T('polls in a row'))),
+      h('small', null, T('Applies to all SNMP devices of the customer.')));
+    if (c === 'ifdown') condRow.replaceChildren(h('small', null, T('Triggers when a port that is ticked under "Watch" in the SNMP device view goes down while it is enabled.')));
+    if (c === 'ifutil') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Traffic over')), thr, h('span', null, T('% of the port speed for')), smp, h('span', null, T('minutes'))),
+      h('small', null, T('Applies to watched ports, or all ports of the device when none is watched.')));
+    if (c === 'iferrors') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('More than')), thr, h('span', null, T('errors per minute on a port'))),
+      h('small', null, T('Applies to all ports of the customer\'s SNMP devices.')));
+    if (c === 'speed') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Download below')), thr, h('span', null, T('Mbit/s in')), smp, h('span', null, T('tests in a row'))),
+      h('small', null, T('Turn on automatic speed tests on the agent (CPU, memory and disk view).')));
     if (c === 'offline') condRow.replaceChildren(h('small', null, T('Triggers when an agent has not reported for {0} seconds. Applies to all agents of the customer.', Math.max(30, S.reportSec * 3))));
   };
   cond.onchange = () => {
@@ -1782,6 +1815,10 @@ function ruleDialog(rule) {
     if (c === 'down') { cnt.value = 3; smp.value = 3; }
     if (c === 'rssi') { thr.value = +thr.value < 0 ? thr.value : -75; smp.value = 5; }
     if (c === 'cert') { thr.value = 14; smp.value = 1; cnt.value = 1; }
+    if (c === 'snmp') smp.value = 3;
+    if (c === 'ifutil') { thr.value = +thr.value > 0 && +thr.value <= 100 ? thr.value : 90; smp.value = 10; }
+    if (c === 'iferrors') thr.value = +thr.value > 0 ? thr.value : 10;
+    if (c === 'speed') { thr.value = +thr.value > 0 ? thr.value : 50; smp.value = 2; }
     syncCond();
   };
   cust.addEventListener('change', syncCond);

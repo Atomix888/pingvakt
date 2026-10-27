@@ -181,6 +181,7 @@ func (s *Server) selfLoop(ctx context.Context) {
 		case <-ctx.Done():
 			s.flushHost(true)
 			s.flushWiFi(true)
+			s.flushSNMP(true)
 			return
 		case <-tk.C:
 		}

@@ -74,6 +74,7 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 	s.loadHostLatest()
 	s.loadTraces()
 	s.ensureVAPID()
+	s.loadSNMP()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
 		tr := monitor.NewTracker(s.settings.Monitor.HistorySize)
@@ -252,6 +253,9 @@ func (s *Server) onAlertEvent(ev alert.Event) {
 		cust = s.customerOfAgent(a)
 	}
 	s.mu.RUnlock()
+	if cust == "" {
+		_, cust, _ = s.extraInfo(ev.TargetID)
+	}
 	if ev.Kind != "test" {
 		s.db.AddEvent(cust, ev)
 	}
@@ -352,6 +356,12 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	if rep.Nets != nil {
 		s.ingestNets(agentID, rep.Nets)
 	}
+	if len(rep.SNMP) > 0 {
+		s.ingestSNMP(agentID, rep.SNMP)
+	}
+	if len(rep.Speed) > 0 {
+		s.ingestSpeed(agentID, rep.Speed)
+	}
 	if rep.WiFi != nil && rep.WiFi.RSSI < 0 && rep.WiFi.RSSI > -120 {
 		s.ingestWiFi(agentID, *rep.WiFi)
 	}
@@ -360,6 +370,12 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 		resp.Update = s.agentUpdate(rep.Agent.OS, rep.Agent.Version)
 	}
 	resp.Commands = s.takeCommands(agentID)
+	if rep.Nets == nil {
+		scans.mu.Lock()
+		_, known := scans.nets[agentID]
+		scans.mu.Unlock()
+		resp.NeedNets = !known
+	}
 	// konfiguration till agenter som styrs från servern
 	if kind == agentproto.KindAgent && rep.ConfigVersion != agentCopy.ConfigVersion {
 		resp.ConfigVersion = agentCopy.ConfigVersion
@@ -369,6 +385,8 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 }
 
 func (s *Server) agentConfig(agentID string) *agentproto.Config {
+	devs := s.snmpForAgent(agentID)
+	speed := s.speedConfig(agentID)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var ts []Target
@@ -380,7 +398,7 @@ func (s *Server) agentConfig(agentID string) *agentproto.Config {
 	sort.Slice(ts, func(i, j int) bool { return ts[i].Sort < ts[j].Sort })
 	m := s.settings.Monitor
 	m.HistorySize = 600
-	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec}
+	return &agentproto.Config{Targets: toProto(ts), Settings: m, ReportSec: s.settings.ReportSec, SNMP: devs, Speed: speed}
 }
 
 func (s *Server) syncLocalTargets(agentID string, local []monitor.Target, hash string) error {
@@ -468,6 +486,7 @@ func (s *Server) Run(ctx context.Context) {
 				s.scheduleTraces()
 				s.flushHost(false)
 				s.flushWiFi(false)
+				s.flushSNMP(false)
 			}
 		}
 	}()
@@ -479,6 +498,8 @@ func (s *Server) Run(ctx context.Context) {
 			s.pruneHost(agg)
 			s.pruneWiFi(agg)
 			s.pruneTraces(agg)
+			s.pruneSNMP(agg)
+			s.pruneSpeed(agg)
 			s.pruneMaintenance()
 			if n, err := s.db.Prune(raw, agg); err != nil {
 				log.Printf("gallring: %v", err)
@@ -613,6 +634,14 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 		}
 		snap := s.snapshot(nil)
 		active := s.activeAlerts()
+		extraCust := map[string]string{}
+		for k := range active {
+			if i := strings.IndexByte(k, '|'); i >= 0 {
+				if _, c, ok := s.extraInfo(k[i+1:]); ok {
+					extraCust[k[i+1:]] = c
+				}
+			}
+		}
 		self := s.hostLatest(ServerHostID)
 		maint := s.inMaintenance()
 		s.ops.mu.Lock()
@@ -645,7 +674,9 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 					id := k[i+1:]
 					_, isT := stats[id]
 					_, isA := agents[id]
-					if isT || isA {
+					c, isX := extraCust[id]
+					isX = isX && (sub.customers == nil || sub.customers[c])
+					if isT || isA || isX {
 						act[k] = v
 					}
 				}

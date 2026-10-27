@@ -122,6 +122,17 @@ func (s *Server) loadOps() {
 
 // scopeOf returnerar mål-, agent-, site- och kund-ID för ett mål eller en agent.
 func (s *Server) scopeOf(id string) (target, agent, site, customer string) {
+	// SNMP-enheter och hastighetstester hör till agentens servicefönster
+	if a, ok := strings.CutPrefix(id, "speed:"); ok {
+		id = a
+	} else if rest, ok := strings.CutPrefix(id, "snmp:"); ok {
+		dev, _, _ := strings.Cut(rest, ":")
+		snmps.mu.Lock()
+		if d, ok := snmps.devs[dev]; ok {
+			id = d.AgentID
+		}
+		snmps.mu.Unlock()
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if t, ok := s.targets[id]; ok {
@@ -407,6 +418,9 @@ func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 			name = i18n.T("PingVakt server")
 		}
 		s.mu.RUnlock()
+		if n, c, ok := s.extraInfo(tid); ok {
+			name, cust = n, c
+		}
 		if !(u.Role == "admin" || (cust != "" && cust == u.CustomerID)) {
 			continue
 		}
