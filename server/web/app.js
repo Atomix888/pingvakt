@@ -1735,6 +1735,7 @@ function installDialog(a, token) {
     field(T('Linux (including Raspberry Pi) and macOS – in the terminal'), copyBox(`curl -fsSL ${url}/install.sh | sudo sh -s -- --token ${tok}`), null, true),
     field(T('Windows – in PowerShell as administrator'), copyBox(`& ([scriptblock]::Create((irm ${url}/install.ps1))) -Token ${tok}`), null, true),
     field(T('The PingVakt desktop app'), h('div', null, T('Settings → Server: enter the address '), h('code', null, url), T(' and the token.')), null, true),
+    field(T('Android phone'), h('div', null, T('Install PingVakt-…-android.apk from the GitHub release, open the app and enter the address '), h('code', null, url), T(' and the token.')), null, true),
     h('small', { class: 'field full' }, T('The agent connects outbound to the server over HTTPS – no ports need to be opened at the customer. The agent files are downloaded from this server.')));
   modal({ title: T('Install the agent "{0}"', a.name), wide: true, body, foot: [h('button', { class: 'btn primary', onclick: e => e.target.closest('.backdrop')._close() }, T('Done'))] });
 }

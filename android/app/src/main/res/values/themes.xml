@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PingVakt" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/panel</item>
+        <item name="android:navigationBarColor">@color/panel</item>
+        <item name="android:colorAccent">@color/accent</item>
+    </style>
+    <color name="bg">#0f1216</color>
+    <color name="panel">#161a20</color>
+    <color name="accent">#35c2b0</color>
+</resources>

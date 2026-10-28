@@ -103,10 +103,14 @@ function svDrawChannels(cv, list, band, cur) {
   g.strokeStyle = border; g.fillStyle = muted; g.lineWidth = 1;
   for (const r of [-30, -50, -67, -80, -90]) { g.beginPath(); g.moveTo(L, y(r)); g.lineTo(W - R, y(r)); g.setLineDash(r === -67 ? [4, 3] : []); g.stroke(); g.fillText(r, 8, y(r) + 4); }
   g.setLineDash([]);
+  let lastX = -1e9;
   for (const ch of B.ticks) {
     const px = x(B.f(ch));
     g.beginPath(); g.moveTo(px, T0 + ph); g.lineTo(px, T0 + ph + 4); g.stroke();
-    if (!B.labels || B.labels.includes(ch)) { const t = String(ch); g.fillText(t, px - g.measureText(t).width / 2, H - 8); }
+    if (!B.labels || B.labels.includes(ch)) {
+      const t = String(ch), tw = g.measureText(t).width;
+      if (px - tw / 2 > lastX + 4) { g.fillText(t, px - tw / 2, H - 8); lastX = px + tw / 2; } // hoppa över etiketter som krockar på smala skärmar
+    }
   }
   const curB = cur && cur.bssid ? cur.bssid.toLowerCase() : '';
   const labels = [];

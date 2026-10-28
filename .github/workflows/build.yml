@@ -240,9 +240,70 @@ jobs:
             dist/*.dmg
             dist/*-macos-app.zip
 
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kontrollera versionen
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        run: |
+          TAG="${RELEASE_TAG:-$GITHUB_REF_NAME}"; TAG="${TAG#v}"
+          CODE=$(sed -n 's/^var Version = "\(.*\)"/\1/p' server/main.go)
+          if [[ "$TAG" != "$CODE" ]]; then
+            echo "::error::Taggen v$TAG stämmer inte med versionen i koden ($CODE). Ta bort taggen och skapa releasen från rätt commit (där server/main.go har $TAG)."
+            exit 1
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Beroenden
+        run: go mod tidy
+      - name: Tillverkarlista (MAC-prefix)
+        run: go run ./tools/genoui || echo "IEEE-listan kunde inte hämtas – reservlistan används"
+      - name: Agenten för Android
+        run: |
+          V="$(cat VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; fi
+          if [[ -n "$RELEASE_TAG" ]]; then V="${RELEASE_TAG#v}"; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          L="-s -w -X main.Version=$V"
+          J=android/app/src/main/jniLibs
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -ldflags "$L" -o $J/arm64-v8a/libpvagent.so ./agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$L" -o $J/armeabi-v7a/libpvagent.so ./agent
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$L" -o $J/x86_64/libpvagent.so ./agent
+          ls -la $J/*
+      - name: Signeringsnyckel
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE" ]]; then
+            echo "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Bygg APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle -p android --no-daemon assembleRelease
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/PingVakt-${VERSION}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+
   release:
     if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
-    needs: [windows-linux, macos]
+    needs: [windows-linux, macos, android]
     runs-on: ubuntu-24.04
     steps:
       # bara byggresultaten – inte Docker-byggets egna poster
@@ -254,6 +315,10 @@ jobs:
         with:
           name: macos
           path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: out
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
@@ -263,3 +328,4 @@ jobs:
             out/*.deb
             out/*.tar.gz
             out/*.dmg
+            out/*.apk

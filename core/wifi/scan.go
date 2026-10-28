@@ -28,12 +28,19 @@ type Scan struct {
 	Tool string `json:"tool,omitempty"` // iw, nmcli, netsh, system_profiler
 }
 
+// SurveyHook ersätter systemets avsökning (används av Android-appen, som skickar sina egna resultat).
+var SurveyHook func(ctx context.Context) ([]BSS, string, error)
+
 // Survey söker av grannätverken. Det tar några sekunder och kan kräva administratörsrätt.
 func Survey(ctx context.Context) Scan {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	sc := Scan{T: time.Now().UnixMilli()}
-	list, tool, err := survey(ctx)
+	fn := survey
+	if SurveyHook != nil {
+		fn = SurveyHook
+	}
+	list, tool, err := fn(ctx)
 	sc.Tool = tool
 	if err != nil {
 		sc.Err = err.Error()

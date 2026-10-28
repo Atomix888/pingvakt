@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_name">Agent</string>
+    <string name="notif_running">Mäter svarstid och Wi-Fi</string>
+    <string name="notif_text">Tryck för att öppna PingVakt</string>
+    <string name="starting">Startar agenten…</string>
+    <string name="share_csv">Dela Wi-Fi-survey</string>
+</resources>

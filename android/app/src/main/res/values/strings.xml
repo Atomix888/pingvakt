@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PingVakt</string>
+    <string name="channel_name">Agent</string>
+    <string name="notif_running">Measuring latency and Wi-Fi</string>
+    <string name="notif_text">Tap to open PingVakt</string>
+    <string name="starting">Starting the agent…</string>
+    <string name="share_csv">Share Wi-Fi survey</string>
+</resources>

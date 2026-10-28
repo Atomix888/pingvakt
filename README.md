@@ -117,6 +117,8 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **Off-site backups:** under Settings → Backups the nightly copy can also be uploaded to S3-compatible storage (AWS S3, Backblaze B2, Wasabi, MinIO …) or WebDAV (Nextcloud, ownCloud), keeping the N latest copies there. *Test* uploads and deletes a small file; *Upload a backup now* runs it at once.
 
+**Android app:** `PingVakt-<version>-android.apk` on the release page turns an Android phone (8.0 or later) into an agent. Install it (allow installing from your browser), open it, enter the server address and an agent token, and the phone measures its targets like any other agent – and reports its Wi-Fi connection, roams and scans. The app also works without a server as a Wi-Fi survey tool: *Survey* shows neighbouring networks with a channel graph and hints, *Repeat* scans every 30 seconds, and every scan is saved with the location you type (e.g. "Room 204") and can be exported as CSV. Allow location access (Android requires it for Wi-Fi details), notifications and no battery optimization so it keeps measuring in the background. Android limits apps to about 4 Wi-Fi scans per 2 minutes. The app is signed with PingVakt's own key and updates by installing a newer APK over it.
+
 **Install as an app:** the web interface can be added to the phone's home screen and then works like an app, with push notifications.
 
 **Language:** English is the default. Under Settings you choose the server's default language. Each user can choose their own language in the account menu (⋯ → Language / Språk), and each customer can have its own language for reports and the status page (Edit customer).
@@ -239,7 +241,8 @@ desktop/           The desktop app (Wails)
   frontend/dist/   The interface (HTML/CSS/JS + uPlot), no build step
   build/           Icon, Windows installer (NSIS), .deb files, macOS Info.plist
 server/            The server: SQLite, API, sign-in, central alerting, web interface (server/web)
-agent/             The agent (headless service)
+agent/             The agent (headless service; "mobile" mode for the Android app)
+android/           The Android app (Kotlin + WebView, runs the agent)
 deploy/            Docker Compose + Caddy, systemd service
 tools/             winres (Windows icon/manifest), genoui (MAC manufacturer list)
 scripts/build.sh   Build script for all platforms

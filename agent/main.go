@@ -34,7 +34,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.13.0"
+var Version = "0.14.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -80,6 +80,10 @@ func main() {
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
+	if cmd == "mobile" {
+		runMobile(os.Args[2:])
+		return
+	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fs.String("config", defaultConfigPath(), "konfigurationsfil")
 	server := fs.String("server", "", "the server address, e.g. https://pingvakt.example.com")
@@ -212,7 +216,7 @@ func (p *program) Start(s service.Service) error {
 	p.done = make(chan struct{})
 	go func() {
 		defer close(p.done)
-		run(ctx, c, filepath.Join(filepath.Dir(p.cfgPath), "agent-cache.json"))
+		run(ctx, c, filepath.Join(filepath.Dir(p.cfgPath), "agent-cache.json"), runOpts{})
 	}()
 	return nil
 }
@@ -228,16 +232,35 @@ func (p *program) Stop(s service.Service) error {
 	return nil
 }
 
-func run(ctx context.Context, c agentConfig, cachePath string) {
+// runOpts används av mobilläget (Android-appen), där Wi-Fi och nät kommer från appen.
+type runOpts struct {
+	mobile  bool
+	device  string // enhetens namn (t.ex. "Pixel 8")
+	wifi    func() *wifi.Info
+	nets    func() []netscan.Network
+	onStart func(up *agentproto.Uploader, mon *monitor.Manager)
+}
+
+func run(ctx context.Context, c agentConfig, cachePath string, ro runOpts) {
 	log.Printf("PingVakt agent %s starting, server %s", Version, c.Server)
-	cleanupOld()
+	if !ro.mobile {
+		cleanupOld()
+	}
 	mon := monitor.NewManager(monitor.DefaultSettings())
 	defer mon.Close()
 	up := newUploader(c)
-	hc := hostinfo.New()
-	up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
-	up.WiFi = wifi.New().Get
-	up.Nets = netscan.Networks
+	if ro.mobile {
+		if ro.device != "" {
+			up.Info.Hostname = ro.device
+		}
+		up.Info.OS = "android/" + runtime.GOARCH
+		up.WiFi, up.Nets = ro.wifi, ro.nets
+	} else {
+		hc := hostinfo.New()
+		up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }
+		up.WiFi = wifi.New().Get
+		up.Nets = netscan.Networks
+	}
 	snmpRunner := snmp.NewRunner(ctx, up.AddSNMP)
 	speed := newSpeedScheduler(ctx, up)
 	survey := newSurveyScheduler(ctx, up)
@@ -271,7 +294,9 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 		snmpRunner.Set(cfg.SNMP)
 		speed.set(cfg.Speed)
 		survey.set(cfg.WiFiScanMin)
-		logs.set(cfg.Syslog, cfg.Traps, cfg.TrapCommunity)
+		if !ro.mobile { // en telefon kan inte lyssna på port 514/162
+			logs.set(cfg.Syslog, cfg.Traps, cfg.TrapCommunity)
+		}
 		log.Printf("configuration: %d targets, %d SNMP devices", len(cfg.Targets), len(cfg.SNMP))
 	}
 	// senaste kända konfiguration – agenten mäter även om servern inte nås vid start
@@ -287,7 +312,9 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 		cancel()
 		restartSelf()
 	}}
-	up.OnUpdate = upd.offer
+	if !ro.mobile { // appen uppdateras via en ny APK
+		up.OnUpdate = upd.offer
+	}
 	up.OnConfig = func(cfg agentproto.Config) {
 		apply(cfg)
 		if b, err := json.Marshal(cfg); err == nil {
@@ -295,6 +322,9 @@ func run(ctx context.Context, c agentConfig, cachePath string) {
 		}
 	}
 	mon.Subscribe(up.AddUpdate)
+	if ro.onStart != nil {
+		ro.onStart(up, mon)
+	}
 
 	go func() {
 		// logga ändringar i anslutningen

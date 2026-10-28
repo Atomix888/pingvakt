@@ -115,6 +115,8 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Säkerhetskopior utanför servern:** under Inställningar → Säkerhetskopior kan den nattliga kopian också laddas upp till S3-kompatibel lagring (AWS S3, Backblaze B2, Wasabi, MinIO …) eller WebDAV (Nextcloud, ownCloud), där de N senaste kopiorna sparas. *Testa* laddar upp och tar bort en liten fil; *Ladda upp en säkerhetskopia nu* kör direkt.
 
+**Android-app:** `PingVakt-<version>-android.apk` på releasesidan gör en Android-telefon (8.0 eller senare) till en agent. Installera den (tillåt installation från webbläsaren), öppna den, ange serverns adress och en agent-token, så mäter telefonen sina mål som vilken agent som helst – och rapporterar Wi-Fi-anslutning, roamingar och avsökningar. Appen fungerar också utan server som verktyg för Wi-Fi-survey: *Survey* visar grannät med kanalgraf och tips, *Upprepa* söker av var 30:e sekund, och varje avsökning sparas med platsen du skriver (t.ex. "Rum 204") och kan exporteras som CSV. Tillåt platsåtkomst (Android kräver det för Wi-Fi-detaljer), aviseringar och ingen batterioptimering så att den fortsätter mäta i bakgrunden. Android begränsar appar till ungefär 4 Wi-Fi-avsökningar per 2 minuter. Appen är signerad med PingVakts egen nyckel och uppdateras genom att en nyare APK installeras över den.
+
 **Installera som app:** webbgränssnittet kan läggas till på mobilens hemskärm och fungerar då som en app, med push-aviseringar.
 
 **Språk:** engelska är standard. Under Inställningar väljer du serverns standardspråk. Varje användare kan välja eget språk i kontomenyn (⋯ → Language / Språk), och varje kund kan ha eget språk för rapporter och statussida (Redigera kund).
@@ -236,7 +238,8 @@ desktop/           Skrivbordsappen (Wails)
   frontend/dist/   Gränssnittet (HTML/CSS/JS + uPlot), inget byggsteg
   build/           Ikon, Windows-installationsprogram (NSIS), .deb-filer, macOS Info.plist
 server/            Servern: SQLite, API, inloggning, central larmning, webbgränssnitt (server/web)
-agent/             Agenten (tjänst utan gränssnitt)
+agent/             Agenten (tjänst utan gränssnitt; läget "mobile" för Android-appen)
+android/           Android-appen (Kotlin + WebView, kör agenten)
 deploy/            Docker Compose + Caddy, systemd-tjänst
 tools/winres/      Skapar Windows-ikon, manifest och versionsinfo
 scripts/build.sh   Byggskript för alla plattformar
