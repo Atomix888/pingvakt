@@ -83,6 +83,17 @@ func (s *Server) Routes(web http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/push/unsubscribe", need(false, s.handlePushUnsubscribe))
 	mux.HandleFunc("GET /api/agents/{id}/scan", need(true, s.handleScanInfo))
 	mux.HandleFunc("POST /api/agents/{id}/scan", need(true, s.handleStartScan))
+	mux.HandleFunc("GET /api/ipam", need(false, s.handleIPAMList))
+	mux.HandleFunc("GET /api/ipam/search", need(false, s.handleIPAMSearch))
+	mux.HandleFunc("POST /api/ipam/subnets", need(true, s.handleSubnetCreate))
+	mux.HandleFunc("GET /api/ipam/subnets/{id}", need(false, s.handleSubnetGet))
+	mux.HandleFunc("PUT /api/ipam/subnets/{id}", need(true, s.handleSubnetSave))
+	mux.HandleFunc("DELETE /api/ipam/subnets/{id}", need(true, s.handleSubnetDelete))
+	mux.HandleFunc("POST /api/ipam/subnets/{id}/scan", need(true, s.handleSubnetScan))
+	mux.HandleFunc("GET /api/ipam/subnets/{id}/next", need(false, s.handleSubnetNext))
+	mux.HandleFunc("POST /api/ipam/subnets/{id}/import", need(true, s.handleSubnetImport))
+	mux.HandleFunc("PUT /api/ipam/subnets/{id}/ip/{ip}", need(true, s.handleAddrSave))
+	mux.HandleFunc("DELETE /api/ipam/subnets/{id}/ip/{ip}", need(true, s.handleAddrDelete))
 	mux.HandleFunc("GET /api/snmp", need(false, s.handleSNMPList))
 	mux.HandleFunc("POST /api/snmp", need(true, s.handleSNMPSave))
 	mux.HandleFunc("POST /api/snmp/test", need(true, s.handleSNMPTest))
@@ -513,6 +524,7 @@ func (s *Server) handleDeleteCustomer(w http.ResponseWriter, r *http.Request) {
 	for _, t := range ids {
 		_ = s.db.DeleteTarget(t)
 	}
+	s.deleteCustomerIPAM(id)
 	if _, err := s.db.Exec(`DELETE FROM customers WHERE id=?`, id); err != nil {
 		httpErr(w, 500, err.Error())
 		return

@@ -269,8 +269,12 @@ func (s *Server) ingestSNMP(agentID string, polls []snmp.Poll) {
 					nbs = []snmp.Neighbor{}
 				}
 				b, _ := json.Marshal(nbs)
+				arp := p.Arp
 				flush = append(flush, func() {
 					_, _ = s.db.Exec(`INSERT OR REPLACE INTO snmp_nb(device_id,t,mac,data) VALUES(?,?,?,?)`, p.DeviceID, p.T, p.MAC, string(b))
+					if len(arp) > 0 {
+						s.ipamFromArp(p.DeviceID, arp)
+					}
 				})
 			}
 			st.lastErr = ""

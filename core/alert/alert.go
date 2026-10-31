@@ -39,6 +39,7 @@ const (
 	CondAnomaly  Condition = "anomaly"  // svarstiden avviker från det normala för timmen (Threshold = k, Count = minsta ökning i ms)
 	CondBattery  Condition = "battery"  // telefonens batteri under N % och laddar inte
 	CondRoamGap  Condition = "roamgap"  // roaming med avbrott över N ms (mätt av telefonen)
+	CondIPAM     Condition = "ipam"     // subnät eller DHCP-pool över N % använt, eller IP-konflikt
 	CondLog      Condition = "log"      // syslog/trap som matchar Match med allvarlighet <= Threshold
 	CondVendor   Condition = "vendor"   // enhet i UniFi/Meraki/Aruba offline (Threshold: 0 = alla, 1 = bara AP, 2 = utom AP)
 	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
@@ -89,7 +90,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog, CondAnomaly, CondBattery, CondRoamGap:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog, CondAnomaly, CondBattery, CondRoamGap, CondIPAM:
 	default:
 		a.Condition = CondDown
 	}
@@ -152,6 +153,11 @@ func (a *Alert) Normalize() {
 	case CondBattery:
 		if a.Threshold <= 0 || a.Threshold > 100 {
 			a.Threshold = 20
+		}
+		a.Samples, a.Count = 1, 1
+	case CondIPAM:
+		if a.Threshold <= 0 || a.Threshold > 100 {
+			a.Threshold = 90
 		}
 		a.Samples, a.Count = 1, 1
 	case CondRoamGap:
@@ -278,6 +284,8 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf(i18n.T("Phone battery below %g %%"), a.Threshold)
 	case CondRoamGap:
 		return fmt.Sprintf(i18n.T("Roaming takes more than %g ms"), a.Threshold)
+	case CondIPAM:
+		return fmt.Sprintf(i18n.T("Subnet or DHCP pool more than %g %% used, or IP conflict"), a.Threshold)
 	case CondAnomaly:
 		return fmt.Sprintf(i18n.T("Unusual latency: %g× the normal spread (at least +%d ms) for %d min"), a.Threshold, a.Count, a.Samples)
 	case CondLog:

@@ -89,6 +89,8 @@ type Poll struct {
 	Nb  []Neighbor `json:"nb,omitempty"`
 	NbT bool       `json:"nbt,omitempty"`
 	MAC string     `json:"mac,omitempty"` // LLDP-chassi-ID (MAC) för att känna igen enheten hos grannar
+	// ARP-tabellen (IP → MAC) läses tillsammans med grannarna; används av IPAM.
+	Arp []ArpEntry `json:"arp,omitempty"`
 }
 
 const (
@@ -277,6 +279,7 @@ func poll(ctx context.Context, d Device, neighbors bool) Poll {
 	if neighbors {
 		p.Nb, _ = pollNeighbors(walk)
 		p.NbT = true
+		p.Arp = pollArp(walk)
 		if r, err := g.Get([]string{oidLldpLocChass}); err == nil && len(r.Variables) == 1 {
 			if b, ok := r.Variables[0].Value.([]byte); ok {
 				p.MAC = macOf(b)

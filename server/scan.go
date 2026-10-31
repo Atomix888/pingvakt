@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -90,26 +91,37 @@ func (s *Server) handleStartScan(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, err.Error())
 		return
 	}
-	s.mu.RLock()
-	online := s.agentOnline(a)
-	s.mu.RUnlock()
-	if !online {
-		httpErr(w, 400, "the agent is offline")
+	run, err := s.queueScan(a.ID, in.CIDR, userFrom(r).Email)
+	if err != nil {
+		httpErr(w, 400, err.Error())
 		return
 	}
-	run := &ScanRun{ID: monitor.NewID(), AgentID: id, CIDR: in.CIDR, T: now(), Devices: []netscan.Device{}, Pending: true, User: userFrom(r).Email}
+	s.audit(r, "agent", id, i18n.T("network scan ")+in.CIDR)
+	writeJSON(w, run)
+}
+
+// queueScan köar en skanning hos en agent som är online.
+func (s *Server) queueScan(agentID, cidr, user string) (*ScanRun, error) {
+	s.mu.RLock()
+	a, ok := s.agents[agentID]
+	online := ok && s.agentOnline(a)
+	s.mu.RUnlock()
+	if !online {
+		return nil, errors.New(i18n.T("the agent is offline"))
+	}
+	run := &ScanRun{ID: monitor.NewID(), AgentID: agentID, CIDR: cidr, T: now(), Devices: []netscan.Device{}, Pending: true, User: user}
 	scans.mu.Lock()
-	list := append([]*ScanRun{run}, scans.runs[id]...)
+	list := append([]*ScanRun{run}, scans.runs[agentID]...)
 	if len(list) > 5 {
 		list = list[:5]
 	}
-	scans.runs[id] = list
+	scans.runs[agentID] = list
 	scans.mu.Unlock()
 	traces.mu.Lock()
-	traces.queue[id] = append(traces.queue[id], agentproto.Command{ID: run.ID, Kind: agentproto.CmdScan, Host: in.CIDR})
+	traces.queue[agentID] = append(traces.queue[agentID], agentproto.Command{ID: run.ID, Kind: agentproto.CmdScan, Host: cidr})
 	traces.mu.Unlock()
-	s.audit(r, "agent", id, i18n.T("network scan ")+in.CIDR)
-	writeJSON(w, run)
+	cp := *run
+	return &cp, nil
 }
 
 // scanResult tar emot resultatet från agenten.
@@ -132,6 +144,9 @@ func (s *Server) scanResult(w http.ResponseWriter, agentID string, res agentprot
 	}
 	cp := *run
 	scans.mu.Unlock()
+	if res.Err == "" {
+		s.ipamFromScan(agentID, cp.Devices)
+	}
 	s.mu.RLock()
 	cust := ""
 	if a, ok := s.agents[agentID]; ok {

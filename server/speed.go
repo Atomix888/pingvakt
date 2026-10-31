@@ -229,6 +229,9 @@ func (s *Server) extraInfo(id string) (name, cust string, ok bool) {
 	if n, c, ok := s.logInfo(id); ok {
 		return n, c, true
 	}
+	if n, c, ok := s.ipamInfo(id); ok {
+		return n, c, true
+	}
 	return s.speedInfo(id)
 }
 

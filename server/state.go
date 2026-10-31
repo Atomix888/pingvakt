@@ -75,6 +75,7 @@ func NewServer(db *DB, version, agentsDir, dataDir string) (*Server, error) {
 	s.loadTraces()
 	s.ensureVAPID()
 	s.loadSNMP()
+	s.loadIPAM()
 	s.loadIntegrations()
 	// värm upp statistiken med de senaste mätpunkterna
 	for id, t := range s.targets {
@@ -356,6 +357,7 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	}
 	if rep.Nets != nil {
 		s.ingestNets(agentID, rep.Nets)
+		s.ipamFromAgent(agentID, rep.Nets)
 	}
 	if len(rep.SNMP) > 0 {
 		s.ingestSNMP(agentID, rep.SNMP)
@@ -496,6 +498,7 @@ func (s *Server) Run(ctx context.Context) {
 	go s.nightlyBackupLoop(ctx.Done())
 	go s.reportLoop(ctx.Done())
 	go s.integrationLoop(ctx)
+	go s.ipamLoop(ctx)
 	go func() {
 		tk := time.NewTicker(10 * time.Second)
 		defer tk.Stop()
