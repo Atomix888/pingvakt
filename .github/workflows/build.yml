@@ -302,7 +302,8 @@ jobs:
           path: dist/*.apk
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    # macOS-jobbet får ibland ingen maskin (t.ex. slut på macOS-minuter) – släpp då resten ändå
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '') && needs.windows-linux.result == 'success' && needs.android.result == 'success'
     needs: [windows-linux, macos, android]
     runs-on: ubuntu-24.04
     steps:
@@ -312,6 +313,7 @@ jobs:
           name: windows-linux
           path: out
       - uses: actions/download-artifact@v4
+        if: needs.macos.result == 'success'
         with:
           name: macos
           path: out
@@ -329,3 +331,4 @@ jobs:
             out/*.tar.gz
             out/*.dmg
             out/*.apk
+          fail_on_unmatched_files: false
