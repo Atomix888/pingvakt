@@ -4,3 +4,11 @@ pingvakt.exempel.se {
 		flush_interval -1
 	}
 }
+
+# Fjärrsidor: enheters webbsidor som öppnas via agenten (IP-adresser → HTTP/HTTPS).
+# Egen port = eget ursprung, så att enhetens sidor inte kommer åt PingVakt.
+pingvakt.exempel.se:8443 {
+	reverse_proxy pingvakt:8081 {
+		flush_interval -1
+	}
+}

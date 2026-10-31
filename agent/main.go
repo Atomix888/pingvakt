@@ -34,12 +34,14 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.16.0"
+var Version = "0.17.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
 	Token    string `json:"token"`
 	Insecure bool   `json:"insecure,omitempty"`
+	// NoRemote stänger av fjärråtkomst (webbsidor och SSH till enheter i nätet via servern).
+	NoRemote bool `json:"noRemote,omitempty"`
 }
 
 func defaultConfigPath() string {
@@ -194,7 +196,7 @@ func enroll(path, server, token string, insecure bool) error {
 
 func newUploader(c agentConfig) *agentproto.Uploader {
 	host, _ := os.Hostname()
-	return &agentproto.Uploader{ServerURL: c.Server, Token: c.Token, Insecure: c.Insecure,
+	return &agentproto.Uploader{ServerURL: c.Server, Token: c.Token, Insecure: c.Insecure, NoTunnel: c.NoRemote || os.Getenv("PINGVAKT_NO_REMOTE") == "1",
 		Info: agentproto.AgentInfo{Version: Version, Hostname: host, OS: runtime.GOOS + "/" + runtime.GOARCH, Kind: agentproto.KindAgent}}
 }
 
@@ -255,6 +257,7 @@ func run(ctx context.Context, c agentConfig, cachePath string, ro runOpts) {
 			up.Info.Hostname = ro.device
 		}
 		up.Info.OS = "android/" + runtime.GOARCH
+		up.NoTunnel = true // fjärråtkomst går via fasta agenter, inte telefoner
 		up.WiFi, up.Nets, up.Phone = ro.wifi, ro.nets, ro.phone
 	} else {
 		hc := hostinfo.New()

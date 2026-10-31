@@ -20,7 +20,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.16.0"
+var Version = "0.17.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -40,6 +40,7 @@ func main() {
 	tlsKey := flag.String("tls-key", env("PINGVAKT_TLS_KEY", ""), "TLS-nyckel")
 	syslogAddr := flag.String("syslog", env("PINGVAKT_SYSLOG", ""), "receive syslog on this UDP address, e.g. :5514 (optional)")
 	trapAddr := flag.String("traps", env("PINGVAKT_TRAPS", ""), "receive SNMP traps on this UDP address, e.g. :1162 (optional)")
+	remoteAddr := flag.String("remote", env("PINGVAKT_REMOTE_LISTEN", ":8081"), "address for remote web pages opened through agents (empty = off)")
 	proxy := flag.Bool("trust-proxy", env("PINGVAKT_TRUST_PROXY", "") == "1", "trust X-Forwarded-* from a reverse proxy")
 	flag.Parse()
 	trustProxy = *proxy
@@ -82,6 +83,24 @@ func main() {
 		defer cancel()
 		_ = hs.Shutdown(c)
 	}()
+	if *remoteAddr != "" {
+		rs := &http.Server{Addr: *remoteAddr, Handler: s.RemoteHandler(), ReadHeaderTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second}
+		go func() {
+			<-ctx.Done()
+			_ = rs.Close()
+		}()
+		go func() {
+			var err error
+			if *tlsCert != "" {
+				err = rs.ListenAndServeTLS(*tlsCert, *tlsKey)
+			} else {
+				err = rs.ListenAndServe()
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("remote web pages: %v", err)
+			}
+		}()
+	}
 	log.Printf("PingVakt server %s listening on %s (data: %s)", Version, *addr, *dataDir)
 	if db.UserCount() == 0 {
 		log.Printf("no user exists yet – open the web interface to create the administrator")

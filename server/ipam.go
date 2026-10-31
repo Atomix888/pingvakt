@@ -74,6 +74,18 @@ type IPAddr struct {
 	MACAt    int64  `json:"macAt,omitempty"`    // när MAC byttes
 	Conflict int64  `json:"conflict,omitempty"` // tidpunkt för misstänkt IP-konflikt (0 = ingen)
 	ConfMAC  string `json:"confMac,omitempty"`  // den andra MAC-adressen i konflikten
+	Ports    []int  `json:"ports,omitempty"`    // öppna portar vid senaste skanningen
+	User     string `json:"user,omitempty"`     // användarnamn för webb/SSH
+	Secret   string `json:"secret,omitempty"`   // lösenordet, krypterat (skickas aldrig till webbläsaren)
+	HasPass  bool   `json:"hasPass,omitempty"`  // bara i API-svar
+	HostKey  string `json:"hostKey,omitempty"`  // SSH-värdnyckelns fingeravtryck
+}
+
+// public är adressen som den visas i webbläsaren (utan det krypterade lösenordet).
+func (a IPAddr) public() IPAddr {
+	a.HasPass = a.Secret != ""
+	a.Secret = ""
+	return a
 }
 
 type ipamState struct {
@@ -198,6 +210,7 @@ func markDirty(sub, ip string) {
 
 type ipObs struct {
 	IP, MAC, Host, Vendor, Kind, Src string
+	Ports                            []int
 }
 
 // ipamObserve för in adresser som setts hos en kund i de subnät de hör till.
@@ -253,6 +266,9 @@ func (s *Server) ipamObserve(cust string, obs []ipObs) {
 			if o.Kind != "" {
 				a.Kind = o.Kind
 			}
+			if o.Src == "scan" {
+				a.Ports = o.Ports
+			}
 			// skanning väger tyngst som källa; ARP och agentens egen adress fyller på
 			if a.Src == "" || o.Src == "scan" {
 				a.Src = o.Src
@@ -276,7 +292,7 @@ func (s *Server) ipamFromScan(agentID string, devs []netscan.Device) {
 	s.mu.RUnlock()
 	obs := make([]ipObs, 0, len(devs))
 	for _, d := range devs {
-		obs = append(obs, ipObs{IP: d.IP, MAC: d.MAC, Host: d.Name, Vendor: d.Vendor, Kind: d.Kind, Src: "scan"})
+		obs = append(obs, ipObs{IP: d.IP, MAC: d.MAC, Host: d.Name, Vendor: d.Vendor, Kind: d.Kind, Src: "scan", Ports: d.Ports})
 	}
 	s.ipamObserve(cust, obs)
 	// markera när nät som skannats av den här agenten senast skannades
@@ -515,6 +531,7 @@ func (s *Server) ipamLoop(ctx context.Context) {
 		case <-tk.C:
 			s.flushIPAM()
 			s.ipamTick()
+			pruneRemotes()
 		}
 	}
 }
@@ -819,7 +836,7 @@ func (s *Server) handleSubnetGet(w http.ResponseWriter, r *http.Request) {
 	st := stats(ipam.subnets[sn.ID], ipam.nets[sn.ID], ipam.addrs[sn.ID])
 	list := make([]IPAddr, 0, len(ipam.addrs[sn.ID]))
 	for _, a := range ipam.addrs[sn.ID] {
-		list = append(list, *a)
+		list = append(list, a.public())
 	}
 	ipam.mu.Unlock()
 	sort.Slice(list, func(i, j int) bool {
@@ -860,6 +877,9 @@ func (s *Server) handleAddrSave(w http.ResponseWriter, r *http.Request) {
 		Reserved bool   `json:"reserved"`
 		ResMAC   string `json:"resMac"`
 		Resolve  bool   `json:"resolve"` // markera konflikten som åtgärdad
+		User     string `json:"user"`
+		Password string `json:"password"`      // nytt lösenord (tomt = oförändrat)
+		ClearPw  bool   `json:"clearPassword"` // ta bort sparat lösenord
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -882,11 +902,26 @@ func (s *Server) handleAddrSave(w http.ResponseWriter, r *http.Request) {
 		in.ResMAC = hw.String()
 	}
 	key := ip.String()
+	var enc string
+	if in.Password != "" {
+		var err error
+		if enc, err = s.seal(in.Password); err != nil {
+			httpErr(w, 500, err.Error())
+			return
+		}
+	}
 	ipam.mu.Lock()
 	a := ipam.addrs[sn.ID][key]
 	if a == nil {
 		a = &IPAddr{IP: key}
 		ipam.addrs[sn.ID][key] = a
+	}
+	a.User = strings.TrimSpace(in.User)
+	switch {
+	case enc != "":
+		a.Secret = enc
+	case in.ClearPw:
+		a.Secret = ""
 	}
 	a.Host, a.HostSet = strings.TrimSpace(in.Host), strings.TrimSpace(in.Host) != ""
 	a.Desc, a.Owner = strings.TrimSpace(in.Desc), strings.TrimSpace(in.Owner)
@@ -898,14 +933,14 @@ func (s *Server) handleAddrSave(w http.ResponseWriter, r *http.Request) {
 		a.Conflict, a.ConfMAC = 0, ""
 	}
 	// en tom post som aldrig setts tas bort helt
-	empty := !a.Reserved && a.Host == "" && a.Desc == "" && a.Owner == "" && a.Last == 0
+	empty := !a.Reserved && a.Host == "" && a.Desc == "" && a.Owner == "" && a.Last == 0 && a.User == "" && a.Secret == ""
 	if empty {
 		delete(ipam.addrs[sn.ID], key)
 	}
 	markDirty(sn.ID, key)
 	cp := IPAddr{IP: key}
 	if !empty {
-		cp = *a
+		cp = a.public()
 	}
 	ipam.mu.Unlock()
 	s.flushIPAM()
@@ -1106,7 +1141,7 @@ func (s *Server) handleIPAMSearch(w http.ResponseWriter, r *http.Request) {
 		for _, a := range ipam.addrs[id] {
 			if strings.Contains(a.IP, q) || (a.MAC != "" && strings.Contains(a.MAC, qmac)) || strings.Contains(strings.ToLower(a.Host), q) ||
 				strings.Contains(strings.ToLower(a.Desc), q) || strings.Contains(strings.ToLower(a.Owner), q) || strings.Contains(strings.ToLower(a.Vendor), q) {
-				out = append(out, hit{IPAddr: *a, SubnetID: id, CIDR: sn.CIDR, SubnetName: sn.Name, CustomerID: sn.CustomerID})
+				out = append(out, hit{IPAddr: a.public(), SubnetID: id, CIDR: sn.CIDR, SubnetName: sn.Name, CustomerID: sn.CustomerID})
 				if len(out) >= 200 {
 					break
 				}

@@ -667,3 +667,15 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .ip-addrs td:nth-child(4), .ip-addrs th:nth-child(4) { display: none; }
 }
 .ip-refs .tag { background: var(--panel-2); border: 1px solid var(--border); font-weight: 500; }
+/* SSH-terminal och fjärrknappar */
+body.term-mode .side, body.term-mode .mtop { display: none; }
+body.term-mode .page { padding: 0; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+.term-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; }
+.term-head .tools { margin-left: auto; display: flex; gap: 6px; }
+.term-head .muted { font-size: 12.5px; font-family: var(--mono); }
+.term-box { flex: 1; min-height: 0; background: #0b0e12; padding: 6px; }
+.term-box .xterm { height: 100%; }
+.ip-quick { white-space: nowrap; text-align: right; }
+.ip-quick .btn { padding: 2px 7px; font-size: 11px; margin-left: 4px; }
+.btn.found { border-color: color-mix(in srgb, var(--up) 60%, var(--border)); }
+.modal-body p { white-space: pre-line; }

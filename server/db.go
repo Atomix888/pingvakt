@@ -183,8 +183,9 @@ type ServerSettings struct {
 	SMTP         alert.SMTP       `json:"smtp"`
 	Notify       NotifySettings   `json:"notify"`
 	Auth         AuthSettings     `json:"auth"`
-	Offsite      offsite.Config   `json:"offsite"` // kopior till S3/WebDAV
-	Tickets      tickets.Config   `json:"tickets"` // ärendesystem
+	Offsite      offsite.Config   `json:"offsite"`   // kopior till S3/WebDAV
+	Tickets      tickets.Config   `json:"tickets"`   // ärendesystem
+	RemoteURL    string           `json:"remoteUrl"` // adress för fjärrsidor (webbsidor via agenten), t.ex. https://pingvakt.example.com:8443
 }
 
 func defaultServerSettings() ServerSettings {

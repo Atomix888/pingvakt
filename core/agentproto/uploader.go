@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -25,6 +27,7 @@ import (
 	"pingvakt/core/snmp"
 	"pingvakt/core/speedtest"
 	"pingvakt/core/trace"
+	"pingvakt/core/tunnel"
 	"pingvakt/core/wifi"
 )
 
@@ -65,6 +68,9 @@ type Uploader struct {
 	Phone func() *Phone
 	// NoCommands stänger av kommandon från servern (traceroute, skanning).
 	NoCommands bool
+	// NoTunnel stänger av fjärråtkomst (webbsidor och SSH till enheter i nätet via servern).
+	NoTunnel bool
+	tunnel   *tunnel.Mux
 	// Nets returnerar datorns nät (för nätverksskanning från servern).
 	Nets func() []netscan.Network
 
@@ -468,6 +474,10 @@ func (u *Uploader) runCommand(c Command) {
 		delete(u.running, c.ID)
 		u.mu.Unlock()
 	}()
+	if c.Kind == CmdTunnel {
+		u.startTunnel()
+		return
+	}
 	res := CommandResult{ID: c.ID, Kind: c.Kind, TargetID: c.TargetID, Start: time.Now().UnixMilli(), Hops: []trace.Hop{}}
 	switch c.Kind {
 	case CmdTrace:
@@ -529,3 +539,57 @@ func (u *Uploader) runCommand(c Command) {
 
 // HTTPClient returnerar klientens HTTP-klient (samma certifikatinställning som rapporterna).
 func (u *Uploader) HTTPClient() *http.Client { return u.httpClient() }
+
+// startTunnel kopplar upp tunneln för fjärråtkomst om den inte redan är uppe.
+// Tunneln stängs efter 10 minuter utan öppna anslutningar.
+func (u *Uploader) startTunnel() {
+	if u.NoTunnel {
+		return
+	}
+	u.mu.Lock()
+	if u.tunnel != nil {
+		u.mu.Unlock()
+		return
+	}
+	u.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ws, err := tunnel.Dial(ctx, u.ServerURL, u.Token, "PingVakt/"+u.Info.Version, u.Insecure)
+	cancel()
+	if err != nil {
+		log.Printf("remote access: could not connect the tunnel: %v", err)
+		return
+	}
+	var d net.Dialer
+	m := tunnel.New(tunnel.WS{C: ws}, func(ctx context.Context, addr string) (net.Conn, error) {
+		return d.DialContext(ctx, "tcp", addr)
+	})
+	u.mu.Lock()
+	if u.tunnel != nil {
+		u.mu.Unlock()
+		m.Close()
+		return
+	}
+	u.tunnel = m
+	u.mu.Unlock()
+	log.Printf("remote access: tunnel open")
+	go func() {
+		tk := time.NewTicker(30 * time.Second)
+		defer tk.Stop()
+		for {
+			select {
+			case <-m.Done():
+				return
+			case <-tk.C:
+				if m.Idle() > 10*time.Minute {
+					m.Close()
+					return
+				}
+			}
+		}
+	}()
+	_ = m.Run()
+	u.mu.Lock()
+	u.tunnel = nil
+	u.mu.Unlock()
+	log.Printf("remote access: tunnel closed")
+}

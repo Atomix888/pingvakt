@@ -61,6 +61,7 @@ const (
 	CmdSNMP     = "snmp"     // testavläsning av en SNMP-enhet
 	CmdSpeed    = "speed"    // hastighetstest (Host = "cloudflare" eller "server")
 	CmdWiFiScan = "wifiscan" // avsökning av grannätverk
+	CmdTunnel   = "tunnel"   // koppla upp tunneln för fjärråtkomst (webb/SSH) mot servern
 )
 
 // Kind för klienten.

@@ -28,6 +28,6 @@ COPY --from=build /out/agents /app/agents
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENV PINGVAKT_DATA=/data PINGVAKT_AGENTS_DIR=/app/agents PINGVAKT_LISTEN=:8080 TZ=Europe/Stockholm
 VOLUME /data
-EXPOSE 8080
+EXPOSE 8080 8081
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["entrypoint.sh"]

@@ -278,6 +278,7 @@ function counts(targets) {
 function route() {
   closeDrawer();
   document.body.classList.toggle('tv', location.hash === '#/tv');
+  document.body.classList.toggle('term-mode', location.hash.startsWith('#/ssh/'));
   renderNav();
   const r = location.hash.replace(/^#/, '') || '/';
   const m = r.match(/^\/c\/([\w-]+)/);
@@ -298,6 +299,7 @@ function renderPage() {
   if (v.name === 'tv') return renderTV(page);
   if (v.name === 'logs') return renderLogs(page);
   if (v.name === 'ipam' || v.name.startsWith('ipam/')) return renderIPAM(page, v.name.split('/'));
+  if (v.name.startsWith('ssh/') && isAdmin()) return renderSSH(page, v.name.split('/'));
   if (v.name.startsWith('portal')) return renderPortal(page, v.name.split('/')[1] || '');
   if (!isAdmin() && S.me && S.me.customerId && (location.hash === '' || location.hash === '#/')) return renderPortal(page, S.me.customerId);
   return renderOverview(page);
@@ -1769,6 +1771,7 @@ async function renderSettings(page) {
     showOffsiteStatus(b.offsite);
   }).catch(() => {});
   const pub = h('input', { type: 'text', value: st.publicUrl, placeholder: S.serverUrl });
+  const remUrl = h('input', { type: 'text', value: st.remoteUrl || '', placeholder: location.protocol === 'https:' ? `https://${location.hostname}:8443` : `http://${location.hostname}:8081` });
   const lang = select([['en', 'English'], ['sv', 'Svenska']], st.language || 'en');
   const repName = h('input', { type: 'text', value: st.reportName || '', placeholder: T('Your company name') });
   const rep = num(st.reportSec, 2, 300), raw = num(st.rawDays, 1, 365), agg = num(st.aggDays, 7, 3650);
@@ -1838,6 +1841,7 @@ async function renderSettings(page) {
       field(T('Default language'), lang, T('For users, reports and status pages that have no language of their own, and for alert texts and emails.')),
       h('span'),
       field(T('Public address'), pub, T('Used in install commands and emails. Empty = the address you are browsing'), true),
+      field(T('Address for remote web pages'), remUrl, T('Web pages of devices opened through an agent (IP addresses → HTTP/HTTPS) are shown on their own port, so they cannot reach PingVakt. Behind Caddy: add the site "{0}:8443" with reverse_proxy pingvakt:8081 and publish port 8443. Empty = same address on port 8443 (8081 without HTTPS).', location.hostname), true),
       field(T('Company name on reports and status pages'), repName, null, true),
       field(T('Agents report every (seconds)'), rep), h('span'),
       field(T('Keep raw data (days)'), raw, T('Every single ping')), field(T('Keep minute values (days)'), agg, T('Avg/min/max/loss per minute')),
@@ -1866,7 +1870,7 @@ async function renderSettings(page) {
         msg.className = ''; msg.textContent = '';
         try {
           const langChanged = lang.value !== (st.language || 'en');
-          await PUT('/api/settings', { language: lang.value, publicUrl: pub.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
+          await PUT('/api/settings', { language: lang.value, publicUrl: pub.value.trim(), remoteUrl: remUrl.value.trim(), reportSec: +rep.value, rawDays: +raw.value, aggDays: +agg.value,
             noAutoUpdate: !autoUpd.checked, backupKeep: +backupKeep.value, reportName: repName.value.trim(),
             monitor: { statsWindow: +win.value, warnMs: +warnMs.value, warnLossPct: +warnLoss.value, downAfter: +downAfter.value, historySize: m.historySize },
             smtp: smtpVal(), newPassword: sPass.value !== '', notify: notifyVal(), auth: authVal(), offsite: off.val(), tickets: tix.val() });

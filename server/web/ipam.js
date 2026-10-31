@@ -14,6 +14,7 @@ function utilBar(pct, label, warn) {
 }
 
 function renderIPAM(page, parts) {
+  document.body.classList.remove('term-mode');
   if (parts[1] === 's' && parts[2]) return renderSubnet(page, parts[2]);
   return renderIPAMList(page, parts[1] === 'c' ? parts[2] : '');
 }
@@ -197,12 +198,13 @@ async function renderSubnet(page, id) {
         h('td', { class: 'mono' }, a.mac || '–', a.vendor ? h('div', { class: 'muted' }, a.vendor) : null, a.prevMac && Date.now() - a.macAt < 7 * DAY ? h('div', { class: 'lvl-high', title: T('The MAC address changed') }, '↺ ' + a.prevMac) : null),
         h('td', null, a.desc || '', a.owner ? h('div', { class: 'muted' }, a.owner) : null),
         h('td', null, s === 'conflict' ? h('span', { class: 'pill st-down' }, T('Conflict with {0}', a.confMac || '?')) : a.reserved ? h('span', { class: 'pill' }, T('Reserved')) : null),
-        h('td', { class: 'muted', title: a.last ? dateTime(a.last) : '' }, a.last ? dur(Date.now() - a.last) : T('never'), a.src ? h('div', null, { scan: T('scan'), arp: 'ARP', agent: 'agent' }[a.src] || a.src) : null));
-    }) : [h('tr', null, h('td', { colspan: 6, class: 'muted' }, T('No addresses match.')))]));
+        h('td', { class: 'muted', title: a.last ? dateTime(a.last) : '' }, a.last ? dur(Date.now() - a.last) : T('never'), a.src ? h('div', null, { scan: T('scan'), arp: 'ARP', agent: 'agent' }[a.src] || a.src) : null),
+        h('td', { class: 'ip-quick' }, ...remoteButtons(sn, a.ip, a, true), a.hasPass ? h('span', { class: 'muted', title: T('Login saved') }, '🔑') : null));
+    }) : [h('tr', null, h('td', { colspan: 7, class: 'muted' }, T('No addresses match.')))]));
   };
   drawRows();
   const tblSec = h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Addresses'))), fbar,
-    h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl ip-addrs' }, h('thead', null, h('tr', null, ...[T('Address'), T('Name'), 'MAC', T('Description'), 'Status', T('Last seen')].map(x => h('th', null, x)))), tbody)));
+    h('div', { class: 'tbl-wrap' }, h('table', { class: 'tbl ip-addrs' }, h('thead', null, h('tr', null, ...[T('Address'), T('Name'), 'MAC', T('Description'), 'Status', T('Last seen'), ''].map(x => h('th', null, x)))), tbody)));
   const keep = [page.scrollTop, window.scrollY];
   page.replaceChildren(head, info, kpis, mapSec, tblSec);
   page.scrollTop = keep[0]; window.scrollTo(0, keep[1]);
@@ -253,6 +255,33 @@ function subnetDialog(sn, custId, preset, note) {
     } });
 }
 
+// remoteButtons ger knappar för att öppna enhetens webbsida eller SSH via agenten.
+function remoteButtons(sn, ip, a, small) {
+  if (!isAdmin()) return [];
+  const ports = (a && a.ports) || [];
+  const opts = [['http', 80, 'HTTP'], ['https', 443, 'HTTPS'], ['ssh', 22, 'SSH']];
+  for (const [p, sch] of [[8080, 'http'], [8443, 'https'], [8000, 'http'], [8081, 'http']]) if (ports.includes(p)) opts.push([sch, p, `${sch.toUpperCase()} :${p}`]);
+  const shown = small ? opts.filter(([, p]) => ports.includes(p)) : opts;
+  return shown.map(([sch, p, label]) => h('button', { class: 'btn sm' + (ports.includes(p) ? ' found' : ''), title: ports.includes(p) ? T('Port {0} was open at the last scan', p) : T('Through the agent'),
+    onclick: e => { e.stopPropagation(); sch === 'ssh' ? openSSH(sn, ip, p) : openWeb(sn, ip, sch, p); } }, label));
+}
+
+async function openWeb(sn, ip, scheme, port) {
+  // fönstret öppnas direkt (annars stoppas det av popup-blockeringen) och får adressen när servern svarat
+  const win = window.open('about:blank', '_blank');
+  try {
+    const r = await POST('/api/remote/web', { subnetId: sn.id, ip, scheme, port });
+    if (win) win.location = r.url; else location.href = r.url;
+  } catch (e) {
+    if (win) win.close();
+    toast({ kind: 'fire', title: T('Could not open {0}', `${scheme}://${ip}`), text: e.message });
+  }
+}
+
+function openSSH(sn, ip, port) {
+  window.open(`${location.pathname}#/ssh/${sn.id}/${ip}/${port || 22}`, '_blank');
+}
+
 function addrDialog(sn, ip, a, refs) {
   a = a || { ip };
   const now = Date.now();
@@ -260,6 +289,20 @@ function addrDialog(sn, ip, a, refs) {
   const desc = h('input', { type: 'text', value: a.desc || '', placeholder: T('What is it, where is it?') });
   const owner = h('input', { type: 'text', value: a.owner || '', placeholder: T('Optional, e.g. IT, Reception') });
   const resMac = h('input', { type: 'text', value: a.resMac || '', placeholder: 'aa:bb:cc:dd:ee:ff', spellcheck: 'false' });
+  const cUser = h('input', { type: 'text', value: a.user || '', placeholder: 'admin', autocomplete: 'off', spellcheck: 'false' });
+  const cPass = h('input', { type: 'password', placeholder: a.hasPass ? T('•••••••• (saved – leave empty to keep)') : '', autocomplete: 'new-password' });
+  let clearPw = false;
+  const pwTools = h('div', { class: 'row', style: 'gap:6px;margin-top:6px' });
+  if (a.hasPass && isAdmin()) {
+    pwTools.append(
+      h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+        try { const r = await POST(`/api/ipam/subnets/${sn.id}/ip/${ip}/secret`); cPass.type = 'text'; cPass.value = r.password; } catch (e) { toast({ kind: 'fire', title: e.message }); }
+      } }, T('Show')),
+      h('button', { class: 'btn sm', type: 'button', onclick: async () => {
+        try { const r = await POST(`/api/ipam/subnets/${sn.id}/ip/${ip}/secret`); copyText(r.password); toast({ kind: 'clear', title: T('The password was copied') }); } catch (e) { toast({ kind: 'fire', title: e.message }); }
+      } }, T('Copy')),
+      h('button', { class: 'btn sm ghost danger', type: 'button', onclick: e => { clearPw = true; cPass.value = ''; cPass.placeholder = T('Removed when you save'); e.currentTarget.disabled = true; } }, T('Remove')));
+  }
   let reserved = !!a.reserved, resolve = false;
   const resRow = field(T('Reserved for MAC (optional)'), resMac, T('A warning is raised if another device uses the address.'));
   resRow.style.display = reserved ? '' : 'none';
@@ -269,20 +312,29 @@ function addrDialog(sn, ip, a, refs) {
     fact('MAC', a.mac), fact(T('Manufacturer'), a.vendor), fact(T('Type'), a.kind),
     fact(T('First seen'), a.first ? dateTime(a.first) : ''), fact(T('Last seen'), a.last ? dateTime(a.last) : T('never')),
     fact(T('Source'), { scan: T('network scan'), arp: T('ARP table (SNMP)'), agent: T('the agent itself') }[a.src]),
-    a.prevMac ? fact(T('Previous MAC'), `${a.prevMac} (${dateTime(a.macAt)})`) : null);
+    a.ports && a.ports.length ? fact(T('Open ports'), a.ports.join(', ')) : null,
+    a.prevMac ? fact(T('Previous MAC'), `${a.prevMac} (${dateTime(a.macAt)})`) : null,
+    a.hostKey ? fact(T('SSH host key'), a.hostKey) : null);
   const canEdit = isAdmin();
+  const remote = remoteButtons(sn, ip, a, false);
   const fields = [facts,
+    remote.length ? h('div', { class: 'field full' }, h('span', null, T('Open through the agent')), h('div', { class: 'row ip-remote', style: 'gap:6px;flex-wrap:wrap' }, ...remote)) : null,
     conflict ? h('div', { class: 'notice bad full' }, T('Possible IP conflict: {0} and {1} both used this address ({2}).', a.confMac || '?', a.mac || '?', dateTime(a.conflict)),
       canEdit ? h('div', null, check(T('Mark as resolved'), false, e => { resolve = e.target.checked; })) : null) : null,
     (refs || []).length ? h('div', { class: 'full ip-refs' }, h('small', { class: 'muted' }, T('Used in PingVakt: ')), ...refs.map(x => h('span', { class: 'tag' }, x.name))) : null,
     field(T('Name'), host, a.host && !a.hostSet ? T('Found: {0}. Type a name to replace it.', a.host) : null), field(T('Description'), desc), field(T('Responsible'), owner),
     h('div', { class: 'field' }, h('span', null, T('Reservation')), check(T('Reserved (static address)'), reserved, e => { reserved = e.target.checked; resRow.style.display = reserved ? '' : 'none'; })),
-    resRow];
+    resRow,
+    h('div', { class: 'section-title full' }, T('Login (for web and SSH)')),
+    field(T('User name'), cUser),
+    h('label', { class: 'field' }, h('span', null, T('Password')), cPass, pwTools, h('small', null, T('Stored encrypted (AES-256) on the server. Every time it is shown is logged.'))),
+  ];
   if (!canEdit) fields.splice(fields.indexOf(host.parentNode), 99);
-  const close = formDialog({ title: ip + (sn.name ? ' – ' + sn.name : ''), wide: true, saveLabel: T('Save'), fields,
+  const close = formDialog({ title: ip + (sn.name ? ' – ' + sn.name : ''), wide: true, saveLabel: T('Save'), fields: fields.filter(Boolean),
     onSave: async () => {
       if (!canEdit) return;
-      await PUT(`/api/ipam/subnets/${sn.id}/ip/${ip}`, { host: host.value, desc: desc.value, owner: owner.value, reserved, resMac: reserved ? resMac.value : '', resolve });
+      await PUT(`/api/ipam/subnets/${sn.id}/ip/${ip}`, { host: host.value, desc: desc.value, owner: owner.value, reserved, resMac: reserved ? resMac.value : '', resolve,
+        user: cUser.value, password: cPass.type === 'text' ? '' : cPass.value, clearPassword: clearPw });
       renderSubnet($('#page'), sn.id);
     } });
   // extra knappar i foten
@@ -293,6 +345,72 @@ function addrDialog(sn, ip, a, refs) {
   }
 }
 
+/* ---------- SSH-terminal (egen flik) ---------- */
+function loadAsset(src) {
+  return new Promise((ok, bad) => {
+    if (document.querySelector(`[data-asset="${src}"]`)) return ok();
+    const el = src.endsWith('.css') ? h('link', { rel: 'stylesheet', href: src, 'data-asset': src }) : h('script', { src, 'data-asset': src });
+    el.onload = () => ok(); el.onerror = () => bad(new Error('could not load ' + src));
+    document.head.append(el);
+  });
+}
+
+async function renderSSH(page, parts) {
+  const [, subId, ip, port] = parts;
+  document.body.classList.add('term-mode');
+  const status = h('span', { class: 'muted' }, T('Loading…'));
+  const box = h('div', { class: 'term-box' });
+  const head = h('div', { class: 'term-head' }, h('b', null, `SSH ${ip}${+port !== 22 ? ':' + port : ''}`), status,
+    h('div', { class: 'tools' }, h('button', { class: 'btn sm', onclick: () => connect() }, T('Reconnect')), h('button', { class: 'btn sm ghost', onclick: () => window.close() }, T('Close'))));
+  page.replaceChildren(head, box);
+  document.title = `SSH ${ip} – PingVakt`;
+  try {
+    await Promise.all([loadAsset('vendor/xterm.css'), loadAsset('vendor/xterm.min.js')]);
+    await loadAsset('vendor/xterm-addon-fit.js');
+  } catch (e) { status.textContent = e.message; return; }
+  const term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace', theme: { background: '#0b0e12' }, scrollback: 5000 });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(box);
+  fit.fit();
+  let ws = null, trust = '';
+  const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+  term.onData(d => send({ d }));
+  window.addEventListener('resize', () => { fit.fit(); send({ r: [term.cols, term.rows] }); });
+  const connect = (login) => {
+    if (ws) { try { ws.close(); } catch (e) { /* */ } }
+    status.textContent = T('Connecting through the agent…');
+    const q = new URLSearchParams({ subnet: subId, ip, port: port || 22 });
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/remote/ssh?${q}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(JSON.stringify(Object.assign({ cols: term.cols, rows: term.rows, trust }, login || {})));
+    ws.onmessage = ev => {
+      if (typeof ev.data !== 'string') { term.write(new Uint8Array(ev.data)); return; }
+      const m = JSON.parse(ev.data);
+      if (m.t === 'status') status.textContent = m.m;
+      else if (m.t === 'ok') { status.textContent = T('Connected') + (m.fp ? ' · ' + m.fp : ''); term.focus(); }
+      else if (m.t === 'closed') { status.textContent = T('The session ended.'); term.write('\r\n\x1b[90m[' + T('The session ended.') + ']\x1b[0m\r\n'); }
+      else if (m.t === 'err') { status.textContent = m.m; term.write('\r\n\x1b[31m' + m.m + '\x1b[0m\r\n'); }
+      else if (m.t === 'login') sshLogin(m.m, connect);
+      else if (m.t === 'hostkey') {
+        confirmDialog(T('The host key has changed'), T('The SSH host key of {0} is not the one seen before.\nBefore: {1}\nNow: {2}\nThis happens when the device was replaced or reinstalled – or if someone is intercepting the connection. Connect anyway and remember the new key?', ip, m.old, m.fp), T('Connect')).then(ok => { if (ok) { trust = m.fp; connect(); } else status.textContent = T('Cancelled.'); });
+      }
+    };
+    ws.onclose = () => { if (/Connecting/.test(status.textContent) || status.textContent === T('Connecting through the agent…')) status.textContent = T('The connection was closed.'); };
+  };
+  connect();
+}
+
+function sshLogin(msg, connect) {
+  const user = h('input', { type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'admin' });
+  const pass = h('input', { type: 'password', autocomplete: 'new-password' });
+  let save = true;
+  formDialog({ title: T('Sign in with SSH'), saveLabel: T('Connect'), fields: [
+    msg ? h('div', { class: 'notice bad full' }, msg) : null,
+    field(T('User name'), user), field(T('Password'), pass),
+    h('div', { class: 'field full' }, check(T('Save the login (encrypted) on this address'), true, e => { save = e.target.checked; }))].filter(Boolean),
+    onSave: async () => { connect({ user: user.value, password: pass.value, save }); } });
+}
 function copyText(t) { try { navigator.clipboard.writeText(t); } catch (e) { /* inte tillåtet */ } }
 
 function ipamExport(sn, addrs) {
