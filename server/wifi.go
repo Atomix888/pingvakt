@@ -56,6 +56,7 @@ type Roam struct {
 	ToRSSI   int    `json:"toRssi"`
 	FromCh   int    `json:"fromCh"`
 	ToCh     int    `json:"toCh"`
+	GapMs    int    `json:"gapMs"` // avbrott vid roamingen: -2 = okänt, -1 = inget mätbart
 }
 
 var wifis = &wifiState{tracks: map[string]*wifiTrack{}}
@@ -79,7 +80,10 @@ func (s *Server) ingestWiFi(agentID string, in wifi.Info) {
 		tr.reset()
 	}
 	if p := tr.latest; p != nil && p.BSSID != "" && in.BSSID != "" && p.BSSID != in.BSSID && t-p.T < 10*60000 {
-		roam = &Roam{T: t, SSID: in.SSID, From: p.BSSID, To: in.BSSID, FromRSSI: p.RSSI, ToRSSI: in.RSSI, FromCh: p.Ch, ToCh: in.Ch}
+		roam = &Roam{T: t, SSID: in.SSID, From: p.BSSID, To: in.BSSID, FromRSSI: p.RSSI, ToRSSI: in.RSSI, FromCh: p.Ch, ToCh: in.Ch, GapMs: -2}
+		if in.RoamTo == in.BSSID && in.RoamMs != 0 && t-in.RoamAt < 5*60000 {
+			roam.GapMs = in.RoamMs
+		}
 	}
 	tr.minute = minute
 	if tr.n == 0 || in.RSSI < tr.rssiMin {
@@ -108,13 +112,26 @@ func (s *Server) ingestWiFi(agentID string, in wifi.Info) {
 		s.saveWiFiRow(*flush)
 	}
 	if roam != nil {
-		if _, err := s.db.Exec(`INSERT INTO wifi_roam(agent_id,t,ssid,from_bssid,to_bssid,from_rssi,to_rssi,from_ch,to_ch) VALUES(?,?,?,?,?,?,?,?,?)`,
-			agentID, roam.T, roam.SSID, roam.From, roam.To, roam.FromRSSI, roam.ToRSSI, roam.FromCh, roam.ToCh); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO wifi_roam(agent_id,t,ssid,from_bssid,to_bssid,from_rssi,to_rssi,from_ch,to_ch,gap_ms) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			agentID, roam.T, roam.SSID, roam.From, roam.To, roam.FromRSSI, roam.ToRSSI, roam.FromCh, roam.ToCh, roam.GapMs); err != nil {
 			log.Printf("save roaming: %v", err)
 		}
+	} else if in.RoamAt > 0 && in.RoamMs != 0 && in.RoamTo == in.BSSID {
+		// avbrottet mättes först efter att roamingen registrerats – fyll i det
+		res, _ := s.db.Exec(`UPDATE wifi_roam SET gap_ms=? WHERE agent_id=? AND to_bssid=? AND gap_ms=-2 AND t BETWEEN ? AND ?`,
+			in.RoamMs, agentID, in.RoamTo, in.RoamAt-60000, in.RoamAt+60000)
+		if res != nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				roam = &Roam{T: in.RoamAt, To: in.RoamTo, GapMs: in.RoamMs}
+			}
+		}
+	}
+	if roam != nil && roam.GapMs > 0 {
+		s.noteRoamGap(agentID, *roam)
 	}
 	s.checkWiFiAlerts(agentID)
 	s.checkRoamRate(agentID)
+	s.checkRoamGap(agentID)
 }
 
 func (tr *wifiTrack) reset() { tr.n, tr.rssiSum, tr.rssiMin, tr.noiseSum, tr.noiseN = 0, 0, 0, 0, 0 }
@@ -282,14 +299,14 @@ func (s *Server) wifiHistory(agentID string, from, to int64) (WiFiHistory, error
 		ap.RSSI = round1(ap.RSSI)
 		h.APs = append(h.APs, ap)
 	}
-	rr, err := s.db.Query(`SELECT t,ssid,from_bssid,to_bssid,from_rssi,to_rssi,from_ch,to_ch FROM wifi_roam WHERE agent_id=? AND t>? AND t<=? ORDER BY t`, agentID, from, to)
+	rr, err := s.db.Query(`SELECT t,ssid,from_bssid,to_bssid,from_rssi,to_rssi,from_ch,to_ch,gap_ms FROM wifi_roam WHERE agent_id=? AND t>? AND t<=? ORDER BY t`, agentID, from, to)
 	if err != nil {
 		return h, err
 	}
 	defer rr.Close()
 	for rr.Next() {
 		var r Roam
-		if rr.Scan(&r.T, &r.SSID, &r.From, &r.To, &r.FromRSSI, &r.ToRSSI, &r.FromCh, &r.ToCh) == nil {
+		if rr.Scan(&r.T, &r.SSID, &r.From, &r.To, &r.FromRSSI, &r.ToRSSI, &r.FromCh, &r.ToCh, &r.GapMs) == nil {
 			h.Roams = append(h.Roams, r)
 		}
 	}

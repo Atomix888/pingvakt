@@ -115,7 +115,7 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun setFastScan(on: Boolean) {
-            AgentService.fastScan = on
+            AgentService.setFast(on)
         }
 
         @JavascriptInterface

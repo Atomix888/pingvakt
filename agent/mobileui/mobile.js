@@ -39,7 +39,7 @@ async function api(method, path, body) {
   return j;
 }
 
-const S = { tab: 'status', st: null, rssi: [], roams: [], lastBssid: '', rec: [], recording: false, loc: '', sv: {}, lastScanT: 0 };
+const S = { tab: 'status', st: null, rssi: [], rec: [], recording: false, loc: '', sv: {}, lastScanT: 0 };
 
 function toast(text, ms) {
   const el = $('#toast');
@@ -60,8 +60,6 @@ async function poll() {
     if (w) {
       S.rssi.push({ t: Date.now(), v: w.rssi });
       if (S.rssi.length > 360) S.rssi.shift();
-      if (S.lastBssid && w.bssid && w.bssid !== S.lastBssid) S.roams.unshift({ t: Date.now(), from: S.lastBssid, to: w.bssid, rssi: w.rssi });
-      if (w.bssid) S.lastBssid = w.bssid;
     }
     // ny avsökning medan inspelning pågår → spara med platsen
     if (S.recording && st.scan && st.scan.t !== S.lastScanT) S.rec.push({ scan: st.scan, loc: S.loc });
@@ -139,6 +137,7 @@ function renderStatus(main) {
   const ts = st.targets || [];
   main.replaceChildren(
     permCard(),
+    phoneCard(st.phone),
     h('div', { class: 'card' }, h('div', { class: 'facts' },
       fact(T('Agent'), l.agentName), fact(T('Customer'), l.customer), fact(T('Site'), l.site), fact('Server', (st.server || '').replace(/^https?:\/\//, '')),
       fact(T('Last contact'), l.lastOk ? clock(l.lastOk) : ''), fact(T('Queued'), String(l.buffered || 0))),
@@ -158,6 +157,42 @@ function renderStatus(main) {
     h('p', { class: 'muted', style: 'font-size:12px' }, `PingVakt ${st.version}${st.device ? ' · ' + st.device : ''}`));
 }
 
+// phoneCard visar batteri, mobilnät och nätverksstatus överst på statusfliken.
+function phoneCard(p) {
+  if (!p) return '';
+  const tiles = [];
+  if (p.bat >= 0) {
+    const lv = p.chg ? 'good' : p.bat < 15 ? 'bad' : p.bat < 30 ? 'warn' : 'good';
+    tiles.push(h('div', { class: 'ptile' }, h('small', null, T('Battery')),
+      h('b', { class: 'lvl-' + lv }, p.bat + ' %', p.chg ? ' ⚡' : ''),
+      h('div', { class: 'meter' }, h('i', { class: 'lvl-' + lv, style: `width:${p.bat}%` })),
+      h('span', { class: 'muted' }, [p.chg ? T('Charging') : T('On battery'), p.temp ? p.temp.toFixed(1) + ' °C' : ''].filter(Boolean).join(' · '))));
+  }
+  const c = p.cell;
+  if (c) {
+    const sig = c.rsrp != null ? c.rsrp + ' dBm' : c.rssi != null ? c.rssi + ' dBm' : '–';
+    const lv = c.rsrp != null ? (c.rsrp >= -90 ? 'good' : c.rsrp >= -105 ? 'warn' : 'bad') : (c.level >= 3 ? 'good' : c.level >= 2 ? 'warn' : 'bad');
+    tiles.push(h('div', { class: 'ptile' }, h('small', null, T('Mobile network')),
+      h('b', null, c.tech || '–', ' ', h('span', { class: 'lvl-' + lv }, sig)),
+      h('span', { class: 'muted' }, [c.op, c.band, c.sinr != null ? 'SINR ' + c.sinr + ' dB' : ''].filter(Boolean).join(' · ') || ' ')));
+  }
+  const n = p.net;
+  if (n) {
+    const tr = { wifi: 'Wi-Fi', cellular: T('Mobile data'), ethernet: 'Ethernet' }[n.tr] || T('Other');
+    const ok = n.valid && !n.captive;
+    tiles.push(h('div', { class: 'ptile' }, h('small', null, T('Internet')),
+      h('b', { class: ok ? 'lvl-good' : 'lvl-bad' }, ok ? T('Works') : n.captive ? T('Login page') : T('No internet')),
+      h('span', { class: 'muted' }, [T('via {0}', tr), n.vpn ? 'VPN' : '', n.pdns ? T('Private DNS') : '', n.metered ? T('metered') : ''].filter(Boolean).join(' · '))));
+  }
+  return tiles.length ? h('div', { class: 'ptiles' }, ...tiles) : '';
+}
+
+function gapText(ms) {
+  if (ms === 0 || ms == null) return T('measuring…');
+  if (ms < 0) return T('no interruption');
+  return T('{0} ms interruption', ms);
+}
+
 function renderWiFi(main) {
   const w = S.st.wifi;
   if (!w) { main.replaceChildren(permCard(), h('div', { class: 'card' }, h('h2', null, T('Not connected to Wi-Fi')), h('p', { class: 'muted' }, T('Connect the phone to a Wi-Fi network, or allow location access so Android shows the network details.')))); return; }
@@ -171,8 +206,10 @@ function renderWiFi(main) {
     h('div', { class: 'card' }, h('div', { class: 'facts' }, fact(T('Access point (BSSID)'), w.bssid), fact(T('Speed'), w.tx ? `${Math.round(w.tx)}${w.rx ? ' / ' + Math.round(w.rx) : ''} Mbit/s` : ''),
       fact('Standard', w.std), fact(T('Frequency'), w.freq ? w.freq + ' MHz' : ''))),
     h('h3', null, T('Roams')),
-    S.roams.length ? h('ul', { class: 'roams' }, ...S.roams.slice(0, 20).map(r => h('li', null, h('span', { class: 'mono' }, clock(r.t)), ` ${r.from.slice(-8)} → ${r.to.slice(-8)} (${r.rssi} dBm)`)))
-      : h('p', { class: 'muted' }, T('No roams since the app was opened.')));
+    (S.st.roams || []).length ? h('ul', { class: 'roams' }, ...S.st.roams.map(r => h('li', null, h('span', { class: 'mono' }, clock(r.t)), ` ${r.from.slice(-8)} → ${r.to.slice(-8)} (${r.rssi} dBm) · `,
+      h('b', { class: r.ms > 300 ? 'lvl-bad' : r.ms > 100 ? 'lvl-warn' : r.ms < 0 || r.ms > 0 ? 'lvl-good' : '' }, gapText(r.ms)))))
+      : h('p', { class: 'muted' }, T('No roams since the agent started.')),
+    h('small', { class: 'muted' }, T('The interruption is measured by pinging the gateway twice a second.')));
   requestAnimationFrame(() => drawSpark(cv));
 }
 
@@ -206,7 +243,8 @@ function renderSurvey(main) {
     h('small', { class: 'muted', style: 'display:block;margin-top:8px' }, T('Android allows about 4 scans per 2 minutes. Walk between locations and change the location name; every scan is saved with it.')));
   if (!sc) { main.replaceChildren(permCard(), head, h('p', { class: 'muted' }, T('No scan yet.'))); return; }
   const cur = S.st.wifi;
-  main.replaceChildren(permCard(), head, sc.err && !sc.bss.length ? h('div', { class: 'notice' }, TE(sc.err)) : '', surveyPanel({ scan: sc, cur: cur ? { ssid: cur.ssid, bssid: cur.bssid, ch: cur.ch, freq: cur.freq, rssi: cur.rssi } : null, state: S.sv }));
+  const pos = sc.lat || sc.lon ? h('p', { class: 'muted', style: 'margin:0 0 10px' }, '📍 ', h('a', { href: `https://www.openstreetmap.org/?mlat=${sc.lat}&mlon=${sc.lon}#map=19/${sc.lat}/${sc.lon}` }, `${sc.lat.toFixed(5)}, ${sc.lon.toFixed(5)}`), sc.acc ? ` (±${Math.round(sc.acc)} m)` : '') : '';
+  main.replaceChildren(permCard(), head, pos, sc.err && !sc.bss.length ? h('div', { class: 'notice' }, TE(sc.err)) : '', surveyPanel({ scan: sc, cur: cur ? { ssid: cur.ssid, bssid: cur.bssid, ch: cur.ch, freq: cur.freq, rssi: cur.rssi } : null, state: S.sv }));
 }
 
 function scanNow() {

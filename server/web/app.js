@@ -306,52 +306,180 @@ function connBadge() {
 }
 
 /* ---------------- översikt ---------------- */
-function renderOverview(page) {
-  const all = counts(S.targets);
-  const head = h('div', { class: 'page-head' }, h('h1', null, T('Overview')), connBadge(),
-    h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ New customer')) : null));
-  const chip = (k, label) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero'), title: label }, h('span', { class: 'dot' }), `${all[k]} ${label}`);
-  const summary = h('div', { class: 'summary', style: 'margin-bottom:16px;flex-wrap:wrap' },
-    chip('up', T('up')), chip('warn', T('warning')), chip('down', T('down')), chip('offline', 'offline'), chip('paused', T('paused')));
-  const cards = h('div', { class: 'cards' }, ...S.customers.map(c => {
-    const ts = S.targets.filter(t => customerOfTarget(t) === c.id);
-    const cnt = counts(ts);
-    const ags = S.agents.filter(a => customerOfAgent(a) === c.id);
-    const on = ags.filter(a => (S.live[a.id] || {}).online).length;
-    const st = cnt.down ? 'down' : cnt.offline ? 'offline' : cnt.warn ? 'warn' : 'up';
-    const n = (k, cls) => h('span', { class: cnt[k] ? '' : 'zero' }, h('span', { class: 'dot st-' + cls }), String(cnt[k]));
-    return h('div', { class: 'card st-' + st, onclick: () => { location.hash = '#/c/' + c.id; } },
-      h('h3', null, c.name),
-      h('div', { class: 'meta' }, T('{0} · {1}/{2} agents online · {3} targets', plural(S.sites.filter(s => s.customerId === c.id).length, T('site'), T('sites')), on, ags.length, ts.length)),
-      h('div', { class: 'counts' }, n('up', 'up'), n('warn', 'warn'), n('down', 'down'), n('offline', 'offline')));
-  }));
-  const problems = S.targets.filter(t => ['down', 'warn', 'offline'].includes((S.stats[t.id] || {}).status))
-    .sort((a, b) => ({ down: 0, offline: 1, warn: 2 })[S.stats[a.id].status] - ({ down: 0, offline: 1, warn: 2 })[S.stats[b.id].status]);
-  const plist = h('div', { class: 'problems', id: 'problems' }, ...(problems.length ? problems.slice(0, 30).map(t => {
-    const st = S.stats[t.id];
-    const a = agentOf(t.agentId), site = a && siteOf(a.siteId), c = site && byId(S.customers, site.customerId);
-    return h('div', { class: 'row st-' + st.status, onclick: () => { location.hash = '#/c/' + c.id; setTimeout(() => openDrawer(t.id), 50); } },
-      h('span', { class: 'dot' }),
-      h('div', { class: 'what' }, h('b', null, displayName(t)), h('small', null, `${c ? c.name : ''} · ${site ? site.name : ''} · ${t.host}`)),
-      h('span', { class: 'pill' }, STATUS_TEXT[st.status]), h('span', { class: 'muted', style: 'min-width:90px;text-align:right' }, TE(st.err) || dur(Date.now() - st.since)));
-  }) : [h('div', { class: 'empty-ok' }, S.targets.length ? T('No problems right now.') : T('No targets yet.'))]));
-  const content = [head, summary];
-  if (!S.customers.length) {
-    content.push(h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('Welcome to the PingVakt server')),
-      h('p', null, isAdmin() ? T('Start by creating a customer. Then add an agent on the customer\'s network and choose what it should monitor.') : T('No customers are linked to your account.')),
-      isAdmin() ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ Create the first customer'))) : null));
-  } else {
-    content.push(cards, h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Right now'))), plist));
+// Aktiva larm med namn hämtas bara när uppsättningen larm eller kvitteringar ändras.
+let activeSig = '', activeLoading = false;
+function loadActiveList(onChange) {
+  const sig = Object.keys(S.active).sort().join() + '#' + Object.keys(S.acks || {}).sort().join();
+  if (sig === activeSig || activeLoading) return;
+  activeLoading = true;
+  GET('/api/alerts/active').then(list => { S.activeList = list; activeSig = sig; onChange && onChange(); }).catch(() => {}).finally(() => { activeLoading = false; });
+}
+const unacked = () => Object.keys(S.active).filter(k => !S.acks[k] && !S.maint[k.split('|')[1]]);
+const agentDown = a => !!(a.lastSeen || (S.live[a.id] || {}).lastSeen) && !(S.live[a.id] || {}).online && !S.maint[a.id];
+
+// attention samlar det som behöver åtgärdas, grupperat på grundorsak: en rad per agent som är offline
+// (i stället för en rad per mål bakom den), nere/varnande mål och övriga larm.
+function attention(customerId) {
+  const inCust = cid => !customerId || cid === customerId;
+  const offAgents = S.agents.filter(a => inCust(customerOfAgent(a)) && agentDown(a));
+  const offIds = new Set(offAgents.map(a => a.id));
+  const items = [];
+  for (const a of offAgents) {
+    const n = S.targets.filter(t => t.agentId === a.id).length;
+    const lv = S.live[a.id] || {};
+    items.push({ sev: 0, kind: 'agent', cust: customerOfAgent(a), since: lv.lastSeen || a.lastSeen, a, n });
   }
+  for (const t of S.targets) {
+    const st = S.stats[t.id] || {};
+    if (!['down', 'warn'].includes(st.status) || offIds.has(t.agentId)) continue;
+    const c = customerOfTarget(t);
+    if (!inCust(c)) continue;
+    items.push({ sev: st.status === 'down' ? 1 : 3, kind: 'target', cust: c, since: st.since, t, st, key: Object.keys(S.active).find(k => k.endsWith('|' + t.id) && !S.acks[k]) });
+  }
+  // larm som inte redan syns som ett mål eller en agent ovan (SNMP, Wi-Fi, batteri, loggar …)
+  const shown = new Set(items.map(i => i.kind === 'agent' ? i.a.id : i.t.id));
+  for (const al of S.activeList || []) {
+    if (!S.active[al.key] || S.acks[al.key] || shown.has(al.targetId) || !inCust(al.customerId)) continue;
+    if (offIds.has(al.targetId)) continue;
+    items.push({ sev: 2, kind: 'alert', cust: al.customerId, since: al.since, al });
+  }
+  // samma regel hos samma kund på flera saker (t.ex. fem SNMP-enheter) blir en rad
+  const groups = new Map(), out = [];
+  for (const it of items) {
+    if (it.kind !== 'alert') { out.push(it); continue; }
+    const g = it.al.ruleId + '|' + it.cust;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 3) { out.push(...list); continue; }
+    out.push({ sev: 2, kind: 'group', cust: list[0].cust, since: Math.min(...list.map(i => i.since || Date.now())), list });
+  }
+  out.sort((x, y) => x.sev - y.sev || (x.since || 0) - (y.since || 0));
+  return out;
+}
+
+function attentionRow(it, withCustomer) {
+  const cust = withCustomer && byId(S.customers, it.cust);
+  const ack = key => isAdmin() && key ? h('button', { class: 'btn sm', onclick: async e => { e.stopPropagation(); if (await ackAlert(key)) renderPage(); } }, T('Acknowledge')) : null;
+  const ago = since => since ? h('span', { class: 'att-since' }, dur(Date.now() - since)) : null;
+  if (it.kind === 'agent') {
+    const site = siteOf(it.a.siteId);
+    return h('div', { class: 'att-row st-offline', onclick: () => hostView(it.a.id) },
+      h('span', { class: 'dot' }),
+      h('div', { class: 'what' }, h('b', null, T('{0} is offline', it.a.name)),
+        h('small', null, [cust ? cust.name : '', site ? site.name : '', it.n ? T('{0} targets not measured', it.n) : ''].filter(Boolean).join(' · '))),
+      ack(Object.keys(S.active).find(k => k.endsWith('|' + it.a.id) && !S.acks[k])), ago(it.since));
+  }
+  if (it.kind === 'target') {
+    const a = agentOf(it.t.agentId), site = a && siteOf(a.siteId);
+    return h('div', { class: 'att-row st-' + it.st.status, onclick: () => { location.hash = '#/c/' + it.cust; setTimeout(() => openDrawer(it.t.id), 50); } },
+      h('span', { class: 'dot' }),
+      h('div', { class: 'what' }, h('b', null, displayName(it.t)), h('small', null, [cust ? cust.name : '', site ? site.name : '', it.t.host, TE(it.st.err)].filter(Boolean).join(' · '))),
+      h('span', { class: 'pill' }, STATUS_TEXT[it.st.status]), ack(it.key), ago(it.since));
+  }
+  if (it.kind === 'group') {
+    const names = it.list.map(i => i.al.targetName.split(' · ').pop());
+    return h('div', { class: 'att-row st-warn', onclick: () => { location.hash = '#/alerts'; } },
+      h('span', { class: 'dot' }),
+      h('div', { class: 'what' }, h('b', null, `${it.list[0].al.ruleName} – ${T('{0} affected', it.list.length)}`),
+        h('small', null, [cust ? cust.name : '', names.join(', ')].filter(Boolean).join(' · '))),
+      isAdmin() ? h('button', { class: 'btn sm', onclick: async e => { e.stopPropagation(); if (await ackAlert(it.list[0].al.key)) { for (const i of it.list.slice(1)) { try { S.acks[i.al.key] = await POST('/api/alerts/ack', { key: i.al.key, note: (S.acks[it.list[0].al.key] || {}).note || '' }); } catch (_) {} } renderPage(); } } }, T('Acknowledge all')) : null,
+      ago(it.since));
+  }
+  return h('div', { class: 'att-row st-warn', onclick: () => { location.hash = '#/alerts'; } },
+    h('span', { class: 'dot' }),
+    h('div', { class: 'what' }, h('b', null, it.al.ruleName), h('small', null, withCustomer ? it.al.targetName : it.al.targetName.split(' · ').slice(1).join(' · ') || it.al.targetName)),
+    ack(it.al.key), ago(it.since));
+}
+
+const attOpen = {};
+function attentionList(items, withCustomer, emptyText, max = 25, id = '') {
+  if (!items.length) return h('div', { class: 'att-empty' }, h('span', { class: 'big-ok' }, '✓'), emptyText);
+  const all = attOpen[id];
+  const n = all ? items.length : max;
+  return h('div', { class: 'att' }, ...items.slice(0, n).map(it => attentionRow(it, withCustomer)),
+    items.length > max ? h('button', { class: 'att-more', onclick: () => { attOpen[id] = !all; if (S.view.name === 'customer') updateCustSummary(); else renderOverview($('#page'), true); } }, all ? T('Show fewer') : T('Show all ({0} more)', items.length - max)) : null);
+}
+
+function custStatus(c) {
+  const ts = S.targets.filter(t => customerOfTarget(t) === c.id);
+  const cnt = counts(ts);
+  const ags = S.agents.filter(a => customerOfAgent(a) === c.id);
+  const off = ags.filter(agentDown).length;
+  const alerts = unacked().filter(k => { const al = (S.activeList || []).find(x => x.key === k); return al && al.customerId === c.id; }).length;
+  const sev = cnt.down ? 0 : off ? 1 : cnt.warn || alerts ? 2 : 3;
+  const label = cnt.down ? T('{0} down', cnt.down) : off ? plural(off, T('agent offline'), T('agents offline')) : cnt.warn ? T('{0} warnings', cnt.warn) : alerts ? plural(alerts, T('alert'), T('alerts')) : T('All OK');
+  return { ts, cnt, ags, off, sev, label, st: ['down', 'offline', 'warn', 'up'][sev] };
+}
+
+function renderOverview(page, tick) {
+  if (tick && !$('#ovBody')) tick = false;
+  if (!tick) {
+    const head = h('div', { class: 'page-head' }, h('h1', null, T('Overview')), connBadge(),
+      h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ New customer')) : null));
+    if (!S.customers.length) {
+      page.replaceChildren(head, h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('Welcome to the PingVakt server')),
+        h('p', null, isAdmin() ? T('Start by creating a customer. Then add an agent on the customer\'s network and choose what it should monitor.') : T('No customers are linked to your account.')),
+        isAdmin() ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ Create the first customer'))) : null));
+      return;
+    }
+    const search = h('input', { type: 'search', class: 'ov-search', placeholder: T('Search customers…'), value: S.ovQuery || '',
+      oninput: e => { S.ovQuery = e.target.value; renderOverview(page, true); } });
+    page.replaceChildren(head, h('div', { id: 'ovBody' }),
+      h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Customers')), h('span', { class: 'muted', id: 'ovCustCount' }),
+        S.customers.length > 4 ? h('div', { class: 'tools' }, search) : null), h('div', { class: 'cards', id: 'ovCards' })),
+      h('div', { id: 'ovServer' }));
+  }
+  loadActiveList(() => { if (S.view && S.view.name === 'overview') renderOverview(page, true); });
+
+  // nyckeltal
+  const all = counts(S.targets);
+  const measured = all.total - all.paused;
+  const cs = S.customers.map(c => ({ c, ...custStatus(c) }));
+  const okCust = cs.filter(x => x.sev === 3).length;
+  const agOn = S.agents.filter(a => (S.live[a.id] || {}).online).length;
+  const agOff = S.agents.filter(agentDown).length, agWait = S.agents.length - agOn - agOff;
+  const un = unacked().length, acked = Object.keys(S.active).length - un;
+  const items = attention(null);
+  const kpi = (label, val, of, st, sub, onclick) => h('div', { class: 'kpi st-' + st + (onclick ? ' clickable' : ''), onclick },
+    h('small', null, label), h('div', { class: 'kpi-val' }, h('b', null, String(val)), of != null ? h('span', null, ' / ' + of) : null), h('div', { class: 'kpi-sub' }, sub || ' '));
+  const nDown = items.filter(i => i.sev <= 1).length;
+  const banner = !items.length ? h('div', { class: 'ov-banner st-up' }, h('span', { class: 'dot' }), h('b', null, T('Everything is working')), h('span', { class: 'muted' }, T('{0} targets at {1} customers respond normally.', all.up, S.customers.length)))
+    : h('div', { class: 'ov-banner st-' + (nDown ? 'down' : 'warn') }, h('span', { class: 'dot' }), h('b', null, items.length === 1 ? T('1 thing needs attention') : T('{0} things need attention', items.length)),
+      h('span', { class: 'muted' }, [nDown ? T('{0} outages', nDown) : '', items.length - nDown ? T('{0} warnings or alerts', items.length - nDown) : ''].filter(Boolean).join(' · ')));
+  $('#ovBody').replaceChildren(banner,
+    h('div', { class: 'kpis' },
+      kpi(T('Customers without problems'), okCust, S.customers.length, okCust === S.customers.length ? 'up' : cs.some(x => x.sev === 0) ? 'down' : 'warn'),
+      kpi(T('Unacknowledged alerts'), un, null, un ? 'down' : 'up', acked ? T('{0} acknowledged', acked) : T('none acknowledged'), () => { location.hash = '#/alerts'; }),
+      kpi(T('Agents online'), agOn, S.agents.length, agOff ? 'offline' : 'up', [agOff ? T('{0} offline', agOff) : '', agWait ? T('{0} not started', agWait) : ''].filter(Boolean).join(' · ') || T('all online')),
+      kpi(T('Targets up'), all.up, measured, all.down ? 'down' : all.warn || all.offline ? 'warn' : 'up',
+        [all.down ? T('{0} down', all.down) : '', all.warn ? T('{0} warnings', all.warn) : '', all.offline ? T('{0} not measured', all.offline) : '', all.paused ? T('{0} paused', all.paused) : ''].filter(Boolean).join(' · ') || T('all responding'))),
+    h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Needs attention'))),
+      attentionList(items, true, S.targets.length ? T('Nothing needs attention right now.') : T('No targets yet.'))));
+
+  // kunder, värst först
+  const q = (S.ovQuery || '').trim().toLowerCase();
+  const shown = cs.filter(x => !q || x.c.name.toLowerCase().includes(q)).sort((a, b) => a.sev - b.sev || a.c.name.localeCompare(b.c.name, 'sv'));
+  $('#ovCustCount').textContent = q ? T('{0} of {1}', shown.length, cs.length) : '';
+  $('#ovCards').replaceChildren(...(shown.length ? shown.map(({ c, ts, cnt, ags, st, label }) => {
+    const on = ags.filter(a => (S.live[a.id] || {}).online).length;
+    const meas = cnt.total - cnt.paused;
+    const pct = meas ? Math.round(cnt.up / meas * 100) : 100;
+    return h('div', { class: 'card st-' + st, onclick: () => { location.hash = '#/c/' + c.id; } },
+      h('div', { class: 'card-top' }, h('h3', null, c.name), h('span', { class: 'status-pill st-' + st }, h('span', { class: 'dot' }), label)),
+      h('div', { class: 'meta' }, T('{0} · {1}/{2} agents online · {3} targets', plural(S.sites.filter(s => s.customerId === c.id).length, T('site'), T('sites')), on, ags.length, ts.length)),
+      meas ? h('div', { class: 'upbar', title: T('{0} % of the targets are up', pct) }, h('i', { style: `width:${pct}%` })) : null);
+  }) : [h('p', { class: 'muted' }, T('No customer matches the search.'))]));
+
   if (isAdmin() && S.serverHost) {
     const sh = S.serverHost;
-    content.push(h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Server'))),
+    $('#ovServer').replaceChildren(h('div', { class: 'section' }, h('div', { class: 'section-head' }, h('h2', null, T('Server'))),
       h('div', { class: 'card server-card', onclick: () => hostView('_server') },
         h('div', { class: 'meters' }, meter('CPU', sh.cpu, T('{0} of {1} cores', fmtPct(sh.cpu), sh.cpus)), meter(T('Memory'), memPct(sh), T('{0} of {1}', gb(sh.memUsed), gb(sh.memTotal))),
           ...(sh.disks || []).slice(0, 3).map(d => meter('Disk ' + d.m, pct(d), T('{0} free of {1}', gb(d.t - d.u), gb(d.t))))),
         h('div', { class: 'meta' }, T('PingVakt server {0} · uptime {1}', S.version, dur(sh.uptime * 1000))))));
   }
-  page.replaceChildren(...content);
 }
 
 /* ---------------- kund ---------------- */
@@ -362,25 +490,30 @@ function renderCustomer(page, id) {
   const sites = S.sites.filter(s => s.customerId === id);
   const head = h('div', { class: 'page-head' },
     h('div', null, h('h1', null, c.name), c.notes ? h('div', { class: 'sub' }, c.notes) : null), connBadge(),
-    h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report')), isAdmin() ? [
+    h('div', { class: 'tools' }, isAdmin() ? [
       h('button', { class: 'btn primary', onclick: () => addTargetsDialog(id) }, T('+ Add targets')),
-      h('button', { class: 'btn', onclick: () => templateDialog(id) }, T('From template…')),
-      h('button', { class: 'btn', onclick: () => networkMap(id) }, T('Network map')),
       h('button', { class: 'btn', onclick: () => agentDialog(id) }, T('+ New agent')),
-      h('button', { class: 'btn', onclick: () => siteDialog(id) }, T('+ New site')),
-      h('button', { class: 'btn ghost', onclick: e => showMenu(e.currentTarget, [
-        { label: T('Logs (syslog and traps)'), action: () => openLogs(c.id) },
+      h('button', { class: 'btn', onclick: () => networkMap(id) }, T('Network map')),
+      h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report')),
+      h('button', { class: 'btn', title: T('More'), onclick: e => showMenu(e.currentTarget, [
+        { label: T('Targets from template…'), action: () => templateDialog(id) },
+        { label: T('New site…'), action: () => siteDialog(id) },
         { label: T('Add SNMP device…'), action: () => snmpDialog(null, c.id) },
         { label: T('Add integration (UniFi, Meraki, Aruba)…'), action: () => integrationDialog(null, c.id) },
         '-',
-        { label: T('Edit customer…'), action: () => customerDialog(c) },
+        { label: T('Logs (syslog and traps)'), action: () => openLogs(c.id) },
+        { label: T('Alert rules for customer…'), action: () => { location.hash = '#/alerts'; } },
         { label: T('Maintenance windows…'), action: () => maintDialog(c.id) },
         { label: T('Public status page…'), action: () => statusPageDialog(c) },
         { label: T('Customer portal (as the customer sees it)'), action: () => { location.hash = '#/portal/' + c.id; } },
-        { label: T('Alert rules for customer…'), action: () => { location.hash = '#/alerts'; } },
         '-',
+        { label: T('Edit customer…'), action: () => customerDialog(c) },
         { label: T('Delete customer…'), danger: true, action: () => deleteCustomer(c) },
-      ]) }, '⋯')] : null));
+      ]) }, T('More ▾'))] : h('button', { class: 'btn', onclick: () => reportDialog(c) }, T('Report'))));
+  // filter: sök på namn/adress och visa bara problem
+  const q = h('input', { type: 'search', class: 'ov-search', placeholder: T('Filter targets…'), value: S.custQuery || '', oninput: e => { S.custQuery = e.target.value; applyCustFilter(); } });
+  const onlyBad = h('button', { class: 'btn sm' + (S.custProblems ? ' on' : ''), onclick: () => { S.custProblems = !S.custProblems; onlyBad.classList.toggle('on', S.custProblems); applyCustFilter(); } }, T('Only problems'));
+  const filterBar = sites.length ? h('div', { class: 'cust-filter' }, q, onlyBad, h('span', { class: 'muted', id: 'custFilterInfo' })) : null;
   const sections = sites.map(site => {
     const ags = S.agents.filter(a => a.siteId === site.id);
     const ts = S.targets.filter(t => ags.some(a => a.id === t.agentId));
@@ -389,8 +522,8 @@ function renderCustomer(page, id) {
     const agentChips = h('div', { class: 'agents-row' }, ...ags.map(a => agentChip(a)),
       !ags.length ? h('span', { class: 'muted' }, isAdmin() ? T('No agent on this site yet. ') : T('No agent.')) : null,
       !ags.length && isAdmin() ? h('button', { class: 'btn sm', onclick: () => agentDialog(id, site.id) }, T('+ Add agent')) : null);
-    return h('div', { class: 'section' },
-      h('div', { class: 'section-head' }, h('h2', null, site.name), h('span', { class: 'muted' }, T('{0} targets', ts.length)),
+    return h('div', { class: 'section', 'data-site-sec': site.id },
+      h('div', { class: 'section-head' }, h('h2', null, site.name), h('span', { class: 'site-sum', 'data-site': site.id }),
         isAdmin() ? h('div', { class: 'tools' }, h('button', { class: 'btn ghost sm', onclick: e => showMenu(e.currentTarget, [
           { label: T('Add SNMP device…'), action: () => snmpDialog(null, id, (ags.find(a => a.kind !== 'desktop') || {}).id) },
           { label: T('Rename…'), action: () => siteDialog(id, site) },
@@ -399,7 +532,9 @@ function renderCustomer(page, id) {
       agentChips, snmpRow(site),
       ts.length ? grid : (ags.length ? h('p', { class: 'muted' }, isAdmin() ? T('No targets yet – click "Add targets".') : T('No targets.')) : null));
   });
-  page.replaceChildren(head, integRow(id), ...sections);
+  page.replaceChildren(head, h('div', { id: 'custSum' }), filterBar, integRow(id), ...sections);
+  updateCustSummary();
+  applyCustFilter();
   loadSNMP().then(refreshSnmpRows);
   requestAnimationFrame(() => { for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); });
   // fyll minigraferna med de senaste mätpunkterna
@@ -416,6 +551,54 @@ function renderCustomer(page, id) {
   }
 }
 
+// updateCustSummary visar kundens läge överst: en statusrad och vad som behöver åtgärdas.
+function updateCustSummary() {
+  const box = $('#custSum');
+  if (!box || !S.view || S.view.name !== 'customer') return;
+  const c = byId(S.customers, S.view.id);
+  if (!c) return;
+  loadActiveList(updateCustSummary);
+  const x = custStatus(c);
+  const items = attention(c.id);
+  const meas = x.cnt.total - x.cnt.paused;
+  const on = x.ags.filter(a => (S.live[a.id] || {}).online).length;
+  const stat = (v, label, st) => h('span', { class: 'cs-stat st-' + st }, h('b', null, v), ' ', label);
+  box.replaceChildren(h('div', { class: 'cust-sum st-' + x.st },
+    h('div', { class: 'cs-head' }, h('span', { class: 'status-pill st-' + x.st }, h('span', { class: 'dot' }), x.label),
+      stat(`${x.cnt.up}/${meas}`, T('targets up'), x.cnt.down ? 'down' : x.cnt.warn ? 'warn' : 'up'),
+      stat(`${on}/${x.ags.length}`, T('agents online'), x.off ? 'offline' : 'up'),
+      x.cnt.paused ? stat(String(x.cnt.paused), T('paused'), 'paused') : null),
+    items.length ? attentionList(items, false, '', 5, 'cust') : null));
+  // sammanfattning per plats
+  document.querySelectorAll('.site-sum').forEach(el => {
+    const ags = S.agents.filter(a => a.siteId === el.dataset.site);
+    const cnt = counts(S.targets.filter(t => ags.some(a => a.id === t.agentId)));
+    const bad = [cnt.down ? T('{0} down', cnt.down) : '', cnt.offline ? T('{0} not measured', cnt.offline) : '', cnt.warn ? T('{0} warnings', cnt.warn) : ''].filter(Boolean);
+    const sig = cnt.total + bad.join();
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    el.className = 'site-sum ' + (cnt.down ? 'st-down' : cnt.offline ? 'st-offline' : cnt.warn ? 'st-warn' : 'st-up');
+    el.replaceChildren(T('{0} targets', cnt.total), bad.length ? h('b', null, ' · ' + bad.join(' · ')) : (cnt.total ? ' · ' + T('all OK') : ''));
+  });
+  if (S.custProblems) applyCustFilter();
+}
+
+function applyCustFilter() {
+  const q = (S.custQuery || '').trim().toLowerCase(), bad = !!S.custProblems;
+  let shown = 0, total = 0;
+  for (const [id, el] of tiles) {
+    const t = byId(S.targets, id);
+    if (!t) continue;
+    total++;
+    const st = (S.stats[id] || {}).status;
+    const ok = (!q || `${t.name || ''} ${t.host}`.toLowerCase().includes(q)) && (!bad || ['down', 'warn', 'offline'].includes(st));
+    el.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  const info = $('#custFilterInfo');
+  if (info) info.textContent = q || bad ? T('Showing {0} of {1} targets', shown, total) : '';
+}
+
 function agentChip(a) {
   const lv = S.live[a.id] || {};
   const st = !a.lastSeen && !lv.lastSeen ? 'pending' : lv.online ? 'up' : 'offline';
@@ -425,11 +608,12 @@ function agentChip(a) {
     h('span', { class: 'dot' }), h('b', null, a.name),
     h('small', null, st === 'pending' ? T('waiting for first contact') : st === 'up' ? `${kind} · online` : `offline ${dur(Date.now() - seen)}`),
     lv.host && st === 'up' ? hostMini(lv.host) : null,
+    lv.phone && lv.phone.bat >= 0 && st === 'up' ? h('span', { class: 'chip-bat lvl-' + batLevel(lv.phone.bat, lv.phone.chg), title: T('Battery') }, `${lv.phone.chg ? '⚡' : '🔋'}${lv.phone.bat} %`) : null,
     isAdmin() ? h('button', { class: 'icon-btn', title: 'Agent', onclick: e => { e.stopPropagation(); agentMenu(a, e.currentTarget); } }, '⋯') : null);
   if (!S.maint[a.id] && Object.keys(S.active).some(k => k.endsWith('|' + a.id) && !S.acks[k])) el.classList.add('alerting');
   if (S.maint[a.id]) { el.classList.add('in-maint'); el.title = '🔧 ' + S.maint[a.id]; }
-  if (lv.host || a.kind === 'agent') { el.classList.add('clickable'); el.addEventListener('click', () => hostView(a.id)); }
-  el.dataset.sig = st + '|' + (S.maint[a.id] || '') + '|' + el.classList.contains('alerting') + '|' + (lv.host ? [Math.round(lv.host.cpu), Math.round(memPct(lv.host)), Math.round(diskPct(lv.host))].join(',') : '');
+  if (lv.host || lv.phone || a.kind === 'agent') { el.classList.add('clickable'); el.addEventListener('click', () => hostView(a.id)); }
+  el.dataset.sig = st + '|' + (S.maint[a.id] || '') + '|' + el.classList.contains('alerting') + '|' + (lv.host ? [Math.round(lv.host.cpu), Math.round(memPct(lv.host)), Math.round(diskPct(lv.host))].join(',') : '') + '|' + (lv.phone ? lv.phone.bat + (lv.phone.chg ? 'c' : '') : '');
   return el;
 }
 
@@ -658,9 +842,9 @@ function onTick(m) {
   // nya mål eller agenter som dykt upp (t.ex. från en skrivbordsapp) → hämta om strukturen
   const unknown = Object.keys(m.stats || {}).some(id => !byId(S.targets, id)) || Object.keys(m.agents || {}).some(id => !byId(S.agents, id));
   if (unknown && !structTimer) structTimer = setTimeout(async () => { structTimer = null; await afterChange(); }, 500);
-  if (S.view && S.view.name === 'overview' && !document.querySelector('.backdrop')) renderOverview($('#page'));
+  if (S.view && S.view.name === 'overview' && !document.querySelector('.backdrop')) renderOverview($('#page'), true);
   else if (S.view && S.view.name === 'tv') renderTV($('#page'));
-  else for (const t of S.targets) if (tiles.has(t.id)) updateTile(t);
+  else { for (const t of S.targets) if (tiles.has(t.id)) updateTile(t); updateCustSummary(); }
   document.querySelectorAll('.agent-chip').forEach(ch => {
     const a = agentOf(ch.dataset.agent);
     if (a) { const n = agentChip(a); if (n.dataset.sig !== ch.dataset.sig) ch.replaceWith(n); }
@@ -1117,11 +1301,14 @@ function hostView(id) {
     h('div', null, h('h4', null, 'CPU'), h('div', { class: 'hchart', id: 'hcCpu' })),
     h('div', null, h('h4', null, T('Memory')), h('div', { class: 'hchart', id: 'hcMem' })),
     h('div', { class: 'full' }, h('h4', null, 'Disk'), h('div', { class: 'hchart', id: 'hcDisk' })),
+    h('div', { class: 'full', id: 'hvPhone' }),
     h('div', { class: 'full', id: 'hvWifi' }),
     h('div', { class: 'full', id: 'hvSurvey' }),
     h('div', { class: 'full', id: 'hvSpeed' }),
     h('div', { class: 'full', id: 'hvLogRx' }));
   const title = isSrv ? T('PingVakt server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
+  const phoneOnly = !isSrv && isPhone(a);
+  if (phoneOnly) charts.querySelectorAll('#hcCpu,#hcMem,#hcDisk').forEach(el => el.parentNode.remove());
   modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, T('History')), h('div', { class: 'tools' }, ranges)), charts),
     onClose: () => { S.hostView = null; surveyState = null; hostCharts.forEach(c => c.destroy()); hostCharts = []; } });
   refreshHostView();
@@ -1144,7 +1331,7 @@ function refreshHostView() {
     isSrv ? null : fact(T('Last seen'), (lv.lastSeen || a.lastSeen) ? dateTime(lv.lastSeen || a.lastSeen) : T('never'))].filter(Boolean));
   $('#hvNow').replaceChildren(...(m ? [meter('CPU', m.cpu, T('{0} cores', m.cpus)), meter(T('Memory'), memPct(m), T('{0} of {1}', gb(m.memUsed), gb(m.memTotal))),
     ...(m.disks || []).map(d => meter('Disk ' + d.m, pct(d), T('{0} free of {1}', gb(d.t - d.u), gb(d.t))))]
-    : [h('p', { class: 'muted' }, a && a.kind === 'desktop' ? T('The desktop app does not report CPU, memory and disk.') : T('No values yet – the agent reports CPU, memory and disk from version 0.3.'))]));
+    : a && isPhone(a) ? [] : [h('p', { class: 'muted' }, a && a.kind === 'desktop' ? T('The desktop app does not report CPU, memory and disk.') : T('No values yet – the agent reports CPU, memory and disk from version 0.3.'))]));
   document.querySelectorAll('.modal .ranges button').forEach(b => b.classList.toggle('on', +b.dataset.r === hv.range));
 }
 
@@ -1179,9 +1366,60 @@ async function loadHostCharts() {
   mk('#hcCpu', [{ label: T('Avg'), stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: pv, points: pts },
     { label: 'Max', stroke: hexA(c.accent, .45), width: 1, value: pv, points: pts }], [hs.cpu, hs.cpuMax]);
   mk('#hcMem', [{ label: T('Used{0}', hs.memTotal ? T(' of ') + gb(hs.memTotal) : ''), stroke: '#8b7cf6', width: 1.6, fill: 'rgba(139,124,246,.12)', value: pv, points: pts }], [hs.mem]);
+  renderPhone(res, from, to, axis, hv);
   renderWifi(res, from, to, axis, hv);
   if (hv.id !== '_server') { renderSpeed(hv.id); renderLogRx(hv.id); if (!surveyState || surveyState.agentId !== hv.id) renderSurvey(hv.id); else { const b = $('#hvSurvey'); if (b && !b.childNodes.length) renderSurvey(hv.id); } }
   mk('#hcDisk', hs.disks.map((d, i) => ({ label: `${d.mount} (${gb(d.total)})`, stroke: pal[i % pal.length], width: 1.6, value: pv, points: pts })), hs.disks.map(d => d.pct));
+}
+
+/* ---------------- telefon ---------------- */
+const isPhone = a => !!a && /^android/.test(a.os || '');
+const batLevel = (p, chg) => chg ? 'ok' : p < 15 ? 'bad' : p < 30 ? 'high' : 'ok';
+const rsrpLevel = v => v == null ? '' : v >= -90 ? 'ok' : v >= -105 ? 'high' : 'bad';
+function phoneFacts(p) {
+  const fact = (k, v, cls) => h('div', null, h('small', null, k), h('b', { class: cls || '' }, v || '–'));
+  const c = p.cell, n = p.net;
+  const plug = { ac: T('charger'), usb: 'USB', wireless: T('wireless'), dock: 'dock' }[p.plug];
+  const tr = n ? ({ wifi: 'Wi-Fi', cellular: T('Mobile data'), ethernet: 'Ethernet' }[n.tr] || T('Other')) : '';
+  return h('div', { class: 'facts' },
+    fact(T('Battery'), p.bat >= 0 ? `${p.bat} %${p.chg ? ' ⚡' : ''}` : '', p.bat >= 0 ? 'lvl-' + batLevel(p.bat, p.chg) : ''),
+    fact(T('Power'), p.chg ? T('Charging') + (plug ? ` (${plug})` : '') : T('On battery')),
+    p.temp ? fact(T('Battery temperature'), p.temp.toFixed(1) + ' °C', p.temp >= 45 ? 'lvl-bad' : p.temp >= 40 ? 'lvl-high' : '') : null,
+    c ? fact(T('Mobile network'), [c.tech, c.op].filter(Boolean).join(' · ')) : null,
+    c && (c.rsrp != null || c.rssi != null) ? fact(c.rsrp != null ? 'RSRP' : T('Signal'), (c.rsrp != null ? c.rsrp : c.rssi) + ' dBm', 'lvl-' + rsrpLevel(c.rsrp != null ? c.rsrp : c.rssi + 20)) : null,
+    c && c.sinr != null ? fact('SINR', c.sinr + ' dB', c.sinr >= 13 ? 'lvl-ok' : c.sinr >= 0 ? 'lvl-high' : 'lvl-bad') : null,
+    c && (c.band || c.ci) ? fact(T('Band / cell'), [c.band, c.ci].filter(Boolean).join(' · ')) : null,
+    n ? fact(T('Internet'), n.valid && !n.captive ? T('Works via {0}', tr) : n.captive ? T('Login page (captive portal)') : T('No internet via {0}', tr), n.valid && !n.captive ? 'lvl-ok' : 'lvl-bad') : null,
+    n && (n.vpn || n.pdns || n.metered) ? fact(T('Network'), [n.vpn ? 'VPN' : '', n.pdns ? T('Private DNS') : '', n.metered ? T('metered') : ''].filter(Boolean).join(' · ')) : null,
+    fact(T('Phone'), [p.model, p.android ? 'Android ' + p.android : ''].filter(Boolean).join(' · ')),
+    p.uptime ? fact(T('Uptime'), dur(p.uptime * 1000)) : null);
+}
+function renderPhone(res, from, to, axis, hv) {
+  const box = $('#hvPhone');
+  if (!box) return;
+  const p = res.phone, ph = res.phoneHistory;
+  if (!p && !(ph && ph.t && ph.t.length)) { box.replaceChildren(); return; }
+  const batBox = h('div', { class: 'hchart' }), sigBox = h('div', { class: 'hchart' });
+  const hasSig = ph && ph.rsrp && ph.rsrp.some(v => v != null);
+  box.replaceChildren(...[h('h4', null, T('Phone')), p ? phoneFacts(p) : h('p', { class: 'muted' }, T('No recent report from the phone.')),
+    h('div', { class: 'hostcharts' }, h('div', { class: hasSig ? '' : 'full' }, h('h4', null, T('Battery')), batBox), hasSig ? h('div', null, h('h4', null, T('Mobile signal (RSRP)')), sigBox) : null)].filter(Boolean));
+  if (!ph || !ph.t || !ph.t.length) { batBox.append(h('p', { class: 'muted' }, T('No history for the period.'))); return; }
+  const c = css(), x = ph.t.map(t => t / 1000), pts = { show: x.length < 90, size: 4 };
+  const base = (el, y, yfmt, series, data) => {
+    const u = new uPlot({ width: el.clientWidth || 400, height: 160,
+      scales: { x: { time: true, range: () => [from / 1000, to / 1000] }, y },
+      axes: [Object.assign({}, axis, { values: (u, sp) => sp.map(v => timeLabel(v, hv.range)) }), Object.assign({}, axis, { size: 76, values: (u, sp) => sp.map(yfmt) })],
+      series: [{ label: T('Time'), value: (u, v) => v == null ? '–' : new Date(v * 1000).toLocaleString('sv-SE') }, ...series],
+      legend: { live: true }, cursor: { drag: { x: false, y: false } } }, [x, ...data], el);
+    hostCharts.push(u);
+  };
+  // laddning markeras som en egen serie så att man ser när telefonen satt i laddaren
+  const chg = ph.bat.map((b, i) => ph.chg[i] ? b : null);
+  base(batBox, { range: [0, 100] }, v => v + ' %', [
+    { label: T('Battery'), stroke: c.accent, width: 1.6, fill: hexA(c.accent, .12), value: (u, v) => v == null ? '–' : v + ' %', points: pts },
+    { label: T('Charging'), stroke: '#f2b33d', width: 3, value: (u, v) => v == null ? '–' : '⚡', points: { show: false } }], [ph.bat, chg]);
+  if (hasSig) base(sigBox, { range: (u, mn, mx) => [Math.min(-120, Math.floor((mn || -120) / 10) * 10), Math.max(-70, Math.ceil((mx || -70) / 10) * 10)] }, v => v + ' dBm', [
+    { label: 'RSRP', stroke: '#5b9cf5', width: 1.6, fill: 'rgba(91,156,245,.10)', value: (u, v) => v == null ? '–' : v + ' dBm', points: pts }], [ph.rsrp]);
 }
 
 /* ---------------- Wi-Fi ---------------- */
@@ -1206,10 +1444,11 @@ function renderWifi(res, from, to, axis, hv) {
   box.replaceChildren(...[h('h4', null, 'Wi-Fi'), wl ? wifiFacts(wl) : h('p', { class: 'muted' }, T('Not connected to Wi-Fi right now.')),
     h('div', { class: 'wifi-legend muted' }, T('{0} roam{1} during the period', roams.length, roams.length === 1 ? '' : T('s')), roams.length ? T(' – marked with dashed lines in the graph') : ''),
     chartBox,
-    roams.length ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, T('Time')), h('th', null, T('From')), h('th', null, T('To')), h('th', null, T('Signal before → after')))),
+    roams.length ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, T('Time')), h('th', null, T('From')), h('th', null, T('To')), h('th', null, T('Signal before → after')), roams.some(r => r.gapMs > -2) ? h('th', null, T('Interruption')) : null)),
       h('tbody', null, ...roams.slice(-20).reverse().map(r => h('tr', null, h('td', { class: 'mono' }, dateTime(r.t)),
         h('td', { class: 'mono' }, `${r.from} (k ${r.fromCh})`), h('td', { class: 'mono' }, `${r.to} (k ${r.toCh})`),
-        h('td', { class: 'mono' }, `${r.fromRssi} → ${r.toRssi} dBm`))))) : null,
+        h('td', { class: 'mono' }, `${r.fromRssi} → ${r.toRssi} dBm`),
+        roams.some(r => r.gapMs > -2) ? h('td', { class: 'mono ' + (r.gapMs > 300 ? 'lvl-bad' : r.gapMs > 100 ? 'lvl-high' : r.gapMs > -2 ? 'lvl-ok' : '') }, r.gapMs > 0 ? r.gapMs + ' ms' : r.gapMs === -1 ? T('none') : '–') : null)))) : null,
     wh.aps && wh.aps.length > 1 ? h('table', { class: 'tbl compact' }, h('thead', null, h('tr', null, h('th', null, T('Access point')), h('th', null, 'SSID'), h('th', null, T('Channel')), h('th', null, T('Time')), h('th', null, T('Avg signal')))),
       h('tbody', null, ...wh.aps.map(a => h('tr', null, h('td', { class: 'mono' }, a.bssid), h('td', null, a.ssid || '–'), h('td', { class: 'mono' }, String(a.ch || '–')),
         h('td', { class: 'mono' }, dur(a.minutes * 60000)), h('td', { class: 'mono lvl-' + rssiLevel(a.rssi) }, a.rssi + ' dBm'))))) : null].filter(Boolean));
@@ -1422,6 +1661,8 @@ function describe(a) {
   if (a.condition === 'anomaly') return T('Unusual latency: {0}× normal spread, at least +{1} ms, {2} min', a.threshold, a.count, a.samples);
   if (a.condition === 'sticky') return T('Sticky client: below {0} dBm, another AP {1} dB stronger for {2} min', a.threshold, a.count, a.samples);
   if (a.condition === 'roamrate') return T('More than {0} roams in {1} min', a.threshold, a.samples);
+  if (a.condition === 'battery') return T('Phone battery below {0} %', a.threshold);
+  if (a.condition === 'roamgap') return T('Roaming interrupts traffic more than {0} ms', a.threshold);
   if (a.condition === 'snmp') return T('SNMP device not responding ({0} polls)', a.samples);
   if (a.condition === 'ifdown') return T('Watched port down');
   if (a.condition === 'ifutil') return T('Port traffic > {0} % for {1} min', a.threshold, a.samples);
@@ -1812,7 +2053,7 @@ function ruleDialog(rule) {
   const cond = select([['down', T('Down – lost packets')], ['latency', T('High latency')], ['loss', T('Packet loss in percent')], ['offline', 'Agent offline'],
     ['cpu', T('Agent CPU high')], ['mem', T('Agent memory high')], ['disk', T('Agent disk full')], ['rssi', T('Agent Wi-Fi signal weak')], ['cert', T('HTTPS certificate expiring')], ['path', T('Path (traceroute) changes')],
     ['snmp', T('SNMP device not responding')], ['ifdown', T('Watched port down')], ['ifutil', T('Port traffic high')], ['iferrors', T('Port errors')], ['speed', T('Speed test slow')],
-    ['anomaly', T('Unusual latency (learns what is normal)')], ['log', T('Syslog or SNMP trap')], ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
+    ['anomaly', T('Unusual latency (learns what is normal)')], ['log', T('Syslog or SNMP trap')], ['sticky', T('Sticky Wi-Fi client')], ['roamrate', T('Too many roams')], ['roamgap', T('Slow roaming (phone)')], ['battery', T('Phone battery low')], ['vendor', T('UniFi/Meraki/Aruba device offline')]], r.condition);
   const logMatch = h('input', { type: 'text', value: r.match || '', placeholder: T('e.g. link down, or /auth.*fail/ – empty = any message') });
   const logSev = select([[0, '0 emerg'], [1, '1 alert'], [2, '2 crit'], [3, '3 err'], [4, '4 warning'], [5, '5 notice'], [6, '6 info'], [7, T('any')]], r.condition === 'log' ? r.threshold : 4);
   const vendorWhich = select([[0, T('All devices')], [1, T('Only access points')], [2, T('All except access points')]], r.condition === 'vendor' ? r.threshold : 0);
@@ -1852,6 +2093,10 @@ function ruleDialog(rule) {
       h('small', null, T('Needs automatic Wi-Fi scanning on the agent (CPU, memory and disk view → Wi-Fi networks nearby).')));
     if (c === 'roamrate') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('More than')), thr, h('span', null, T('roams in')), smp, h('span', null, T('minutes'))),
       h('small', null, T('Applies to all agents and desktop apps of the customer connected via Wi-Fi. Many roams often mean overlapping cells with similar signal or a client that roams too eagerly.')));
+    if (c === 'battery') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Battery below')), thr, h('span', null, T('% and not charging'))),
+      h('small', null, T('Applies to all phones (PingVakt Android app) of the customer. Clears when the phone is charging or above the level again.')));
+    if (c === 'roamgap') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Traffic interrupted more than')), thr, h('span', null, T('ms when roaming, within')), smp, h('span', null, T('minutes'))),
+      h('small', null, T('The phone pings the gateway twice a second and measures how long traffic stops when it changes access point. Calls and video usually tolerate up to about 150 ms.')));
     if (c === 'offline') condRow.replaceChildren(h('small', null, T('Triggers when an agent has not reported for {0} seconds. Applies to all agents of the customer.', Math.max(30, S.reportSec * 3))));
   };
   cond.onchange = () => {
@@ -1865,6 +2110,8 @@ function ruleDialog(rule) {
     if (c === 'snmp') smp.value = 3;
     if (c === 'sticky') { thr.value = +thr.value < 0 ? thr.value : -70; cnt.value = 10; smp.value = 10; }
     if (c === 'roamrate') { thr.value = 10; smp.value = 60; }
+    if (c === 'battery') { thr.value = 20; smp.value = 1; }
+    if (c === 'roamgap') { thr.value = 300; smp.value = 10; }
     if (c === 'vendor') smp.value = 2;
     if (c === 'log') smp.value = 15;
     if (c === 'anomaly') { thr.value = 3; cnt.value = 10; smp.value = 10; }

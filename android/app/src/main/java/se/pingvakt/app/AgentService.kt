@@ -10,11 +10,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationListener
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import org.json.JSONObject
 import java.io.File
 import java.security.SecureRandom
 import java.util.Locale
@@ -48,12 +52,28 @@ class AgentService : Service() {
         }
 
         @Volatile var fastScan = false
+            private set
         @Volatile var instance: AgentService? = null
+
+        /** Snabbläge under survey-inspelning: tätare avsökningar och löpande position. */
+        fun setFast(on: Boolean) {
+            fastScan = on
+            instance?.let { s -> s.phone.track(on, s.locListener) }
+        }
     }
 
     @Volatile private var running = false
     private var proc: Process? = null
     private lateinit var wifi: WifiReader
+    internal lateinit var phone: PhoneReader
+    // LocationListener-metoderna är abstrakta före Android 11, så alla implementeras
+    internal val locListener = object : LocationListener {
+        override fun onLocationChanged(l: Location) {}
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+        override fun onProviderEnabled(p: String) {}
+        override fun onProviderDisabled(p: String) {}
+    }
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastScanRequest = 0L
     private var lastCachedPost = 0L
@@ -70,6 +90,7 @@ class AgentService : Service() {
         super.onCreate()
         instance = this
         wifi = WifiReader(this)
+        phone = PhoneReader(this)
         createChannel()
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n: Notification = Notification.Builder(this, CHANNEL)
@@ -98,6 +119,7 @@ class AgentService : Service() {
         running = false
         instance = null
         try { unregisterReceiver(scanReceiver) } catch (_: Exception) {}
+        phone.track(false, locListener)
         proc?.destroy()
         wakeLock?.release()
         super.onDestroy()
@@ -137,26 +159,38 @@ class AgentService : Service() {
         }
     }
 
-    /** Skickar Wi-Fi-anslutningen till agenten var 10:e sekund och söker av när det behövs. */
+    /**
+     * Skickar Wi-Fi-anslutningen och telefonens status till agenten var 10:e sekund (5 i snabbläge)
+     * och direkt när telefonen byter accesspunkt, så att avbrottet vid roaming kan mätas.
+     */
     private fun wifiLoop() {
         Thread.sleep(1500)
+        var lastPost = 0L
+        var lastBssid = ""
         while (running) {
             try {
-                val body = wifi.connectionJson()
-                val resp = Local.post(this, "/api/wifi", body)
                 val now = System.currentTimeMillis()
-                val wanted = resp?.contains("\"scan\":true") == true
-                if ((wanted || (fastScan && now - lastScanRequest > 30_000)) && now - lastScanRequest > 15_000) {
-                    requestScan()
-                } else if (now - lastCachedPost > 60_000) {
-                    // Androids senaste resultat (från systemet eller andra appar) – kostar ingen avsökning
-                    lastCachedPost = now
-                    postScan()
+                val bssid = wifi.currentBssid()
+                val roamed = bssid.isNotEmpty() && lastBssid.isNotEmpty() && bssid != lastBssid
+                if (bssid.isNotEmpty()) lastBssid = bssid
+                if (roamed || now - lastPost >= (if (fastScan) 5000 else 10_000)) {
+                    lastPost = now
+                    val body = JSONObject(wifi.connectionJson())
+                    try { body.put("phone", phone.json()) } catch (_: Exception) {}
+                    val resp = Local.post(this, "/api/wifi", body.toString())
+                    val wanted = resp?.contains("\"scan\":true") == true
+                    if ((wanted || (fastScan && now - lastScanRequest > 30_000)) && now - lastScanRequest > 15_000) {
+                        requestScan()
+                    } else if (now - lastCachedPost > 60_000) {
+                        // Androids senaste resultat (från systemet eller andra appar) – kostar ingen avsökning
+                        lastCachedPost = now
+                        postScan()
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "wifi loop: ${e.message}")
             }
-            Thread.sleep(if (fastScan) 5000 else 10_000)
+            Thread.sleep(2000)
         }
     }
 
@@ -168,7 +202,9 @@ class AgentService : Service() {
 
     private fun postScan() {
         try {
-            Local.post(this, "/api/survey", wifi.scanJson())
+            val body = JSONObject(wifi.scanJson())
+            phone.location()?.let { body.put("loc", it) }
+            Local.post(this, "/api/survey", body.toString())
         } catch (e: Exception) {
             Log.w(TAG, "scan: ${e.message}")
         }

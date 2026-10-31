@@ -381,7 +381,8 @@ async function renderSurvey(agentId, at) {
   const tools = h('div', { class: 'row speed-tools' }, run, hist, csv, isAdmin() && a.kind === 'agent' ? h('label', { class: 'row' }, h('span', { class: 'muted' }, T('Automatic')), sched) : null, status);
   const head = h('h4', null, T('Wi-Fi networks nearby'));
   if (!sc) { box.replaceChildren(head, h('p', { class: 'muted' }, T('No scan yet. Scanning shows neighbouring networks, channels and signal strength as heard by this computer.')), tools); return; }
-  box.replaceChildren(...[head, tools, sc.err && !sc.bss.length ? h('div', { class: 'notice bad' }, TE(sc.err)) : null, surveyPanel({ scan: sc, cur, state: surveyState.view })].filter(Boolean));
+  const pos = sc.lat || sc.lon ? h('p', { class: 'muted', style: 'margin:4px 0' }, '📍 ' + T('Scanned at') + ' ', h('a', { href: `https://www.openstreetmap.org/?mlat=${sc.lat}&mlon=${sc.lon}#map=19/${sc.lat}/${sc.lon}`, target: '_blank', rel: 'noopener' }, `${sc.lat.toFixed(5)}, ${sc.lon.toFixed(5)}`), sc.acc ? ` (±${Math.round(sc.acc)} m)` : '') : null;
+  box.replaceChildren(...[head, tools, pos, sc.err && !sc.bss.length ? h('div', { class: 'notice bad' }, TE(sc.err)) : null, surveyPanel({ scan: sc, cur, state: surveyState.view })].filter(Boolean));
 }
 
 /* ---------------- UniFi, Meraki och Aruba Central ---------------- */

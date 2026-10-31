@@ -380,6 +380,9 @@ func (s *Server) Ingest(ctx context.Context, agentID, ip string, rep agentproto.
 	if rep.WiFi != nil && rep.WiFi.RSSI < 0 && rep.WiFi.RSSI > -120 {
 		s.ingestWiFi(agentID, *rep.WiFi)
 	}
+	if rep.Phone != nil {
+		s.ingestPhone(agentID, *rep.Phone)
+	}
 	if rep.Survey != nil {
 		s.ingestSurvey(agentID, *rep.Survey)
 	}
@@ -523,6 +526,7 @@ func (s *Server) Run(ctx context.Context) {
 			s.pruneSNMP(agg)
 			s.pruneSpeed(agg)
 			s.pruneSurvey(agg)
+			s.prunePhones(agg)
 			s.pruneIntegrations()
 			s.pruneLogs()
 			s.pruneMaintenance()
@@ -632,6 +636,7 @@ type liveAgent struct {
 	Online   bool              `json:"online"`
 	Host     *hostinfo.Metrics `json:"host,omitempty"`
 	WiFi     *wifi.Info        `json:"wifi,omitempty"`
+	Phone    *agentproto.Phone `json:"phone,omitempty"`
 }
 
 func (s *Server) broadcastLoop(ctx context.Context) {
@@ -753,7 +758,7 @@ func (s *Server) snapshot(customers map[string]bool) snapshot {
 			continue
 		}
 		out.agentCustomer[id] = c
-		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a), Host: s.hostLatest(id), WiFi: s.wifiLatest(id)}
+		out.Agents[id] = liveAgent{LastSeen: a.LastSeen, Online: s.agentOnline(a), Host: s.hostLatest(id), WiFi: s.wifiLatest(id), Phone: s.phoneLatest(id)}
 	}
 	for id, t := range s.targets {
 		c := s.customerOfTarget(t)

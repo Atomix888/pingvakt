@@ -83,6 +83,11 @@ class WifiReader(private val ctx: Context) {
         return out.toString()
     }
 
+    /** Accesspunkten telefonen är ansluten till just nu ("" om ingen). */
+    @Suppress("DEPRECATION")
+    @android.annotation.SuppressLint("MissingPermission")
+    fun currentBssid(): String = try { cleanBssid(wm.connectionInfo?.bssid) } catch (_: Exception) { "" }
+
     @Suppress("DEPRECATION")
     fun startScan(): Boolean = try { wm.startScan() } catch (e: Exception) { false }
 

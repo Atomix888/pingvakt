@@ -468,7 +468,8 @@ func (s *Server) handleAgentMetrics(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"history": h, "latest": s.hostLatest(id), "wifi": wh, "wifiLatest": s.wifiLatest(id)})
+	writeJSON(w, map[string]any{"history": h, "latest": s.hostLatest(id), "wifi": wh, "wifiLatest": s.wifiLatest(id),
+		"phone": s.phoneLatest(id), "phoneHistory": s.phoneHistory(id, from, to)})
 }
 
 func (s *Server) pruneHost(aggDays int) {

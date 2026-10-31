@@ -22,7 +22,7 @@ main { padding: 14px; max-width: 760px; margin: 0 auto; }
 h1 { font-size: 20px; margin: 4px 0 12px; } h2 { font-size: 15px; margin: 0; } h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
 .muted { color: var(--muted); } .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.lvl-ok { color: var(--up); } .lvl-high { color: var(--warn); } .lvl-bad { color: var(--down); }
+.lvl-ok, .lvl-good { color: var(--up); } .lvl-high, .lvl-warn { color: var(--warn); } .lvl-bad { color: var(--down); }
 label.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 input, select { font: inherit; font-size: 16px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: 9px; padding: 10px 12px; width: 100%; outline: none; }
 input:focus { border-color: var(--accent); }
@@ -71,3 +71,11 @@ input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
 .tbl tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .survey-tbl .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .survey-panel input[type=search] { max-width: 100%; }
+
+.ptiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.ptile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ptile small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.ptile b { font-size: 20px; font-family: var(--mono); }
+.ptile .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.meter i { display: block; height: 100%; background: currentColor; }

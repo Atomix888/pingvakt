@@ -61,6 +61,8 @@ type Uploader struct {
 	Host func() *hostinfo.Metrics
 	// WiFi returnerar den trådlösa anslutningen (nil = ingen).
 	WiFi func() *wifi.Info
+	// Phone ger telefonens värden (bara Android-appen)
+	Phone func() *Phone
 	// NoCommands stänger av kommandon från servern (traceroute, skanning).
 	NoCommands bool
 	// Nets returnerar datorns nät (för nätverksskanning från servern).
@@ -277,6 +279,9 @@ func (u *Uploader) Send(ctx context.Context) (more bool, err error) {
 	}
 	if u.WiFi != nil {
 		rep.WiFi = u.WiFi()
+	}
+	if u.Phone != nil {
+		rep.Phone = u.Phone()
 	}
 	var netsKey string
 	if u.Nets != nil {

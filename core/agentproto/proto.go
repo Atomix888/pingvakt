@@ -101,6 +101,7 @@ type Report struct {
 	SNMP             []snmp.Poll        `json:"snmp,omitempty"`
 	Speed            []speedtest.Result `json:"speed,omitempty"`
 	Survey           *wifi.Scan         `json:"survey,omitempty"` // senaste avsökningen av grannätverk
+	Phone            *Phone             `json:"phone,omitempty"`  // batteri, mobilnät och nätverksstatus (Android-appen)
 	Logs             []logrx.Message    `json:"logs,omitempty"`   // syslog och traps som agenten tagit emot
 	LogRx            string             `json:"logRx,omitempty"`  // fel från syslog-/trapmottagaren
 }
@@ -186,4 +187,43 @@ func versionParts(v string) []int {
 		out[i] = n
 	}
 	return out
+}
+
+// Phone är telefonens egna värden (rapporteras av Android-appen).
+type Phone struct {
+	Battery  int       `json:"bat"`              // procent (-1 = okänt)
+	Charging bool      `json:"chg,omitempty"`    // laddar
+	Plug     string    `json:"plug,omitempty"`   // ac, usb, wireless, dock
+	Temp     float64   `json:"temp,omitempty"`   // batteriets temperatur i °C
+	Health   string    `json:"health,omitempty"` // good, overheat, dead, cold …
+	Model    string    `json:"model,omitempty"`
+	Android  string    `json:"android,omitempty"` // t.ex. "15"
+	Uptime   int64     `json:"uptime,omitempty"`  // sekunder sedan start
+	Cell     *Cell     `json:"cell,omitempty"`
+	Net      *NetState `json:"net,omitempty"`
+}
+
+// Cell är mobilnätet telefonen är registrerad i.
+type Cell struct {
+	Operator string `json:"op,omitempty"`
+	Tech     string `json:"tech,omitempty"` // 2G, 3G, 4G, 5G
+	RSRP     int    `json:"rsrp,omitempty"` // dBm (4G/5G)
+	RSRQ     int    `json:"rsrq,omitempty"` // dB
+	SINR     int    `json:"sinr,omitempty"` // dB
+	RSSI     int    `json:"rssi,omitempty"` // dBm (2G/3G)
+	Level    int    `json:"level"`          // Androids staplar 0–4
+	CellID   string `json:"ci,omitempty"`
+	Band     string `json:"band,omitempty"`
+}
+
+// NetState är Androids bild av den aktiva anslutningen.
+type NetState struct {
+	Transport  string `json:"tr,omitempty"` // wifi, cellular, ethernet
+	Validated  bool   `json:"valid"`        // Android har kontrollerat att internet fungerar
+	Captive    bool   `json:"captive,omitempty"`
+	VPN        bool   `json:"vpn,omitempty"`
+	PrivateDNS bool   `json:"pdns,omitempty"`
+	Metered    bool   `json:"metered,omitempty"`
+	DownKbps   int    `json:"down,omitempty"` // Androids uppskattning
+	UpKbps     int    `json:"up,omitempty"`
 }

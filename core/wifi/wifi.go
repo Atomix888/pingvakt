@@ -29,6 +29,10 @@ type Info struct {
 	Tx    float64 `json:"tx,omitempty"`    // Mbit/s
 	Rx    float64 `json:"rx,omitempty"`    // Mbit/s
 	Std   string  `json:"std,omitempty"`   // t.ex. 802.11ax
+	// Senaste roamingen mätt av agenten (telefonen): hur länge trafiken till gatewayen stod still.
+	RoamAt int64  `json:"roamAt,omitempty"` // tidpunkt (unix ms)
+	RoamTo string `json:"roamTo,omitempty"` // BSSID efter roamingen
+	RoamMs int    `json:"roamMs,omitempty"` // avbrott i ms (-1 = inget mätbart avbrott)
 }
 
 // SNR är signal/brus-förhållandet i dB (0 om bruset är okänt).

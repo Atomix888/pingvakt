@@ -30,6 +30,7 @@ import (
 	"pingvakt/core/i18n"
 	"pingvakt/core/monitor"
 	"pingvakt/core/netscan"
+	"pingvakt/core/probe"
 	"pingvakt/core/wifi"
 )
 
@@ -53,6 +54,32 @@ type mobileState struct {
 	scan    *wifi.Scan
 	scanReq time.Time // webbvyn eller servern vill ha en ny avsökning
 	dns     []string
+	phone   *agentproto.Phone
+	phoneT  time.Time
+	pings   []pingPt // gatewayping var 500:e ms för att mäta avbrott vid roaming
+	lastBSS string
+	roam    *roamGap
+	roams   []roamEvt // de senaste bytena, för appens Wi-Fi-flik
+}
+
+type roamEvt struct {
+	T    int64  `json:"t"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	RSSI int    `json:"rssi"`
+	Ms   int    `json:"ms"` // 0 = mäts, -1 = inget avbrott
+}
+
+type pingPt struct {
+	t  time.Time
+	ok bool
+}
+
+type roamGap struct {
+	at   time.Time
+	to   string
+	ms   int // -1 = inget avbrott, 0 = inte mätt än
+	done bool
 }
 
 func runMobile(args []string) {
@@ -70,6 +97,7 @@ func runMobile(args []string) {
 	i18n.SetLang(ms.lang)
 	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: ms.dialDNS}
 	wifi.SurveyHook = ms.surveyHook
+	go ms.roamPinger()
 	if c, err := loadConfig(ms.cfgPath()); err == nil {
 		ms.start(c)
 	}
@@ -184,6 +212,18 @@ func (ms *mobileState) start(c agentConfig) {
 				return nil
 			}
 			cp := *ms.wifi
+			if r := ms.roam; r != nil && r.done && r.to == cp.BSSID && time.Since(r.at) < 5*time.Minute {
+				cp.RoamAt, cp.RoamTo, cp.RoamMs = r.at.UnixMilli(), r.to, r.ms
+			}
+			return &cp
+		},
+		phone: func() *agentproto.Phone {
+			ms.mu.Lock()
+			defer ms.mu.Unlock()
+			if ms.phone == nil || time.Since(ms.phoneT) > 2*time.Minute {
+				return nil
+			}
+			cp := *ms.phone
 			return &cp
 		},
 		nets: func() []netscan.Network {
@@ -256,6 +296,10 @@ func (ms *mobileState) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if ms.scan != nil {
 		out["scan"] = surveyWithVendors(*ms.scan)
 	}
+	if ms.phone != nil && time.Since(ms.phoneT) < 2*time.Minute {
+		out["phone"] = ms.phone
+	}
+	out["roams"] = append([]roamEvt{}, ms.roams...)
 	out["scanRequested"] = !ms.scanReq.IsZero() && time.Since(ms.scanReq) < 30*time.Second
 	up, mon := ms.up, ms.mon
 	stats := map[string]monitor.Stats{}
@@ -286,7 +330,11 @@ func surveyWithVendors(sc wifi.Scan) map[string]any {
 	for _, b := range sc.BSS {
 		list = append(list, bss{BSS: b, Vendor: netscan.Vendor(b.BSSID)})
 	}
-	return map[string]any{"t": sc.T, "tool": sc.Tool, "err": sc.Err, "bss": list}
+	out := map[string]any{"t": sc.T, "tool": sc.Tool, "err": sc.Err, "bss": list}
+	if sc.Lat != 0 || sc.Lon != 0 {
+		out["lat"], out["lon"], out["acc"] = sc.Lat, sc.Lon, sc.Acc
+	}
+	return out
 }
 
 func (ms *mobileState) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -345,9 +393,10 @@ func (ms *mobileState) handleUnenroll(w http.ResponseWriter, r *http.Request) {
 // handleWiFi tar emot anslutningen, näten och DNS-servrarna från appen (var 10:e sekund).
 func (ms *mobileState) handleWiFi(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		WiFi *wifi.Info        `json:"wifi"`
-		Nets []netscan.Network `json:"nets"`
-		DNS  []string          `json:"dns"`
+		WiFi  *wifi.Info        `json:"wifi"`
+		Nets  []netscan.Network `json:"nets"`
+		DNS   []string          `json:"dns"`
+		Phone *agentproto.Phone `json:"phone"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 		errJSON(w, 400, "invalid request")
@@ -359,9 +408,25 @@ func (ms *mobileState) handleWiFi(w http.ResponseWriter, r *http.Request) {
 		if in.WiFi.Ch == 0 {
 			in.WiFi.Ch = wifi.ChannelOf(in.WiFi.Freq)
 		}
+		in.WiFi.BSSID = strings.ToLower(in.WiFi.BSSID)
+		if ms.lastBSS != "" && in.WiFi.BSSID != "" && in.WiFi.BSSID != ms.lastBSS {
+			// ny åtkomstpunkt – avbrottet räknas ut när några sekunder efter bytet har pingats
+			now := time.Now()
+			ms.roam = &roamGap{at: now, to: in.WiFi.BSSID}
+			ms.roams = append([]roamEvt{{T: now.UnixMilli(), From: ms.lastBSS, To: in.WiFi.BSSID, RSSI: in.WiFi.RSSI}}, ms.roams...)
+			if len(ms.roams) > 20 {
+				ms.roams = ms.roams[:20]
+			}
+		}
+		if in.WiFi.BSSID != "" {
+			ms.lastBSS = in.WiFi.BSSID
+		}
 		ms.wifi, ms.wifiT = in.WiFi, time.Now()
 	} else {
 		ms.wifi = nil
+	}
+	if in.Phone != nil {
+		ms.phone, ms.phoneT = in.Phone, time.Now()
 	}
 	ms.nets = in.Nets
 	var dns []string
@@ -384,12 +449,18 @@ func (ms *mobileState) handleSurvey(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		BSS []wifi.BSS `json:"bss"`
 		Err string     `json:"err"`
+		Loc *struct {
+			Lat, Lon, Acc float64
+		} `json:"loc"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&in); err != nil {
 		errJSON(w, 400, "invalid request")
 		return
 	}
 	sc := wifi.Scan{T: time.Now().UnixMilli(), Tool: "android", Err: in.Err, BSS: in.BSS}
+	if in.Loc != nil && (in.Loc.Lat != 0 || in.Loc.Lon != 0) {
+		sc.Lat, sc.Lon, sc.Acc = in.Loc.Lat, in.Loc.Lon, in.Loc.Acc
+	}
 	for i := range sc.BSS {
 		b := &sc.BSS[i]
 		b.BSSID = strings.ToLower(b.BSSID)
@@ -434,4 +505,88 @@ func (ms *mobileState) handleSendSurvey(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(204)
+}
+
+// roamPinger pingar gatewayen var 500:e ms när telefonen är på Wi-Fi och räknar ut
+// hur länge trafiken stod still vid en roaming (längsta följden av tappade svar).
+func (ms *mobileState) roamPinger() {
+	p := probe.New()
+	defer p.Close()
+	tk := time.NewTicker(500 * time.Millisecond)
+	defer tk.Stop()
+	for range tk.C {
+		ms.mu.Lock()
+		var gw string
+		onWiFi := ms.wifi != nil && time.Since(ms.wifiT) < 30*time.Second
+		for _, n := range ms.nets {
+			if n.Gateway != "" {
+				gw = n.Gateway
+				break
+			}
+		}
+		ms.mu.Unlock()
+		if !onWiFi || gw == "" {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+		res := p.Do(ctx, probe.Request{Host: gw, Kind: probe.KindICMP, Timeout: 400 * time.Millisecond, IPMode: probe.IPv4})
+		cancel()
+		now := time.Now()
+		ms.mu.Lock()
+		ms.pings = append(ms.pings, pingPt{now, res.OK})
+		cut := now.Add(-30 * time.Second)
+		k := 0
+		for k < len(ms.pings) && ms.pings[k].t.Before(cut) {
+			k++
+		}
+		ms.pings = ms.pings[k:]
+		if r := ms.roam; r != nil && !r.done && now.Sub(r.at) > 3*time.Second {
+			r.ms, r.done = roamGapMs(ms.pings, r.at), true
+			for i := range ms.roams {
+				if ms.roams[i].To == r.to && ms.roams[i].Ms == 0 && ms.roams[i].T == r.at.UnixMilli() {
+					ms.roams[i].Ms = r.ms
+				}
+			}
+		}
+		ms.mu.Unlock()
+	}
+}
+
+// roamGapMs hittar den längsta följden av tappade ping runt roamingen (från 12 s före till 3 s efter,
+// eftersom appen ser bytet först vid nästa avläsning). -1 = inget tappat.
+func roamGapMs(pts []pingPt, at time.Time) int {
+	from, to := at.Add(-12*time.Second), at.Add(3*time.Second)
+	best, run := 0, 0
+	var runStart time.Time
+	var lastOK time.Time
+	for _, p := range pts {
+		if p.t.Before(from) || p.t.After(to) {
+			if p.ok {
+				lastOK = p.t
+			}
+			continue
+		}
+		if p.ok {
+			if run > 0 {
+				start := runStart
+				if !lastOK.IsZero() && lastOK.Before(runStart) {
+					start = lastOK
+				}
+				if ms := int(p.t.Sub(start) / time.Millisecond); ms > best {
+					best = ms
+				}
+			}
+			run = 0
+			lastOK = p.t
+		} else {
+			if run == 0 {
+				runStart = p.t
+			}
+			run++
+		}
+	}
+	if best == 0 {
+		return -1
+	}
+	return best
 }

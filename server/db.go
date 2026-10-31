@@ -77,7 +77,7 @@ func OpenDB(path string) (*DB, error) {
 		return nil, err
 	}
 	d.SetMaxOpenConns(4)
-	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema + logsSchema + ticketSchema); err != nil {
+	if _, err := d.Exec(schema + hostSchema + opsSchema + auditSchema + wifiSchema + traceSchema + notifySchema + snmpSchema + speedSchema + templateSchema + surveySchema + integrationSchema + logsSchema + ticketSchema + phoneSchema); err != nil {
 		return nil, fmt.Errorf("databasschema: %w", err)
 	}
 	// nya kolumner i senare versioner (fel ignoreras om de redan finns)
@@ -96,6 +96,7 @@ func OpenDB(path string) (*DB, error) {
 		`ALTER TABLE users ADD COLUMN ntfy TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE agent_opts ADD COLUMN syslog INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE users ADD COLUMN subscribe INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wifi_roam ADD COLUMN gap_ms INTEGER NOT NULL DEFAULT -2`,
 		`ALTER TABLE agent_opts ADD COLUMN traps INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE agent_opts ADD COLUMN trap_community TEXT NOT NULL DEFAULT ''`,
 	} {

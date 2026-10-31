@@ -140,8 +140,10 @@ function svCSV(list, sv) {
   const sep = sv ? ';' : ',';
   const q = v => { const s = String(v == null ? '' : v); return /[";,\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const withLoc = list.some(x => x.loc);
-  const head = [...(withLoc ? ['Location'] : []), 'Time', 'SSID', 'BSSID', 'Manufacturer', 'Band', 'Channel', 'Width (MHz)', 'Signal (dBm)', 'Security', 'Standard'].map(x => T(x));
+  const withPos = list.some(x => x.scan.lat || x.scan.lon);
+  const pos = sc => withPos ? (sc.lat || sc.lon ? [sc.lat.toFixed(6), sc.lon.toFixed(6), Math.round(sc.acc || 0)] : ['', '', '']) : [];
+  const head = [...(withLoc ? ['Location'] : []), 'Time', ...(withPos ? ['Latitude', 'Longitude', 'Accuracy (m)'] : []), 'SSID', 'BSSID', 'Manufacturer', 'Band', 'Channel', 'Width (MHz)', 'Signal (dBm)', 'Security', 'Standard'].map(x => T(x));
   const rows = [];
-  for (const { scan, loc } of list) for (const b of scan.bss) rows.push([...(withLoc ? [loc || ''] : []), svTime(scan.t), b.ssid, b.bssid, b.vendor, svBandOf(b.freq) + ' GHz', b.ch, b.width, b.rssi, b.sec, b.std]);
+  for (const { scan, loc } of list) for (const b of scan.bss) rows.push([...(withLoc ? [loc || ''] : []), svTime(scan.t), ...pos(scan), b.ssid, b.bssid, b.vendor, svBandOf(b.freq) + ' GHz', b.ch, b.width, b.rssi, b.sec, b.std]);
   return [head, ...rows].map(r => r.map(q).join(sep)).join('\r\n');
 }

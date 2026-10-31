@@ -37,6 +37,8 @@ const (
 	CondSticky   Condition = "sticky"   // klistrig klient: svag AP fast en starkare med samma SSID syns
 	CondRoamRate Condition = "roamrate" // fler än N roamingar under X minuter
 	CondAnomaly  Condition = "anomaly"  // svarstiden avviker från det normala för timmen (Threshold = k, Count = minsta ökning i ms)
+	CondBattery  Condition = "battery"  // telefonens batteri under N % och laddar inte
+	CondRoamGap  Condition = "roamgap"  // roaming med avbrott över N ms (mätt av telefonen)
 	CondLog      Condition = "log"      // syslog/trap som matchar Match med allvarlighet <= Threshold
 	CondVendor   Condition = "vendor"   // enhet i UniFi/Meraki/Aruba offline (Threshold: 0 = alla, 1 = bara AP, 2 = utom AP)
 	CondCert     Condition = "cert"     // HTTPS-certifikatet går ut inom N dagar (bara på servern)
@@ -87,7 +89,7 @@ func (a *Alert) Normalize() {
 	}
 	a.Name = strings.TrimSpace(a.Name)
 	switch a.Condition {
-	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog, CondAnomaly:
+	case CondLatency, CondLoss, CondOffline, CondCPU, CondMem, CondDisk, CondCert, CondRSSI, CondPath, CondSNMP, CondIfDown, CondIfUtil, CondIfErrors, CondSpeed, CondSticky, CondRoamRate, CondVendor, CondLog, CondAnomaly, CondBattery, CondRoamGap:
 	default:
 		a.Condition = CondDown
 	}
@@ -147,6 +149,19 @@ func (a *Alert) Normalize() {
 		if a.Samples < 1 {
 			a.Samples = 10
 		}
+	case CondBattery:
+		if a.Threshold <= 0 || a.Threshold > 100 {
+			a.Threshold = 20
+		}
+		a.Samples, a.Count = 1, 1
+	case CondRoamGap:
+		if a.Threshold <= 0 {
+			a.Threshold = 300
+		}
+		if a.Samples < 1 || a.Samples > 1440 {
+			a.Samples = 10
+		}
+		a.Count = 1
 	case CondAnomaly:
 		if a.Threshold < 1 || a.Threshold > 10 {
 			a.Threshold = 3
@@ -259,6 +274,10 @@ func (a Alert) Describe() string {
 		return fmt.Sprintf(i18n.T("Port errors > %g per minute"), a.Threshold)
 	case CondSticky:
 		return fmt.Sprintf(i18n.T("Sticky client: below %g dBm while another AP is %d dB stronger (%d min)"), a.Threshold, a.Count, a.Samples)
+	case CondBattery:
+		return fmt.Sprintf(i18n.T("Phone battery below %g %%"), a.Threshold)
+	case CondRoamGap:
+		return fmt.Sprintf(i18n.T("Roaming takes more than %g ms"), a.Threshold)
 	case CondAnomaly:
 		return fmt.Sprintf(i18n.T("Unusual latency: %g× the normal spread (at least +%d ms) for %d min"), a.Threshold, a.Count, a.Samples)
 	case CondLog:

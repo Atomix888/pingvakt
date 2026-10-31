@@ -25,7 +25,11 @@ type Scan struct {
 	T    int64  `json:"t"`
 	Err  string `json:"err,omitempty"`
 	BSS  []BSS  `json:"bss"`
-	Tool string `json:"tool,omitempty"` // iw, nmcli, netsh, system_profiler
+	Tool string `json:"tool,omitempty"` // iw, nmcli, netsh, system_profiler, android
+	// position när avsökningen gjordes (telefonens GPS/nätverksposition)
+	Lat float64 `json:"lat,omitempty"`
+	Lon float64 `json:"lon,omitempty"`
+	Acc float64 `json:"acc,omitempty"` // noggrannhet i meter
 }
 
 // SurveyHook ersätter systemets avsökning (används av Android-appen, som skickar sina egna resultat).

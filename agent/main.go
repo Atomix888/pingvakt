@@ -34,7 +34,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.14.0"
+var Version = "0.15.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -238,6 +238,7 @@ type runOpts struct {
 	device  string // enhetens namn (t.ex. "Pixel 8")
 	wifi    func() *wifi.Info
 	nets    func() []netscan.Network
+	phone   func() *agentproto.Phone
 	onStart func(up *agentproto.Uploader, mon *monitor.Manager)
 }
 
@@ -254,7 +255,7 @@ func run(ctx context.Context, c agentConfig, cachePath string, ro runOpts) {
 			up.Info.Hostname = ro.device
 		}
 		up.Info.OS = "android/" + runtime.GOARCH
-		up.WiFi, up.Nets = ro.wifi, ro.nets
+		up.WiFi, up.Nets, up.Phone = ro.wifi, ro.nets, ro.phone
 	} else {
 		hc := hostinfo.New()
 		up.Host = func() *hostinfo.Metrics { m := hc.Collect(); return &m }

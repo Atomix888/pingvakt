@@ -35,6 +35,9 @@ type SurveyView struct {
 	Err  string      `json:"err,omitempty"`
 	Tool string      `json:"tool,omitempty"`
 	BSS  []SurveyBSS `json:"bss"`
+	Lat  float64     `json:"lat,omitempty"`
+	Lon  float64     `json:"lon,omitempty"`
+	Acc  float64     `json:"acc,omitempty"`
 }
 
 type stickyState struct {
@@ -110,7 +113,7 @@ func (s *Server) loadSurvey(agentID string, at int64) *wifi.Scan {
 }
 
 func surveyView(sc *wifi.Scan) SurveyView {
-	v := SurveyView{T: sc.T, Err: sc.Err, Tool: sc.Tool, BSS: []SurveyBSS{}}
+	v := SurveyView{T: sc.T, Err: sc.Err, Tool: sc.Tool, BSS: []SurveyBSS{}, Lat: sc.Lat, Lon: sc.Lon, Acc: sc.Acc}
 	for _, b := range sc.BSS {
 		x := SurveyBSS{BSS: b}
 		if b.BSSID != "" {
