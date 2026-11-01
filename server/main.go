@@ -20,7 +20,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.17.0"
+var Version = "0.18.0"
 
 //go:embed all:web
 var webFS embed.FS
@@ -101,7 +101,7 @@ func main() {
 			}
 		}()
 	}
-	log.Printf("PingVakt server %s listening on %s (data: %s)", Version, *addr, *dataDir)
+	log.Printf("C4Pulse server %s listening on %s (data: %s)", Version, *addr, *dataDir)
 	if db.UserCount() == 0 {
 		log.Printf("no user exists yet – open the web interface to create the administrator")
 	}

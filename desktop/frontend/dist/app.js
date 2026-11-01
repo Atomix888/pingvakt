@@ -1,4 +1,4 @@
-/* PingVakt – gränssnitt */
+/* C4Pulse – gränssnitt */
 'use strict';
 
 // T, TE och LANG finns i api.js
@@ -278,7 +278,7 @@ function updateSummary() {
   $('#summary').replaceChildren(chip('up', T('Up')), chip('warn', T('Warning')), chip('down', T('Down')), chip('paused', T('Paused|pl')));
   const allPaused = S.targets.length && S.targets.every(t => t.paused);
   $('#btnPauseAll').textContent = allPaused ? T('▶ Start all') : T('❚❚ Pause all');
-  const title = c.down ? T('PingVakt – {0} down', c.down) : c.warn ? T('PingVakt – {0} warning', c.warn) : 'PingVakt';
+  const title = c.down ? T('C4Pulse – {0} down', c.down) : c.warn ? T('C4Pulse – {0} warning', c.warn) : 'C4Pulse';
   if (title !== document.title) { document.title = title; api.setTitle(title); }
 }
 
@@ -767,7 +767,7 @@ function settingsDialog() {
   const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', T('No encryption (25)')]], sm.security || 'starttls');
   const sUser = h('input', { type: 'text', value: sm.username, autocomplete: 'off' });
   const sPass = h('input', { type: 'password', value: '', placeholder: S.hasPassword ? T('•••••••• (saved – leave empty to keep)') : '', autocomplete: 'new-password' });
-  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'pingvakt@exempel.se' });
+  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'c4pulse@exempel.se' });
   const sMin = num(sm.minMinutes ?? 5, 0, 1440);
   const testTo = h('input', { type: 'email', placeholder: 'mottagare@exempel.se' });
   const testRes = h('span');
@@ -795,7 +795,7 @@ function settingsDialog() {
     field(T('Theme'), theme), field(T('Tiles'), density),
     field(T('Alert log (file)'), h('div', { class: 'row' }, logPath, h('button', { class: 'btn', onclick: () => api.call('OpenPath', logPath.value) }, T('Open'))), null, true),
     field(T('Configuration file'), h('div', { class: 'row' }, h('code', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, S.configPath || '–')), null, true),
-    h('small', { class: 'field full' }, `PingVakt ${S.version} · ${S.platform}`));
+    h('small', { class: 'field full' }, `C4Pulse ${S.version} · ${S.platform}`));
 
   // server
   const srvEnabled = h('input', { type: 'checkbox' });
@@ -810,7 +810,7 @@ function settingsDialog() {
   }).catch(() => {});
   const srvVal = () => ({ enabled: srvEnabled.checked, url: srvUrl.value.trim(), token: srvToken.value.trim(), insecure: srvInsecure.checked });
   pane.server = h('div', { class: 'form' },
-    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvEnabled, T('Report measurements to a PingVakt server'))),
+    h('div', { class: 'field full' }, h('label', { class: 'check' }, srvEnabled, T('Report measurements to a C4Pulse server'))),
     field(T('Server address'), srvUrl, null, true),
     field('Token', srvToken, T('Created on the server: customer → New agent. Same token as for an agent.'), true),
     h('div', { class: 'field full' }, h('label', { class: 'check' }, srvInsecure, T('Accept self-signed certificate (testing only)'))),

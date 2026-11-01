@@ -159,15 +159,17 @@ jobs:
       - name: Taggar
         id: tags
         run: |
-          IMG=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')-server
+          # nya namnet c4pulse-server, och det gamla så att befintliga installationer fortsätter uppdateras
+          IMG=ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/c4pulse-server
+          OLD=ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')-server
           if [[ -n "$RELEASE_TAG" ]]; then
             V="${RELEASE_TAG#v}"
-            echo "tags=$IMG:$V,$IMG:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
+            echo "tags=$IMG:$V,$IMG:latest,$OLD:$V,$OLD:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             V="${GITHUB_REF_NAME#v}"
-            echo "tags=$IMG:$V,$IMG:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
+            echo "tags=$IMG:$V,$IMG:latest,$OLD:$V,$OLD:latest" >> "$GITHUB_OUTPUT"; echo "version=$V" >> "$GITHUB_OUTPUT"
           else
-            echo "tags=$IMG:edge" >> "$GITHUB_OUTPUT"; echo "version=$(cat VERSION)-edge" >> "$GITHUB_OUTPUT"
+            echo "tags=$IMG:edge,$OLD:edge" >> "$GITHUB_OUTPUT"; echo "version=$(cat VERSION)-edge" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/build-push-action@v6
         env:
@@ -295,7 +297,7 @@ jobs:
         run: |
           gradle -p android --no-daemon assembleRelease
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk "dist/PingVakt-${VERSION}-android.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/C4Pulse-${VERSION}-android.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android

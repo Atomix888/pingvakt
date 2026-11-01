@@ -1,4 +1,4 @@
-/* PingVakt – Wi-Fi-survey (samma fil i server/web och desktop/frontend/dist).
+/* C4Pulse – Wi-Fi-survey (samma fil i server/web och desktop/frontend/dist).
  * Använder h och T från värdappen. */
 'use strict';
 

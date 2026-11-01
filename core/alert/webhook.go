@@ -11,7 +11,7 @@ import (
 // PostWebhook skickar händelsen som JSON. Fältet "text" gör att meddelandet
 // visas direkt i Slack och i Teams/Mattermost-kanaler med inkommande webhook.
 func PostWebhook(url string, ev Event) error {
-	text := fmt.Sprintf("PingVakt %s: %s (%s) – %s. %s", ev.KindText(), ev.TargetName, ev.Host, ev.AlertName, ev.Detail)
+	text := fmt.Sprintf("C4Pulse %s: %s (%s) – %s. %s", ev.KindText(), ev.TargetName, ev.Host, ev.AlertName, ev.Detail)
 	body, _ := json.Marshal(map[string]any{
 		"text":   text,
 		"event":  ev.Kind,

@@ -1,4 +1,4 @@
-// Package i18n översätter PingVakts texter. Källtexterna i koden är engelska;
+// Package i18n översätter C4Pulses texter. Källtexterna i koden är engelska;
 // sv.json innehåller de svenska översättningarna (engelska -> svenska).
 //
 // En nyckel kan ha ett sammanhang efter "|" (t.ex. "Paused|pl") när samma

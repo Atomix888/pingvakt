@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C4Pulse – network monitoring for MSPs and Wi-Fi pros</title>
+<meta name="description" content="C4Pulse monitors latency, packet loss, Wi-Fi, SNMP devices and IP addresses for many customers from one server – with agents, a desktop app and an Android app.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root { --bg: #0b1114; --panel: #121a1e; --panel2: #172126; --text: #e6eef0; --muted: #93a3a8; --line: #233238; --accent: #35c2b0; --accent2: #5fe3cf; --ink: #05221e; --warn: #f2b33d; --down: #ef5350; }
+@media (prefers-color-scheme: light) { :root { --bg: #f5f8f8; --panel: #ffffff; --panel2: #eef4f3; --text: #142024; --muted: #56676c; --line: #dbe5e4; --accent: #0f9484; --accent2: #0f9484; --ink: #ffffff; } }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent2); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.nav { display: flex; align-items: center; gap: 18px; height: 62px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 19px; letter-spacing: -.3px; color: var(--text); text-decoration: none; }
+.brand img { width: 30px; height: 30px; }
+.nav nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+.nav nav a { color: var(--muted); text-decoration: none; font-size: 14.5px; }
+.nav nav a:hover { color: var(--text); }
+.lang { border: 1px solid var(--line); background: none; color: var(--muted); border-radius: 8px; padding: 4px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 10px; font-weight: 650; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--panel); }
+.btn.primary { background: var(--accent); color: var(--ink); border-color: transparent; }
+.btn:hover { filter: brightness(1.08); }
+.hero > * { min-width: 0; }
+.hero { padding: 84px 0 56px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+.eyebrow { color: var(--accent2); font-weight: 650; font-size: 13.5px; letter-spacing: .08em; text-transform: uppercase; }
+h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.08; letter-spacing: -1.2px; margin: 12px 0 18px; }
+.lead { font-size: 18.5px; color: var(--muted); max-width: 34em; margin: 0 0 28px; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+.shot { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 30px 80px -40px rgba(0,0,0,.6); }
+.shot .bar { display: flex; gap: 6px; margin-bottom: 14px; } .shot .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.status { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--down) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--down) 35%, var(--line)); font-weight: 650; font-size: 14.5px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--accent)); flex: none; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+.kpi { background: var(--panel2); border-radius: 10px; padding: 10px; border-top: 3px solid var(--c, var(--accent)); }
+.kpi small { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; display: block; }
+.kpi b { font-size: 21px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.row:last-child { border: 0; } .row > span:last-child { color: var(--muted); margin-left: auto; font-size: 12.5px; }
+.rows { background: var(--panel2); border-radius: 10px; }
+section { padding: 64px 0; }
+h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -.6px; margin: 0 0 10px; }
+.sub { color: var(--muted); max-width: 44em; margin: 0 0 34px; font-size: 17px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+.card .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent2); font-size: 20px; margin-bottom: 12px; }
+.card h3 { margin: 0 0 6px; font-size: 17px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.part { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; }
+.part b { display: block; font-size: 16.5px; margin-bottom: 4px; } .part span { color: var(--muted); font-size: 14.5px; }
+.dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.dl a { text-decoration: none; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+.dl a:hover { border-color: var(--accent); }
+.dl b { display: block; font-size: 16px; } .dl small { color: var(--muted); }
+.band { background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+footer { padding: 34px 0 48px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; }
+[data-l] { display: none !important; } html[lang="en"] [data-l="en"], html[lang="sv"] [data-l="sv"] { display: revert !important; }
+@media (max-width: 900px) {
+  .hero { grid-template-columns: 1fr; padding-top: 48px; }
+  .grid, .parts, .dl { grid-template-columns: 1fr 1fr; }
+  .nav nav a.opt { display: none; }
+}
+@media (max-width: 560px) { .grid, .parts, .dl { grid-template-columns: 1fr; } .kpis { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<header><div class="wrap nav">
+  <a class="brand" href="#"><img src="icon.svg" alt="">C4Pulse</a>
+  <nav>
+    <a class="opt" href="#features"><span data-l="en">Features</span><span data-l="sv">Funktioner</span></a>
+    <a class="opt" href="#parts"><span data-l="en">How it works</span><span data-l="sv">Så fungerar det</span></a>
+    <a class="opt" href="#download"><span data-l="en">Download</span><span data-l="sv">Ladda ner</span></a>
+    <button class="lang" id="lang" type="button">Svenska</button>
+  </nav>
+</div></header>
+
+<main>
+<div class="wrap hero">
+  <div>
+    <div class="eyebrow"><span data-l="en">Network monitoring for MSPs and Wi-Fi pros</span><span data-l="sv">Nätverksövervakning för IT-partners och Wi-Fi-proffs</span></div>
+    <h1><span data-l="en">See every customer's network – before they call you.</span><span data-l="sv">Se varje kunds nätverk – innan de ringer dig.</span></h1>
+    <p class="lead"><span data-l="en">C4Pulse watches latency, packet loss, Wi-Fi, switches and IP addresses for all your customers from one server. Small agents at each site do the measuring, and alerts reach you by email, push, SMS or Teams.</span><span data-l="sv">C4Pulse håller koll på svarstider, paketförlust, Wi-Fi, switchar och IP-adresser hos alla dina kunder från en server. Små agenter på varje plats mäter, och larmen når dig via e-post, push, SMS eller Teams.</span></p>
+    <div class="cta">
+      <a class="btn primary" href="#download"><span data-l="en">Download</span><span data-l="sv">Ladda ner</span></a>
+      <a class="btn" href="#features"><span data-l="en">What it does</span><span data-l="sv">Vad den gör</span></a>
+    </div>
+  </div>
+  <div class="shot" aria-hidden="true">
+    <div class="bar"><i></i><i></i><i></i></div>
+    <div class="status"><span class="dot" style="--c:var(--down)"></span><span data-l="en">2 things need attention</span><span data-l="sv">2 saker behöver åtgärdas</span></div>
+    <div class="kpis">
+      <div class="kpi" style="--c:var(--warn)"><small><span data-l="en">Customers OK</span><span data-l="sv">Kunder OK</span></small><b>11/12</b></div>
+      <div class="kpi" style="--c:var(--down)"><small><span data-l="en">Alerts</span><span data-l="sv">Larm</span></small><b>2</b></div>
+      <div class="kpi"><small>Agents</small><b>23/24</b></div>
+      <div class="kpi" style="--c:var(--warn)"><small><span data-l="en">Targets up</span><span data-l="sv">Mål uppe</span></small><b>412</b></div>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="dot" style="--c:var(--down)"></span><b>Core switch</b><span>Acme AB · 3 min</span></div>
+      <div class="row"><span class="dot" style="--c:var(--warn)"></span><b><span data-l="en">DHCP pool 94 % used</span><span data-l="sv">DHCP-pool 94 % använd</span></b><span>Butik Norr · 12 min</span></div>
+      <div class="row"><span class="dot"></span><b>Wi-Fi roaming 48 ms</b><span>Kontoret · OK</span></div>
+    </div>
+  </div>
+</div>
+
+<section id="features" class="band"><div class="wrap">
+  <h2><span data-l="en">Everything a network needs watched</span><span data-l="sv">Allt ett nätverk behöver bevakas på</span></h2>
+  <p class="sub"><span data-l="en">One tool instead of five: ping monitoring, SNMP, Wi-Fi survey, IPAM and remote access – built for many customers.</span><span data-l="sv">Ett verktyg i stället för fem: pingövervakning, SNMP, Wi-Fi-survey, IPAM och fjärråtkomst – byggt för många kunder.</span></p>
+  <div class="grid">
+    <div class="card"><div class="ic">◎</div><h3><span data-l="en">Latency and loss</span><span data-l="sv">Svarstid och förlust</span></h3><p><span data-l="en">ICMP, TCP, HTTP(S) and DNS targets with live graphs, 400 days of history and alerts that learn what is normal.</span><span data-l="sv">ICMP-, TCP-, HTTP(S)- och DNS-mål med livegrafer, 400 dagars historik och larm som lär sig vad som är normalt.</span></p></div>
+    <div class="card"><div class="ic">⇄</div><h3>SNMP &amp; LLDP</h3><p><span data-l="en">Switches, routers and firewalls: port traffic, errors, CPU and an automatic network map from LLDP/CDP.</span><span data-l="sv">Switchar, routrar och brandväggar: porttrafik, fel, CPU och en automatisk nätverkskarta från LLDP/CDP.</span></p></div>
+    <div class="card"><div class="ic">📶</div><h3>Wi-Fi</h3><p><span data-l="en">Signal, roaming and roaming interruption per client, channel graphs, sticky-client alerts and a phone app for surveys.</span><span data-l="sv">Signal, roaming och avbrott vid roaming per klient, kanalgrafer, larm för klistriga klienter och en mobilapp för survey.</span></p></div>
+    <div class="card"><div class="ic">▦</div><h3><span data-l="en">IP address management</span><span data-l="sv">IP-adresshantering</span></h3><p><span data-l="en">Subnets filled in automatically from scans and ARP tables, reservations, DHCP pool usage and conflict alerts.</span><span data-l="sv">Subnät som fylls i automatiskt från skanningar och ARP-tabeller, reservationer, DHCP-beläggning och konfliktlarm.</span></p></div>
+    <div class="card"><div class="ic">⌘</div><h3><span data-l="en">Remote access</span><span data-l="sv">Fjärråtkomst</span></h3><p><span data-l="en">Open a device's web page or an SSH terminal through the agent – no VPN. Logins stored encrypted.</span><span data-l="sv">Öppna en enhets webbsida eller en SSH-terminal via agenten – utan VPN. Inloggningar sparas krypterat.</span></p></div>
+    <div class="card"><div class="ic">🔔</div><h3><span data-l="en">Alerts that reach you</span><span data-l="sv">Larm som når fram</span></h3><p><span data-l="en">Email, push, SMS, Teams and webhooks, on-call schedules, acknowledgements, maintenance windows and tickets in Jira, Zendesk or Freshdesk.</span><span data-l="sv">E-post, push, SMS, Teams och webhooks, jourscheman, kvittering, servicefönster och ärenden i Jira, Zendesk eller Freshdesk.</span></p></div>
+  </div>
+</div></section>
+
+<section id="parts"><div class="wrap">
+  <h2><span data-l="en">How it fits together</span><span data-l="sv">Så hänger det ihop</span></h2>
+  <p class="sub"><span data-l="en">The agents connect out to your server, so nothing has to be opened in the customer's firewall.</span><span data-l="sv">Agenterna ansluter ut mot din server, så inget behöver öppnas i kundens brandvägg.</span></p>
+  <div class="parts">
+    <div class="part"><b>Server</b><span data-l="en">Docker or a single binary. Customers, users, two-factor sign-in, reports and a customer portal.</span><span data-l="sv">Docker eller en enda fil. Kunder, användare, tvåstegsinloggning, rapporter och kundportal.</span></div>
+    <div class="part"><b>Agent</b><span data-l="en">Runs as a service on Linux, Windows, macOS or a Raspberry Pi at each site and updates itself.</span><span data-l="sv">Körs som tjänst på Linux, Windows, macOS eller en Raspberry Pi på varje plats och uppdaterar sig själv.</span></div>
+    <div class="part"><b><span data-l="en">Desktop app</span><span data-l="sv">Skrivbordsapp</span></b><span data-l="en">MultiPing-style monitoring on your own computer, with or without a server.</span><span data-l="sv">Övervakning à la MultiPing på din egen dator, med eller utan server.</span></div>
+    <div class="part"><b><span data-l="en">Android app</span><span data-l="sv">Android-app</span></b><span data-l="en">The phone as an agent and a Wi-Fi survey tool: signal, roaming, battery, 4G/5G and GPS-tagged scans.</span><span data-l="sv">Telefonen som agent och survey-verktyg: signal, roaming, batteri, 4G/5G och GPS-märkta avsökningar.</span></div>
+  </div>
+</div></section>
+
+<section id="download" class="band"><div class="wrap">
+  <h2><span data-l="en">Download</span><span data-l="sv">Ladda ner</span></h2>
+  <p class="sub"><span data-l="en">Installers for every platform. The server runs in Docker: </span><span data-l="sv">Installationsfiler för alla plattformar. Servern körs i Docker: </span><code>ghcr.io/atomix888/c4pulse-server</code></p>
+  <div class="dl" id="dl">
+    <a data-asset="windows-x64-setup.exe" href="#"><b>Windows</b><small><span data-l="en">10/11, installer</span><span data-l="sv">10/11, installationsprogram</span></small></a>
+    <a data-asset="macos.dmg" href="#"><b>macOS</b><small>11+, Intel &amp; Apple Silicon</small></a>
+    <a data-asset="amd64.deb" href="#"><b>Linux</b><small>.deb, x64</small></a>
+    <a data-asset="android.apk" href="#"><b>Android</b><small>8.0+, APK</small></a>
+  </div>
+  <p class="sub" style="margin-top:18px;font-size:14.5px" id="ver"></p>
+</div></section>
+</main>
+
+<footer><div class="wrap">
+  <span>© <span id="yr"></span> C4Pulse · c4network</span>
+  <span><a href="#">c4pulse.com</a></span>
+</div></footer>
+
+<script>
+// Var nedladdningarna finns. RELEASES pekar på GitHubs "senaste release"; byt mot din egen
+// nedladdningsadress om repot är privat (t.ex. https://app.c4pulse.com/download/).
+const RELEASES = 'https://github.com/Atomix888/pingvakt/releases/latest';
+const API = 'https://api.github.com/repos/Atomix888/pingvakt/releases/latest';
+
+const root = document.documentElement;
+const btn = document.getElementById('lang');
+function setLang(l) {
+  root.lang = l; btn.textContent = l === 'sv' ? 'English' : 'Svenska';
+  try { localStorage.setItem('lang', l); } catch (e) { /* privat läge */ }
+}
+let saved = null; try { saved = localStorage.getItem('lang'); } catch (e) { /* */ }
+setLang(saved || ((navigator.language || '').toLowerCase().startsWith('sv') ? 'sv' : 'en'));
+btn.onclick = () => setLang(root.lang === 'sv' ? 'en' : 'sv');
+document.getElementById('yr').textContent = new Date().getFullYear();
+
+// länkar till senaste releasen (direkt till filen om GitHubs API svarar)
+document.querySelectorAll('#dl a').forEach(a => { a.href = RELEASES; });
+fetch(API).then(r => r.ok ? r.json() : null).then(rel => {
+  if (!rel) return;
+  document.querySelectorAll('#dl a').forEach(a => {
+    const f = (rel.assets || []).find(x => x.name.endsWith(a.dataset.asset));
+    if (f) a.href = f.browser_download_url;
+  });
+  document.getElementById('ver').textContent = (root.lang === 'sv' ? 'Senaste version: ' : 'Latest version: ') + rel.tag_name;
+}).catch(() => {});
+</script>
+</body>
+</html>

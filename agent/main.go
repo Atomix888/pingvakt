@@ -1,5 +1,5 @@
 // Command pingvakt-agent mäter mot de mål som servern bestämmer och skickar
-// resultatet till PingVakt-servern. Agenten ansluter alltid utåt (HTTPS),
+// resultatet till C4Pulse-servern. Agenten ansluter alltid utåt (HTTPS),
 // så den fungerar bakom NAT och brandvägg utan portöppning.
 //
 //	pingvakt-agent enroll --server https://pingvakt.exempel.se --token pva_...
@@ -34,7 +34,7 @@ import (
 )
 
 // Version sätts vid bygge.
-var Version = "0.17.0"
+var Version = "0.18.0"
 
 type agentConfig struct {
 	Server   string `json:"server"`
@@ -63,7 +63,7 @@ func defaultConfigPath() string {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `PingVakt agent %s
+	fmt.Fprintf(os.Stderr, `C4Pulse agent %s
 
 Usage:
   pingvakt-agent enroll --server URL --token TOKEN [--insecure]   enroll with the server
@@ -95,8 +95,8 @@ func main() {
 
 	svc, err := service.New(&program{cfgPath: *cfgPath}, &service.Config{
 		Name:        "pingvakt-agent",
-		DisplayName: "PingVakt Agent",
-		Description: "Measures latency and packet loss and reports to the PingVakt server.",
+		DisplayName: "C4Pulse Agent",
+		Description: "Measures latency and packet loss and reports to the C4Pulse server.",
 		Arguments:   []string{"run", "--config", *cfgPath},
 		Option: service.KeyValue{
 			"Restart":                "always",
@@ -245,7 +245,7 @@ type runOpts struct {
 }
 
 func run(ctx context.Context, c agentConfig, cachePath string, ro runOpts) {
-	log.Printf("PingVakt agent %s starting, server %s", Version, c.Server)
+	log.Printf("C4Pulse agent %s starting, server %s", Version, c.Server)
 	if !ro.mobile {
 		cleanupOld()
 	}

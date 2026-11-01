@@ -387,7 +387,7 @@ func (u *Uploader) post(ctx context.Context, rep Report) (*Response, error) {
 	req.Header.Set("Authorization", "Bearer "+u.Token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("User-Agent", "PingVakt/"+u.Info.Version+" ("+u.Info.Kind+")")
+	req.Header.Set("User-Agent", "C4Pulse/"+u.Info.Version+" ("+u.Info.Kind+")")
 	res, err := u.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("could not reach the server: %w", err)
@@ -553,7 +553,7 @@ func (u *Uploader) startTunnel() {
 	}
 	u.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	ws, err := tunnel.Dial(ctx, u.ServerURL, u.Token, "PingVakt/"+u.Info.Version, u.Insecure)
+	ws, err := tunnel.Dial(ctx, u.ServerURL, u.Token, "C4Pulse/"+u.Info.Version, u.Insecure)
 	cancel()
 	if err != nil {
 		log.Printf("remote access: could not connect the tunnel: %v", err)

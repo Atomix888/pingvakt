@@ -777,7 +777,7 @@ func (s *Server) handleSubnetDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// ipRef är något i PingVakt som använder en adress (mål, agent, SNMP-enhet).
+// ipRef är något i C4Pulse som använder en adress (mål, agent, SNMP-enhet).
 type ipRef struct {
 	Kind string `json:"kind"`
 	ID   string `json:"id"`

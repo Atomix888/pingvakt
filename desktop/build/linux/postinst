@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-# PingVakt primarily uses unprivileged ICMP (net.ipv4.ping_group_range).
+# C4Pulse primarily uses unprivileged ICMP (net.ipv4.ping_group_range).
 # As a fallback the program is allowed to send ICMP via raw sockets.
 if command -v setcap >/dev/null 2>&1; then
   setcap cap_net_raw+ep /usr/bin/pingvakt || true

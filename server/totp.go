@@ -116,8 +116,8 @@ func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	totps.mu.Lock()
 	totps.pending[u.ID] = pendingSecret{secret: sec, exp: time.Now().Add(10 * time.Minute)}
 	totps.mu.Unlock()
-	label := url.PathEscape("PingVakt:" + u.Email)
-	uri := fmt.Sprintf("otpauth://totp/%s?secret=%s&issuer=PingVakt&digits=6&period=30", label, sec)
+	label := url.PathEscape("C4Pulse:" + u.Email)
+	uri := fmt.Sprintf("otpauth://totp/%s?secret=%s&issuer=C4Pulse&digits=6&period=30", label, sec)
 	png, err := qrcode.Encode(uri, qrcode.Medium, 220)
 	if err != nil {
 		httpErr(w, 500, err.Error())

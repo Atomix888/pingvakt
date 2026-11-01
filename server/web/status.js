@@ -7,7 +7,7 @@ function T(s) { const d = window.PV_DICT || {}; return d[s] != null ? d[s] : s; 
   const OVERALL = { up: T('All systems operational'), warn: T('Partial disruption'), offline: T('Partially unknown status'), down: T('Service disruption') };
   const el = (tag, cls, ...kids) => { const e = document.createElement(tag); if (cls) e.className = cls; for (const k of kids) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k)); return e; };
   const pct = v => v < 0 ? '–' : (v >= 99.995 ? '100' : (window.PV_LANG === 'sv' ? v.toFixed(2).replace('.', ',') : v.toFixed(2))) + ' %';
-  $('#foot').textContent = T('Updates automatically · PingVakt');
+  $('#foot').textContent = T('Updates automatically · C4Pulse');
   $('#customer').textContent = T('Service status');
   async function load() {
     try {

@@ -11,7 +11,7 @@ import (
 	"pingvakt/core/i18n"
 )
 
-// Dynamiska tröskelvärden: PingVakt lär sig vad som är normal svarstid per mål och
+// Dynamiska tröskelvärden: C4Pulse lär sig vad som är normal svarstid per mål och
 // timme på dygnet (de senaste två veckorna) och larmar när svarstiden avviker kraftigt.
 
 type hourStat struct {

@@ -1,7 +1,7 @@
 package main
 
 // Fjärråtkomst till enheter i kundens nät: webbsidor (HTTP/HTTPS) och SSH går genom kundens agent,
-// så att man når dem från PingVakt utan VPN. Inloggningsuppgifter per adress sparas krypterade.
+// så att man når dem från C4Pulse utan VPN. Inloggningsuppgifter per adress sparas krypterade.
 
 import (
 	"context"
@@ -287,7 +287,7 @@ func randHex(n int) string {
 }
 
 // remoteBase är adressen där fjärrsidorna öppnas (egen port = eget ursprung, så att enhetens
-// sidor inte kan läsa PingVakts inloggning).
+// sidor inte kan läsa C4Pulses inloggning).
 func (s *Server) remoteBase(r *http.Request) string {
 	s.mu.RLock()
 	base := strings.TrimRight(strings.TrimSpace(s.settings.RemoteURL), "/")
@@ -386,7 +386,7 @@ func remotePage(w http.ResponseWriter, code int, title, text string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PingVakt</title>
+	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>C4Pulse</title>
 <body style="font:15px system-ui,sans-serif;background:#0f1216;color:#e6e9ee;display:grid;place-items:center;min-height:90vh;margin:0;padding:16px">
 <div style="max-width:520px"><h2 style="margin:0 0 8px">%s</h2><p style="color:#8b95a3;line-height:1.5">%s</p></div></body>`, htmlEsc(title), htmlEsc(text))
 }
@@ -411,7 +411,7 @@ func (s *Server) RemoteHandler() http.Handler {
 			}
 			remotes.mu.Unlock()
 			if sess == nil {
-				remotePage(w, 403, i18n.T("The link has expired"), i18n.T("Open the device again from IP addresses in PingVakt."))
+				remotePage(w, 403, i18n.T("The link has expired"), i18n.T("Open the device again from IP addresses in C4Pulse."))
 				return
 			}
 			http.SetCookie(w, &http.Cookie{Name: remoteCookie, Value: sess.id, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600})
@@ -429,7 +429,7 @@ func (s *Server) RemoteHandler() http.Handler {
 			remotes.mu.Unlock()
 		}
 		if sess == nil {
-			remotePage(w, 403, i18n.T("No remote session"), i18n.T("Open the device from IP addresses in PingVakt. Sessions end after an hour without use."))
+			remotePage(w, 403, i18n.T("No remote session"), i18n.T("Open the device from IP addresses in C4Pulse. Sessions end after an hour without use."))
 			return
 		}
 		s.proxyRemote(w, r, sess)
@@ -444,8 +444,8 @@ func (s *Server) proxyRemote(w http.ResponseWriter, r *http.Request, sess *remot
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(&target)
 			pr.Out.Host = target.Host
-			// skicka inte PingVakts egna kakor till enheten (kakor skiljer inte på portar,
-			// så webbläsaren skickar även inloggningen till PingVakt hit)
+			// skicka inte C4Pulses egna kakor till enheten (kakor skiljer inte på portar,
+			// så webbläsaren skickar även inloggningen till C4Pulse hit)
 			var keep []string
 			for _, ck := range pr.In.Cookies() {
 				if ck.Name != remoteCookie && ck.Name != sessionCookie {
@@ -496,7 +496,7 @@ func (s *Server) proxyRemote(w http.ResponseWriter, r *http.Request, sess *remot
 			if cks := res.Header.Values("Set-Cookie"); len(cks) > 0 {
 				res.Header.Del("Set-Cookie")
 				for _, ck := range cks {
-					// enheten får inte skriva över PingVakts kakor
+					// enheten får inte skriva över C4Pulses kakor
 					name, _, _ := strings.Cut(strings.TrimSpace(ck), "=")
 					if name == sessionCookie || name == remoteCookie {
 						continue
@@ -557,7 +557,7 @@ func (s *Server) handleSSH(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 	who := userFrom(r).Email
 	websocket.Server{
-		// bara från PingVakts egen sida
+		// bara från C4Pulses egen sida
 		Handshake: func(cfg *websocket.Config, req *http.Request) error {
 			o, err := url.Parse(req.Header.Get("Origin"))
 			if err != nil || o.Host != host {

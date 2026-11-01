@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleName</key><string>PingVakt</string>
-  <key>CFBundleDisplayName</key><string>PingVakt</string>
+  <key>CFBundleName</key><string>C4Pulse</string>
+  <key>CFBundleDisplayName</key><string>C4Pulse</string>
   <key>CFBundleExecutable</key><string>PingVakt</string>
   <key>CFBundleIdentifier</key><string>se.pingvakt.desktop</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>
@@ -13,6 +13,6 @@
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
-  <key>NSHumanReadableCopyright</key><string>PingVakt</string>
+  <key>NSHumanReadableCopyright</key><string>C4Pulse</string>
 </dict>
 </plist>

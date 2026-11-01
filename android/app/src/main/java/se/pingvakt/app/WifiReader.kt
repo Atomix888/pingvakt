@@ -100,7 +100,7 @@ class WifiReader(private val ctx: Context) {
             val cur = try { cleanBssid(wm.connectionInfo?.bssid) } catch (_: Exception) { "" }
             for (r in wm.scanResults) list.put(bss(r, cur))
         } catch (e: SecurityException) {
-            out.put("err", "Allow location access in PingVakt to see Wi-Fi networks")
+            out.put("err", "Allow location access in C4Pulse to see Wi-Fi networks")
         }
         out.put("bss", list)
         return out.toString()

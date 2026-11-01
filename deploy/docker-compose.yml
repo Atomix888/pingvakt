@@ -1,10 +1,10 @@
-# PingVakt-server bakom Caddy, som ordnar HTTPS-certifikat automatiskt.
+# C4Pulse-server bakom Caddy, som ordnar HTTPS-certifikat automatiskt.
 # 1. Peka ett DNS-namn (t.ex. pingvakt.dittforetag.se) mot servern och öppna port 80, 443 och 8443.
 # 2. Ändra domänen i Caddyfile.
 # 3. docker compose up -d   och öppna https://pingvakt.dittforetag.se
 services:
   pingvakt:
-    image: ghcr.io/atomix888/pingvakt-server:latest
+    image: ghcr.io/atomix888/c4pulse-server:latest
     # eller bygg själv från källkoden:
     # build: ..
     restart: unless-stopped

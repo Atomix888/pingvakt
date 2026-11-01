@@ -283,7 +283,7 @@ func renderReportPDF(rd *reportData) ([]byte, error) {
 	pdf.SetMargins(16, 16, 16)
 	pdf.SetAutoPageBreak(true, 18)
 	pdf.SetTitle(tr(rd.L("Service report")+" "+rd.Customer.Name), false)
-	pdf.SetCreator("PingVakt", false)
+	pdf.SetCreator("C4Pulse", false)
 	period := rd.From.Format("2006-01-02") + " – " + rd.To.Add(-time.Second).Format("2006-01-02")
 	pdf.SetFooterFunc(func() {
 		pdf.SetY(-12)

@@ -1,4 +1,4 @@
-# PingVakt-server med agentfiler för alla plattformar.
+# C4Pulse-server med agentfiler för alla plattformar.
 #   docker build -t pingvakt-server .
 #   docker run -d -p 8080:8080 -v pingvakt-data:/data pingvakt-server
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build

@@ -1,11 +1,11 @@
-# systemd-tjänst för PingVakt-servern utan Docker.
+# systemd-tjänst för C4Pulse-servern utan Docker.
 #   sudo useradd -r -s /usr/sbin/nologin pingvakt
 #   sudo install -m755 pingvakt-server /usr/local/bin/
 #   sudo mkdir -p /var/lib/pingvakt/agents && sudo chown -R pingvakt /var/lib/pingvakt
 #   (lägg agentfilerna i /var/lib/pingvakt/agents)
 #   sudo cp pingvakt-server.service /etc/systemd/system/ && sudo systemctl enable --now pingvakt-server
 [Unit]
-Description=PingVakt-server
+Description=C4Pulse-server
 After=network-online.target
 Wants=network-online.target
 

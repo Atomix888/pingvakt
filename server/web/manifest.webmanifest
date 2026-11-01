@@ -1,6 +1,6 @@
 {
-  "name": "PingVakt",
-  "short_name": "PingVakt",
+  "name": "C4Pulse",
+  "short_name": "C4Pulse",
   "description": "Latency and packet loss monitoring",
   "start_url": "/",
   "scope": "/",

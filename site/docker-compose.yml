@@ -1,0 +1,10 @@
+# Produktsidan c4pulse.com – en statisk sida i nginx.
+# docker compose up -d  → http://servern:8090 ; peka c4pulse.com dit i Nginx Proxy Manager.
+services:
+  site:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    volumes:
+      - ./:/usr/share/nginx/html:ro

@@ -1,5 +1,5 @@
 'use strict';
-/* PingVakt – gränssnittet i Android-appen. Visas i en WebView och pratar med agenten på 127.0.0.1. */
+/* C4Pulse – gränssnittet i Android-appen. Visas i en WebView och pratar med agenten på 127.0.0.1. */
 
 function T(s, ...a) {
   const d = window.PV_DICT || {};
@@ -108,9 +108,9 @@ function renderSetup(main) {
       S.tab = 'status'; await poll();
     } catch (e) { msg.className = 'error'; msg.textContent = e.message; } finally { btn.disabled = false; }
   } }, T('Connect'));
-  main.replaceChildren(h('h1', null, T('Connect to your PingVakt server')),
+  main.replaceChildren(h('h1', null, T('Connect to your C4Pulse server')),
     h('div', { class: 'card' },
-      h('p', { class: 'muted', style: 'margin-top:0' }, T('In PingVakt, open the customer, click "New agent" and copy the token. The phone then measures like any other agent and reports Wi-Fi, roaming and scans.')),
+      h('p', { class: 'muted', style: 'margin-top:0' }, T('In C4Pulse, open the customer, click "New agent" and copy the token. The phone then measures like any other agent and reports Wi-Fi, roaming and scans.')),
       h('label', { class: 'field' }, T('Server address'), server), h('label', { class: 'field' }, 'Token', token), btn, msg),
     permCard(),
     h('p', { class: 'muted' }, T('You can use Wi-Fi and Survey without a server.')));
@@ -124,7 +124,7 @@ function permCard() {
   if (!p.location) items.push(T('Location access is needed to see Wi-Fi networks, BSSID and channels (Android requires it).'));
   else if (!p.background) items.push(T('Allow location "all the time" so Wi-Fi is measured when the app is in the background.'));
   if (!p.notifications) items.push(T('Allow notifications so the agent can keep running in the background.'));
-  if (!p.battery) items.push(T('Turn off battery optimization for PingVakt, otherwise Android may stop the measurements.'));
+  if (!p.battery) items.push(T('Turn off battery optimization for C4Pulse, otherwise Android may stop the measurements.'));
   if (!items.length) return '';
   return h('div', { class: 'notice' }, h('ul', { style: 'margin:0 0 10px;padding-left:18px' }, ...items.map(t => h('li', null, t))),
     h('div', { class: 'row' }, h('button', { class: 'btn sm', onclick: () => PV.requestPermissions() }, T('Allow access')),
@@ -149,12 +149,12 @@ function renderStatus(main) {
       return h('div', { class: 'target st-' + status }, h('span', { class: 'dot' }), h('div', { class: 'name' }, t.name || t.host),
         h('div', { class: 'val' }, s.last >= 0 ? fmtMs(s.last) + ' ms' : status === 'down' ? T('lost') : '–', h('small', null, `${T('avg')} ${fmtMs(s.avg)} · ${T('loss')} ${s.loss != null ? (+s.loss).toFixed(s.loss < 10 ? 1 : 0) : '–'} %`)),
         h('div', { class: 'host' }, `${t.host}${t.kind && t.kind !== 'icmp' ? ' · ' + t.kind.toUpperCase() : ''}`));
-    })) : h('p', { class: 'muted' }, T('No targets yet – add targets for this agent in PingVakt.')),
+    })) : h('p', { class: 'muted' }, T('No targets yet – add targets for this agent in C4Pulse.')),
     h('div', { style: 'margin-top:22px' }, h('button', { class: 'btn ghost danger', onclick: async () => {
       if (!confirm(T('Disconnect the phone from the server?'))) return;
       await api('POST', '/api/unenroll'); S.tab = 'setup'; await poll();
     } }, T('Disconnect from the server'))),
-    h('p', { class: 'muted', style: 'font-size:12px' }, `PingVakt ${st.version}${st.device ? ' · ' + st.device : ''}`));
+    h('p', { class: 'muted', style: 'font-size:12px' }, `C4Pulse ${st.version}${st.device ? ' · ' + st.device : ''}`));
 }
 
 // phoneCard visar batteri, mobilnät och nätverksstatus överst på statusfliken.
@@ -262,7 +262,7 @@ function exportCSV() {
 window.addEventListener('DOMContentLoaded', () => {
   $('#menuBtn').addEventListener('click', () => {
     if (!S.st) return;
-    const items = [`PingVakt ${S.st.version}`];
+    const items = [`C4Pulse ${S.st.version}`];
     if (PV) items.push(T('Battery settings'));
     if (PV && confirm(items.join('\n') + '\n\n' + T('Open battery settings?'))) PV.openBatterySettings();
   });

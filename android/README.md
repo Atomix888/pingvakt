@@ -1,6 +1,6 @@
-# PingVakt for Android
+# C4Pulse for Android
 
-The app runs the PingVakt agent on the phone (the Go agent in `mobile` mode, packaged as
+The app runs the C4Pulse agent on the phone (the Go agent in `mobile` mode, packaged as
 `libpvagent.so`) and shows its interface in a WebView. Kotlin feeds it Wi-Fi data, network
 information and scan results; the agent measures and reports to the server like any other agent.
 

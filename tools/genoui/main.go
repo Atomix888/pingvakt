@@ -37,7 +37,7 @@ func short(v string) string {
 func main() {
 	c := &http.Client{Timeout: 60 * time.Second}
 	req, _ := http.NewRequest("GET", src, nil)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (PingVakt build)")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (C4Pulse build)")
 	res, err := c.Do(req)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "genoui:", err)

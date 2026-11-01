@@ -28,7 +28,7 @@ import (
 )
 
 // Version är programversionen (sätts vid bygge med -ldflags "-X main.Version=...").
-var Version = "0.17.0"
+var Version = "0.18.0"
 
 // App är bryggan mellan gränssnittet och mätmotorn. Alla exporterade metoder
 // kan anropas från JavaScript via window.go.main.App.
@@ -112,7 +112,7 @@ func (a *App) shutdown(context.Context) {
 	a.mon.Close()
 }
 
-// startServerLink startar (eller stoppar) rapporteringen till en PingVakt-server.
+// startServerLink startar (eller stoppar) rapporteringen till en C4Pulse-server.
 func (a *App) startServerLink(l config.ServerLink) {
 	a.umu.Lock()
 	defer a.umu.Unlock()
@@ -495,8 +495,8 @@ func (a *App) TestEmail(to string, smtp alert.SMTP, newPassword bool) error {
 	if len(rcpt) == 0 {
 		return errors.New("enter a recipient address")
 	}
-	return alert.Send(smtp, rcpt, "[PingVakt] Testmejl",
-		i18n.T("This is a test email from PingVakt.\r\n\r\nIf you are reading this, the email settings work.\r\n"))
+	return alert.Send(smtp, rcpt, "[C4Pulse] Testmejl",
+		i18n.T("This is a test email from C4Pulse.\r\n\r\nIf you are reading this, the email settings work.\r\n"))
 }
 
 // AlertHistory returnerar senaste larmhändelser.

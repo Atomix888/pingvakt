@@ -1,4 +1,4 @@
-/* PingVakt-server – webbgränssnitt */
+/* C4Pulse-server – webbgränssnitt */
 'use strict';
 
 /* ---------------- språk ---------------- */
@@ -136,7 +136,7 @@ async function boot() {
 function authShell(title, sub, form) {
   document.body.className = 'srv';
   $('#app').replaceChildren(h('div', { class: 'auth-wrap' }, h('div', { class: 'auth' },
-    h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')), h('p', null, sub), form)));
+    h('div', { class: 'brand' }, logo(), h('span', null, 'C4Pulse')), h('p', null, sub), form)));
 }
 function logo() {
   const ns = 'http://www.w3.org/2000/svg';
@@ -213,7 +213,7 @@ function renderShell() {
   document.body.className = 'srv';
   $('#app').replaceChildren(
     h('aside', { class: 'side' },
-      h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
+      h('div', { class: 'brand' }, logo(), h('span', null, 'C4Pulse')),
       h('nav', { id: 'nav' }),
       h('div', { class: 'me' },
         h('div', { class: 'who' }, h('b', null, S.me.name || S.me.email), h('small', null, isAdmin() ? T('Administrator') : T('Customer (read-only)'))),
@@ -229,7 +229,7 @@ function renderShell() {
     h('div', { class: 'mainwrap' },
       h('header', { class: 'mtop' },
         h('button', { class: 'icon-btn mburger', title: T('Menu'), 'aria-label': T('Menu'), onclick: () => document.body.classList.toggle('nav-open') }, '☰'),
-        h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
+        h('div', { class: 'brand' }, logo(), h('span', null, 'C4Pulse')),
         h('span', { class: 'mtop-st', id: 'mtopSt' })),
       h('div', { class: 'page', id: 'page' }),
       h('section', { id: 'drawer', class: 'drawer hidden' })));
@@ -423,7 +423,7 @@ function renderOverview(page, tick) {
     const head = h('div', { class: 'page-head' }, h('h1', null, T('Overview')), connBadge(),
       h('div', { class: 'tools' }, isAdmin() ? h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ New customer')) : null));
     if (!S.customers.length) {
-      page.replaceChildren(head, h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('Welcome to the PingVakt server')),
+      page.replaceChildren(head, h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('Welcome to the C4Pulse server')),
         h('p', null, isAdmin() ? T('Start by creating a customer. Then add an agent on the customer\'s network and choose what it should monitor.') : T('No customers are linked to your account.')),
         isAdmin() ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => customerDialog() }, T('+ Create the first customer'))) : null));
       return;
@@ -482,7 +482,7 @@ function renderOverview(page, tick) {
       h('div', { class: 'card server-card', onclick: () => hostView('_server') },
         h('div', { class: 'meters' }, meter('CPU', sh.cpu, T('{0} of {1} cores', fmtPct(sh.cpu), sh.cpus)), meter(T('Memory'), memPct(sh), T('{0} of {1}', gb(sh.memUsed), gb(sh.memTotal))),
           ...(sh.disks || []).slice(0, 3).map(d => meter('Disk ' + d.m, pct(d), T('{0} free of {1}', gb(d.t - d.u), gb(d.t))))),
-        h('div', { class: 'meta' }, T('PingVakt server {0} · uptime {1}', S.version, dur(sh.uptime * 1000))))));
+        h('div', { class: 'meta' }, T('C4Pulse server {0} · uptime {1}', S.version, dur(sh.uptime * 1000))))));
   }
 }
 
@@ -1198,7 +1198,7 @@ function renderTV(page) {
   const problems = S.targets.filter(t => ['down', 'offline', 'warn'].includes((S.stats[t.id] || {}).status) && !maintNote(t))
     .sort((a, b) => ({ down: 0, offline: 1, warn: 2 })[S.stats[a.id].status] - ({ down: 0, offline: 1, warn: 2 })[S.stats[b.id].status]).slice(0, 14);
   page.replaceChildren(h('div', { class: 'tv' },
-    h('div', { class: 'tv-head' }, h('div', { class: 'brand' }, logo(), h('span', null, 'PingVakt')),
+    h('div', { class: 'tv-head' }, h('div', { class: 'brand' }, logo(), h('span', null, 'C4Pulse')),
       h('div', { class: 'tv-sum' }, ...[['up', T('up')], ['warn', T('warning')], ['down', T('down')], ['offline', 'offline']].map(([k, l]) => h('span', { class: 'chip st-' + k + (all[k] ? '' : ' zero') }, h('span', { class: 'dot' }), `${all[k]} ${l}`))),
       clockEl, h('button', { class: 'btn ghost', onclick: () => { location.hash = '#/'; } }, T('Exit'))),
     h('div', { class: 'tv-grid' }, ...cards),
@@ -1311,7 +1311,7 @@ function hostView(id) {
     h('div', { class: 'full', id: 'hvSurvey' }),
     h('div', { class: 'full', id: 'hvSpeed' }),
     h('div', { class: 'full', id: 'hvLogRx' }));
-  const title = isSrv ? T('PingVakt server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
+  const title = isSrv ? T('C4Pulse server') : `${a.name} – ${customerName(a)} / ${(siteOf(a.siteId) || {}).name || ''}`;
   const phoneOnly = !isSrv && isPhone(a);
   if (phoneOnly) charts.querySelectorAll('#hcCpu,#hcMem,#hcDisk').forEach(el => el.parentNode.remove());
   modal({ title, wide: true, body: h('div', null, facts, now, h('div', { class: 'section-head', style: 'margin-top:16px' }, h('h2', null, T('History')), h('div', { class: 'tools' }, ranges)), charts),
@@ -1785,17 +1785,17 @@ async function renderSettings(page) {
   const sHost = h('input', { type: 'text', value: sm.host, placeholder: 'smtp.example.com' }), sPort = num(sm.port || 587, 1, 65535);
   const sSec = select([['starttls', 'STARTTLS (587)'], ['tls', 'TLS/SSL (465)'], ['none', T('No encryption (25)')]], sm.security || 'starttls');
   const sUser = h('input', { type: 'text', value: sm.username }), sPass = h('input', { type: 'password', placeholder: st.hasPassword ? T('•••••••• (saved – leave empty to keep)') : '', autocomplete: 'new-password' });
-  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'pingvakt@example.com' }), sMin = num(sm.minMinutes ?? 5, 0, 1440);
+  const sFrom = h('input', { type: 'email', value: sm.from, placeholder: 'c4pulse@example.com' }), sMin = num(sm.minMinutes ?? 5, 0, 1440);
   sSec.onchange = () => { sPort.value = { starttls: 587, tls: 465, none: 25 }[sSec.value]; };
   const smtpVal = () => ({ host: sHost.value.trim(), port: +sPort.value, security: sSec.value, username: sUser.value.trim(), password: sPass.value, from: sFrom.value.trim(), minMinutes: +sMin.value });
   const testTo = h('input', { type: 'email', placeholder: 'recipient@example.com' }), testRes = h('span');
   // push och SMS
   const nt = st.notify || {};
   const inp = (v, ph, type) => h('input', { type: type || 'text', value: v || '', placeholder: ph || '', autocomplete: 'off' });
-  const ntUrl = inp(nt.ntfyUrl, 'https://ntfy.sh'), ntTopic = inp(nt.ntfyTopic, T('e.g. pingvakt-alerts-x7k2')), ntTok = inp(nt.ntfyToken, T('Only for a protected ntfy server'), 'password');
+  const ntUrl = inp(nt.ntfyUrl, 'https://ntfy.sh'), ntTopic = inp(nt.ntfyTopic, T('e.g. c4pulse-alerts-x7k2')), ntTok = inp(nt.ntfyToken, T('Only for a protected ntfy server'), 'password');
   const poTok = inp(nt.pushoverToken, T('Application API token'), 'password'), poUser = inp(nt.pushoverUser, T('User or group key (optional)'));
   const smsProv = select([['', T('Off')], ['46elks', '46elks'], ['twilio', 'Twilio']], nt.smsProvider || '');
-  const smsUser = inp(nt.smsUser), smsPass = inp(nt.smsPass, '', 'password'), smsFrom = inp(nt.smsFrom, 'PingVakt'), smsMin = num(nt.smsMinMinutes || 10, 1, 1440);
+  const smsUser = inp(nt.smsUser), smsPass = inp(nt.smsPass, '', 'password'), smsFrom = inp(nt.smsFrom, 'C4Pulse'), smsMin = num(nt.smsMinMinutes || 10, 1, 1440);
   const smsUserF = field('', smsUser), smsPassF = field('', smsPass);
   const syncSms = () => {
     const v = smsProv.value;
@@ -1833,7 +1833,7 @@ async function renderSettings(page) {
     h('div', { class: 'field full' }, h('label', { class: 'check' }, gOn, h('b', null, T('Sign in with Google')))),
     field('Client ID', gId), field('Client secret', gSec),
     field(T('Redirect URI'), copyBox(base + '/auth/google/callback'), null, true),
-    h('small', { class: 'field full muted' }, T('Only existing PingVakt users can sign in – the email address must match the account. Set Public address first so the redirect URI is correct.'))];
+    h('small', { class: 'field full muted' }, T('Only existing C4Pulse users can sign in – the email address must match the account. Set Public address first so the redirect URI is correct.'))];
   const msg = h('span');
   page.replaceChildren(h('div', { class: 'page-head' }, h('h1', null, T('Settings'))),
     h('div', { class: 'modal', style: 'width:auto;max-width:860px;max-height:none' }, h('div', { class: 'modal-body', style: 'padding-top:16px' }, h('div', { class: 'form' },
@@ -1841,7 +1841,7 @@ async function renderSettings(page) {
       field(T('Default language'), lang, T('For users, reports and status pages that have no language of their own, and for alert texts and emails.')),
       h('span'),
       field(T('Public address'), pub, T('Used in install commands and emails. Empty = the address you are browsing'), true),
-      field(T('Address for remote web pages'), remUrl, T('Web pages of devices opened through an agent (IP addresses → HTTP/HTTPS) are shown on their own port, so they cannot reach PingVakt. Behind Caddy: add the site "{0}:8443" with reverse_proxy pingvakt:8081 and publish port 8443. Empty = same address on port 8443 (8081 without HTTPS).', location.hostname), true),
+      field(T('Address for remote web pages'), remUrl, T('Web pages of devices opened through an agent (IP addresses → HTTP/HTTPS) are shown on their own port, so they cannot reach C4Pulse. Behind Caddy: add the site "{0}:8443" with reverse_proxy pingvakt:8081 and publish port 8443. Empty = same address on port 8443 (8081 without HTTPS).', location.hostname), true),
       field(T('Company name on reports and status pages'), repName, null, true),
       field(T('Agents report every (seconds)'), rep), h('span'),
       field(T('Keep raw data (days)'), raw, T('Every single ping')), field(T('Keep minute values (days)'), agg, T('Avg/min/max/loss per minute')),
@@ -1865,7 +1865,7 @@ async function renderSettings(page) {
       ...notifyFields, ...tix.fields, ...authFields,
       h('div', { class: 'section-title', id: 'tplSection' }, T('Target templates')),
       h('div', { class: 'field full', id: 'tplBox' }))),
-    h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('PingVakt server {0}', S.version))),
+    h('div', { class: 'modal-foot' }, h('div', { class: 'left' }, msg, h('span', { class: 'muted' }, T('C4Pulse server {0}', S.version))),
       h('button', { class: 'btn primary', onclick: async () => {
         msg.className = ''; msg.textContent = '';
         try {
@@ -1984,8 +1984,8 @@ function installDialog(a, token) {
     token ? field('Token', copyBox(token), null, true) : null,
     field(T('Linux (including Raspberry Pi) and macOS – in the terminal'), copyBox(`curl -fsSL ${url}/install.sh | sudo sh -s -- --token ${tok}`), null, true),
     field(T('Windows – in PowerShell as administrator'), copyBox(`& ([scriptblock]::Create((irm ${url}/install.ps1))) -Token ${tok}`), null, true),
-    field(T('The PingVakt desktop app'), h('div', null, T('Settings → Server: enter the address '), h('code', null, url), T(' and the token.')), null, true),
-    field(T('Android phone'), h('div', null, T('Install PingVakt-…-android.apk from the GitHub release, open the app and enter the address '), h('code', null, url), T(' and the token.')), null, true),
+    field(T('The C4Pulse desktop app'), h('div', null, T('Settings → Server: enter the address '), h('code', null, url), T(' and the token.')), null, true),
+    field(T('Android phone'), h('div', null, T('Install C4Pulse-…-android.apk from the GitHub release, open the app and enter the address '), h('code', null, url), T(' and the token.')), null, true),
     h('small', { class: 'field full' }, T('The agent connects outbound to the server over HTTPS – no ports need to be opened at the customer. The agent files are downloaded from this server.')));
   modal({ title: T('Install the agent "{0}"', a.name), wide: true, body, foot: [h('button', { class: 'btn primary', onclick: e => e.target.closest('.backdrop')._close() }, T('Done'))] });
 }
@@ -2075,9 +2075,9 @@ function ruleDialog(rule) {
     if (c === 'latency') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, cnt, h('span', null, T('of the last')), smp, h('span', null, T('over')), thr, h('span', null, 'ms')));
     if (c === 'loss') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Loss over')), thr, h('span', null, T('% of the last')), smp, h('span', null, T('packets'))));
     if (c === 'cpu' || c === 'mem') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, c === 'cpu' ? T('CPU over') : T('Memory over')), thr, h('span', null, T('% for')), smp, h('span', null, T('minutes in a row'))),
-      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the PingVakt server itself')) + '.'));
+      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the C4Pulse server itself')) + '.'));
     if (c === 'disk') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Any disk more than')), thr, h('span', null, '% full')),
-      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the PingVakt server itself')) + '.'));
+      h('small', null, T('Applies to all agents of the customer') + (cust.value ? '' : T(' – and the C4Pulse server itself')) + '.'));
     if (c === 'rssi') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Signal below')), thr, h('span', null, T('dBm for')), smp, h('span', null, T('minutes in a row'))),
       h('small', null, T('Applies to all agents and desktop apps of the customer connected via Wi-Fi. −67 dBm is enough for calls and video; below −75 dBm problems are common.')));
     if (c === 'path') condRow.replaceChildren(h('small', null, T('Triggers when traceroute shows a new path twice in a row. Turn on "Path monitoring" on the targets to watch.')));
@@ -2093,7 +2093,7 @@ function ruleDialog(rule) {
     if (c === 'speed') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Download below')), thr, h('span', null, T('Mbit/s in')), smp, h('span', null, T('tests in a row'))),
       h('small', null, T('Turn on automatic speed tests on the agent (CPU, memory and disk view).')));
     if (c === 'anomaly') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Latency over normal by')), thr, h('span', null, T('× the normal spread, and at least')), cnt, h('span', null, T('ms, for')), smp, h('span', null, T('minutes'))),
-      h('small', null, T('PingVakt learns the normal latency per target and hour of the day from the last two weeks, and starts alerting after 5 days. Applies to all targets of the customer. Lower = more sensitive; 3 is a good start.')));
+      h('small', null, T('C4Pulse learns the normal latency per target and hour of the day from the last two weeks, and starts alerting after 5 days. Applies to all targets of the customer. Lower = more sensitive; 3 is a good start.')));
     if (c === 'log') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Message contains')), logMatch),
       h('div', { class: 'row', style: 'margin-top:6px' }, h('span', null, T('Severity at least')), logSev, h('span', null, T('– clears after')), smp, h('span', null, T('minutes without new matches'))),
       h('small', null, T('Applies to syslog and SNMP traps received by the customer\'s agents (agent view → Syslog and SNMP traps).')));
@@ -2106,7 +2106,7 @@ function ruleDialog(rule) {
     if (c === 'ipam') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Subnet or DHCP pool more than')), thr, h('span', null, T('% used, or a possible IP conflict'))),
       h('small', null, T('Applies to the customer\'s subnets under IP addresses. An address counts as used when it has been seen in the last 30 days (7 days in the DHCP pool) or is reserved.')));
     if (c === 'battery') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Battery below')), thr, h('span', null, T('% and not charging'))),
-      h('small', null, T('Applies to all phones (PingVakt Android app) of the customer. Clears when the phone is charging or above the level again.')));
+      h('small', null, T('Applies to all phones (C4Pulse Android app) of the customer. Clears when the phone is charging or above the level again.')));
     if (c === 'roamgap') condRow.replaceChildren(h('span', null, T('Condition')), h('div', { class: 'row' }, h('span', null, T('Traffic interrupted more than')), thr, h('span', null, T('ms when roaming, within')), smp, h('span', null, T('minutes'))),
       h('small', null, T('The phone pings the gateway twice a second and measures how long traffic stops when it changes access point. Calls and video usually tolerate up to about 150 ms.')));
     if (c === 'offline') condRow.replaceChildren(h('small', null, T('Triggers when an agent has not reported for {0} seconds. Applies to all agents of the customer.', Math.max(30, S.reportSec * 3))));
@@ -2160,7 +2160,7 @@ function ruleDialog(rule) {
         h('div', { class: 'row' }, box('Webhook', 'webhook'), hook),
         h('div', { class: 'row' }, box(T('Create ticket'), 'ticket'), h('small', { class: 'muted' }, S.ticketSystem ? T('in {0} – resolved when the alert clears', S.ticketSystem) : T('set up the ticket system under Settings first'))),
         h('div', { class: 'row' }, h('span', null, T('Notify on call')), onCall),
-        box(T('Popup in the browser for anyone with PingVakt open'), 'popup'),
+        box(T('Popup in the browser for anyone with C4Pulse open'), 'popup'),
         h('div', { class: 'row' }, box(T('Sound in the browser'), 'sound'), sound, h('button', { class: 'btn sm', onclick: () => playSound(sound.value) }, '▶')))),
       h('div', { class: 'section-title' }, T('When')),
       h('div', { class: 'field full' }, h('div', { class: 'checks', style: 'flex-direction:column' },
@@ -2213,7 +2213,7 @@ async function pushSubscription() {
   return reg ? reg.pushManager.getSubscription() : null;
 }
 async function enablePush(vapid) {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error(T('This browser does not support push notifications. On iPhone: share → Add to Home Screen, then open PingVakt from the home screen.'));
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error(T('This browser does not support push notifications. On iPhone: share → Add to Home Screen, then open C4Pulse from the home screen.'));
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') throw new Error(T('Notifications were not allowed in the browser.'));
   const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
@@ -2226,7 +2226,7 @@ async function notifyDialog() {
   const n = await GET('/api/me/notify');
   const phone = h('input', { type: 'tel', value: n.phone, placeholder: '070-123 45 67' });
   const po = h('input', { type: 'text', value: n.pushover, placeholder: T('Your Pushover user key') });
-  const nt = h('input', { type: 'text', value: n.ntfy, placeholder: T('e.g. pingvakt-jonas-x7k2 (hard to guess)') });
+  const nt = h('input', { type: 'text', value: n.ntfy, placeholder: T('e.g. c4pulse-jonas-x7k2 (hard to guess)') });
   const devState = h('span', { class: 'muted' });
   const devBtn = h('button', { class: 'btn' });
   const res = h('span');
@@ -2246,7 +2246,7 @@ async function notifyDialog() {
   refreshDev();
   formDialog({ title: T('Notifications'), saveLabel: T('Save'), fields: [
     h('div', { class: 'field full' }, h('span', null, T('Push to this phone or computer')), h('div', { class: 'row' }, devBtn, devState),
-      h('small', null, T('Works in Chrome, Edge, Firefox and Safari. On iPhone, first add PingVakt to the home screen (share → Add to Home Screen) and turn it on from there.'))),
+      h('small', null, T('Works in Chrome, Edge, Firefox and Safari. On iPhone, first add C4Pulse to the home screen (share → Add to Home Screen) and turn it on from there.'))),
     field(T('Mobile phone (SMS, on call)'), phone, n.hasSMS ? null : T('SMS is not configured on the server yet.')),
     n.hasPushover ? field('Pushover', po) : null,
     field(T('ntfy topic'), nt, T('Subscribe to the same topic in the ntfy app ({0}).', n.ntfyUrl || 'https://ntfy.sh')),

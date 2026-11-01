@@ -1,10 +1,10 @@
-# PingVakt
+# C4Pulse
 
 *[English](README.md) · Svenska*
 
-PingVakt övervakar latens och paketförlust mot många mål samtidigt, på samma sätt som MultiPing och vmPing. Programmet är skrivet i Go och [Wails](https://wails.io) och körs på Windows, macOS och Linux.
+C4Pulse övervakar latens och paketförlust mot många mål samtidigt, på samma sätt som MultiPing och vmPing. Programmet är skrivet i Go och [Wails](https://wails.io) och körs på Windows, macOS och Linux.
 
-PingVakt består av tre delar som använder samma mätmotor:
+C4Pulse består av tre delar som använder samma mätmotor:
 
 - **Skrivbordsappen** fungerar fristående, som MultiPing. Den kan också kopplas till en server.
 - **Servern** tar emot mätdata från många agenter, delar upp den per kund och site, sparar historik, larmar centralt och har ett webbgränssnitt.
@@ -91,11 +91,11 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 - *Hög porttrafik* – över X % av porthastigheten i N minuter.
 - *Portfel* – fler än N fel per minut.
 
-**Hastighetstester:** i agentens vy (CPU, minne och disk) kan du köra ett hastighetstest mot Cloudflare eller mot PingVakt-servern, och schemalägga det varje timme, var 4:e timme, två gånger om dagen eller en gång om dagen. Resultaten visas som en graf, och regeln *Hastighetstest långsamt* larmar när nedladdningen är under N Mbit/s i X tester i rad. Ett test använder ungefär 50–500 MB beroende på linan, så kör det inte för ofta på anslutningar med datatak.
+**Hastighetstester:** i agentens vy (CPU, minne och disk) kan du köra ett hastighetstest mot Cloudflare eller mot C4Pulse-servern, och schemalägga det varje timme, var 4:e timme, två gånger om dagen eller en gång om dagen. Resultaten visas som en graf, och regeln *Hastighetstest långsamt* larmar när nedladdningen är under N Mbit/s i X tester i rad. Ett test använder ungefär 50–500 MB beroende på linan, så kör det inte för ofta på anslutningar med datatak.
 
 **Mallar för mål:** *Från mall…* på kundsidan lägger till en färdig uppsättning mål på en agent: *Grundläggande nätverk* (gateway, DNS-server, DNS-uppslag, internet), *Microsoft 365*, *Google Workspace* och *Internetkvalitet*. `{gateway}`, `{dns1}` och `{dns2}` ersätts med de värden agenten rapporterar för sitt nät, och övriga mål sätts att ligga bakom gatewayen. Gör egna mallar under Inställningar → Mallar för mål, eller välj *Spara mål som mall* i agentens meny.
 
-**Wi-Fi-survey:** i agentens vy (CPU, minne och disk) under *Wi-Fi-nät i närheten* söker agenten av luften och visar alla nät den hör: SSID, BSSID, tillverkare, band, kanal, kanalbredd, signal, säkerhet och standard. En kanalgraf per band (2,4, 5 och 6 GHz) visar hur näten överlappar, och PingVakt pekar ut vanliga problem: samkanalsstörning på den egna kanalen, nät i 2,4 GHz utanför kanal 1, 6 och 11, 40 MHz i 2,4 GHz samt öppna nät och WEP. Sök av direkt eller var 5:e, 15:e eller 60:e minut; tidigare avsökningar från den senaste veckan kan öppnas igen. Linux använder `iw` (eller `nmcli`), Windows `netsh` (Windows 11 kan kräva platsåtkomst) och macOS `system_profiler` (utan BSSID i nyare macOS).
+**Wi-Fi-survey:** i agentens vy (CPU, minne och disk) under *Wi-Fi-nät i närheten* söker agenten av luften och visar alla nät den hör: SSID, BSSID, tillverkare, band, kanal, kanalbredd, signal, säkerhet och standard. En kanalgraf per band (2,4, 5 och 6 GHz) visar hur näten överlappar, och C4Pulse pekar ut vanliga problem: samkanalsstörning på den egna kanalen, nät i 2,4 GHz utanför kanal 1, 6 och 11, 40 MHz i 2,4 GHz samt öppna nät och WEP. Sök av direkt eller var 5:e, 15:e eller 60:e minut; tidigare avsökningar från den senaste veckan kan öppnas igen. Linux använder `iw` (eller `nmcli`), Windows `netsh` (Windows 11 kan kräva platsåtkomst) och macOS `system_profiler` (utan BSSID i nyare macOS).
 
 **Larm för roaming:**
 - *Klistrig Wi-Fi-klient* – datorn sitter kvar på en åtkomstpunkt under N dBm fast en annan åtkomstpunkt med samma SSID är X dB starkare, i Y minuter. Kräver automatisk Wi-Fi-avsökning på agenten.
@@ -103,9 +103,9 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **UniFi, Meraki och Aruba Central:** under kundmenyn → *Lägg till integration* kopplar du kundens Ubiquiti UniFi-kontroller (API-nyckel eller lokalt konto), Cisco Meraki-organisation (API-nyckel) eller HPE Aruba Central-konto (API-klient med token, som förnyas automatiskt). Servern läser av status för alla åtkomstpunkter, switchar och gateways var 1–15:e minut. Enheterna visas under kunden med status, modell, IP, klienter, drifttid och firmware, och kan läggas till som pingmål med ett klick. Regeln *UniFi/Meraki/Aruba-enhet offline* larmar när en enhet varit offline i N avläsningar – för alla enheter, bara åtkomstpunkter eller allt utom åtkomstpunkter. Servern måste kunna nå UniFi-kontrollern; Meraki och Aruba Central är molntjänster.
 
-**IP-adresser (IPAM):** *IP-adresser* i menyn (eller knappen på kundsidan) håller koll på alla adresser i kundens nät. Lägg till ett subnät (CIDR, namn, VLAN, gateway, DHCP-pool, plats) – eller klicka *Lägg till* på de nät agenterna redan sitter på – och välj en agent som skannar det var 1:a, 6:e eller 24:e timme. Adresserna fylls i automatiskt från agenternas nätverksskanningar (IP, MAC, tillverkare, namn, enhetstyp), från ARP-tabellerna i routrar och switchar som lagts till som SNMP-enheter, och från agenterna själva. Varje subnät visar hur fullt det är och hur full DHCP-poolen är, en adresskarta med en ruta per adress (online, sedd senaste 30 dagarna, reserverad, dokumenterad, ledig, konflikt) och en lista som går att filtrera och söka i. Klicka på en adress för att namnge den, beskriva den, ange ansvarig eller reservera den (valfritt för en viss MAC), eller för att börja övervaka den med ping. *Nästa lediga IP* föreslår första lediga adressen utanför DHCP-poolen. PingVakt flaggar en möjlig IP-konflikt när två MAC-adresser använder samma adress inom tio minuter, eller när en reserverad adress används av en annan MAC. Sökrutan hittar en IP, MAC-adress eller ett namn hos alla kunder. Subnät kan exporteras och importeras som CSV. Regeln *Subnät fullt eller IP-konflikt (IPAM)* larmar när ett subnät eller en DHCP-pool är mer än N % använt, eller vid en konflikt.
+**IP-adresser (IPAM):** *IP-adresser* i menyn (eller knappen på kundsidan) håller koll på alla adresser i kundens nät. Lägg till ett subnät (CIDR, namn, VLAN, gateway, DHCP-pool, plats) – eller klicka *Lägg till* på de nät agenterna redan sitter på – och välj en agent som skannar det var 1:a, 6:e eller 24:e timme. Adresserna fylls i automatiskt från agenternas nätverksskanningar (IP, MAC, tillverkare, namn, enhetstyp), från ARP-tabellerna i routrar och switchar som lagts till som SNMP-enheter, och från agenterna själva. Varje subnät visar hur fullt det är och hur full DHCP-poolen är, en adresskarta med en ruta per adress (online, sedd senaste 30 dagarna, reserverad, dokumenterad, ledig, konflikt) och en lista som går att filtrera och söka i. Klicka på en adress för att namnge den, beskriva den, ange ansvarig eller reservera den (valfritt för en viss MAC), eller för att börja övervaka den med ping. *Nästa lediga IP* föreslår första lediga adressen utanför DHCP-poolen. C4Pulse flaggar en möjlig IP-konflikt när två MAC-adresser använder samma adress inom tio minuter, eller när en reserverad adress används av en annan MAC. Sökrutan hittar en IP, MAC-adress eller ett namn hos alla kunder. Subnät kan exporteras och importeras som CSV. Regeln *Subnät fullt eller IP-konflikt (IPAM)* larmar när ett subnät eller en DHCP-pool är mer än N % använt, eller vid en konflikt.
 
-**Fjärråtkomst via agenten:** på en adress under IP-adresser öppnar *HTTP*, *HTTPS* och *SSH* enheten via kundens agent – ingen VPN behövs, och inget behöver öppnas hos kunden (agenten kopplar upp sig mot servern, bara medan det används, och stänger efter 10 minuter utan användning). Webbsidor öppnas i en ny flik på serverns egen fjärrport (8443 bakom Caddy, 8081 utan HTTPS), ett eget ursprung så att enhetens sidor inte kommer åt PingVakt; enheters egna certifikat godtas. SSH öppnar en terminal i webbläsaren; värdnyckeln sparas och du varnas om den ändras. Varje adress kan spara användarnamn och lösenord för webb och SSH. Lösenorden krypteras med AES-256-GCM med en nyckel i `secret.key` i datamappen (eller `PINGVAKT_SECRET_KEY`) – spara filen tillsammans med dina säkerhetskopior, sparade lösenord går inte att läsa utan den. Bara administratörer kan öppna enheter eller visa lösenord, och varje öppning, SSH-inloggning och visat lösenord skrivs i granskningsloggen. Med Docker + Caddy: lägg till `:8443`-sajten från `deploy/Caddyfile` och publicera port 8443 (se `deploy/docker-compose.yml`); en annan adress kan anges under Inställningar → *Adress för fjärrsidor*. Stäng av fjärråtkomst på en agent med `"noRemote": true` i dess `agent.json` eller `PINGVAKT_NO_REMOTE=1`. Telefonappen tunnlar aldrig.
+**Fjärråtkomst via agenten:** på en adress under IP-adresser öppnar *HTTP*, *HTTPS* och *SSH* enheten via kundens agent – ingen VPN behövs, och inget behöver öppnas hos kunden (agenten kopplar upp sig mot servern, bara medan det används, och stänger efter 10 minuter utan användning). Webbsidor öppnas i en ny flik på serverns egen fjärrport (8443 bakom Caddy, 8081 utan HTTPS), ett eget ursprung så att enhetens sidor inte kommer åt C4Pulse; enheters egna certifikat godtas. SSH öppnar en terminal i webbläsaren; värdnyckeln sparas och du varnas om den ändras. Varje adress kan spara användarnamn och lösenord för webb och SSH. Lösenorden krypteras med AES-256-GCM med en nyckel i `secret.key` i datamappen (eller `PINGVAKT_SECRET_KEY`) – spara filen tillsammans med dina säkerhetskopior, sparade lösenord går inte att läsa utan den. Bara administratörer kan öppna enheter eller visa lösenord, och varje öppning, SSH-inloggning och visat lösenord skrivs i granskningsloggen. Med Docker + Caddy: lägg till `:8443`-sajten från `deploy/Caddyfile` och publicera port 8443 (se `deploy/docker-compose.yml`); en annan adress kan anges under Inställningar → *Adress för fjärrsidor*. Stäng av fjärråtkomst på en agent med `"noRemote": true` i dess `agent.json` eller `PINGVAKT_NO_REMOTE=1`. Telefonappen tunnlar aldrig.
 
 **Nätverkskarta:** *Nätverkskarta* på kundsidan ritar hur nätet hänger ihop, utifrån LLDP- och CDP-grannar på SNMP-enheterna (läses var 10:e minut) plus enheterna från UniFi, Meraki och Aruba. Varje enhet visar sin status, länkarna visar portarna i båda ändar och länkar på portar som är nere ritas röda. Grannar som inte övervakas (t.ex. åtkomstpunkter) ritas streckade; de får status när de också är pingmål eller kommer från en integration. Dra för att flytta, scrolla för att zooma och klicka på en enhet för att öppna den.
 
@@ -119,7 +119,7 @@ Skrivbordsappen kopplas in under **Inställningar → Server** med serverns adre
 
 **Säkerhetskopior utanför servern:** under Inställningar → Säkerhetskopior kan den nattliga kopian också laddas upp till S3-kompatibel lagring (AWS S3, Backblaze B2, Wasabi, MinIO …) eller WebDAV (Nextcloud, ownCloud), där de N senaste kopiorna sparas. *Testa* laddar upp och tar bort en liten fil; *Ladda upp en säkerhetskopia nu* kör direkt.
 
-**Android-app:** `PingVakt-<version>-android.apk` på releasesidan gör en Android-telefon (8.0 eller senare) till en agent. Installera den (tillåt installation från webbläsaren), öppna den, ange serverns adress och en agent-token, så mäter telefonen sina mål som vilken agent som helst – och rapporterar Wi-Fi-anslutning, roamingar och avsökningar. Appen fungerar också utan server som verktyg för Wi-Fi-survey: *Survey* visar grannät med kanalgraf och tips, *Upprepa* söker av var 30:e sekund, och varje avsökning sparas med platsen du skriver (t.ex. "Rum 204") och kan exporteras som CSV. Tillåt platsåtkomst (Android kräver det för Wi-Fi-detaljer), aviseringar och ingen batterioptimering så att den fortsätter mäta i bakgrunden. Android begränsar appar till ungefär 4 Wi-Fi-avsökningar per 2 minuter. Appen är signerad med PingVakts egen nyckel och uppdateras genom att en nyare APK installeras över den.
+**Android-app:** `C4Pulse-<version>-android.apk` på releasesidan gör en Android-telefon (8.0 eller senare) till en agent. Installera den (tillåt installation från webbläsaren), öppna den, ange serverns adress och en agent-token, så mäter telefonen sina mål som vilken agent som helst – och rapporterar Wi-Fi-anslutning, roamingar och avsökningar. Appen fungerar också utan server som verktyg för Wi-Fi-survey: *Survey* visar grannät med kanalgraf och tips, *Upprepa* söker av var 30:e sekund, och varje avsökning sparas med platsen du skriver (t.ex. "Rum 204") och kan exporteras som CSV. Tillåt platsåtkomst (Android kräver det för Wi-Fi-detaljer), aviseringar och ingen batterioptimering så att den fortsätter mäta i bakgrunden. Android begränsar appar till ungefär 4 Wi-Fi-avsökningar per 2 minuter. Appen är signerad med C4Pulses egen nyckel och uppdateras genom att en nyare APK installeras över den.
 
 Telefonen rapporterar också **batteri** (nivå, laddning, temperatur), **mobilnätet** (2G–5G, operatör, RSRP/SINR, band) och om **internet fungerar** (captive portal, VPN, privat DNS); agentvyn visar dem med batteri- och signalhistorik, och agentchippet visar batterinivån. När telefonen byter accesspunkt mäts **avbrottet vid roaming** genom att gatewayen pingas två gånger i sekunden (visas i roamingtabellen). Larmreglerna *Telefonens batteri lågt* och *Långsam roaming (telefon)* använder detta. Survey-avsökningar får **GPS-position** (länk till kartan, och latitud/longitud i CSV-filen).
 
@@ -181,10 +181,10 @@ Konfigurationen sparas i `/etc/pingvakt/agent.json`, `%ProgramData%\PingVakt\age
 
 | Plattform | Fil |
 |---|---|
-| Windows 10/11 (x64) | `PingVakt-<ver>-windows-x64-setup.exe` (installationsprogram) eller `…-portable.zip` |
+| Windows 10/11 (x64) | `C4Pulse-<ver>-windows-x64-setup.exe` (installationsprogram) eller `…-portable.zip` |
 | Debian/Ubuntu | `pingvakt_<ver>_amd64.deb` → `sudo apt install ./pingvakt_<ver>_amd64.deb` |
 | Övriga Linux | `pingvakt-<ver>-linux-amd64.tar.gz` (kräver GTK 3 och WebKitGTK 4.1) |
-| macOS 11+ (Intel och Apple Silicon) | `PingVakt-<ver>-macos.dmg`, byggs i GitHub Actions |
+| macOS 11+ (Intel och Apple Silicon) | `C4Pulse-<ver>-macos.dmg`, byggs i GitHub Actions |
 
 Programmet är inte kodsignerat. Därför varnar Windows SmartScreen ("Kör ändå") och macOS Gatekeeper första gången (högerklicka på appen → Öppna).
 
@@ -208,13 +208,13 @@ Krav: Go 1.22+.
 go mod tidy                 # första gången
 go test ./core/...          # tester för mätmotorn
 scripts/build.sh linux      # binär + .deb + .tar.gz
-scripts/build.sh windows    # PingVakt.exe + installationsprogram + portabel zip (korskompileras från Linux)
-scripts/build.sh macos      # PingVakt.app + .dmg (på en Mac)
+scripts/build.sh windows    # C4Pulse.exe + installationsprogram + portabel zip (korskompileras från Linux)
+scripts/build.sh macos      # C4Pulse.app + .dmg (på en Mac)
 scripts/build.sh server     # server för Linux/Windows + agenter för alla plattformar
 docker build -t pingvakt-server .
 ```
 
-**GitHub Actions** (`.github/workflows/build.yml`) bygger allt vid varje push och lägger Docker-avbildningen i `ghcr.io/atomix888/pingvakt-server`. Taggen `:edge` byggs från `main`, och `:<version>` och `:latest` byggs från releaser. När du skapar en release med en tagg, till exempel `v0.2.0`, publiceras alla installationsfiler på releasesidan.
+**GitHub Actions** (`.github/workflows/build.yml`) bygger allt vid varje push och lägger Docker-avbildningen i `ghcr.io/atomix888/c4pulse-server` (och, för befintliga installationer, under det gamla namnet `ghcr.io/atomix888/pingvakt-server`). Taggen `:edge` byggs från `main`, och `:<version>` och `:latest` byggs från releaser. När du skapar en release med en tagg, till exempel `v0.2.0`, publiceras alla installationsfiler på releasesidan.
 
 Repot är privat, så Docker-avbildningen är också privat. Logga in med `docker login ghcr.io -u Atomix888` och en personlig åtkomsttoken med behörigheten `read:packages`. Alternativt bygger du själv med `build: ..` i compose-filen.
 
@@ -246,6 +246,7 @@ desktop/           Skrivbordsappen (Wails)
 server/            Servern: SQLite, API, inloggning, central larmning, webbgränssnitt (server/web)
 agent/             Agenten (tjänst utan gränssnitt; läget "mobile" för Android-appen)
 android/           Android-appen (Kotlin + WebView, kör agenten)
+site/              Produktsidan för c4pulse.com (statisk, `docker compose up -d` i mappen)
 deploy/            Docker Compose + Caddy, systemd-tjänst
 tools/winres/      Skapar Windows-ikon, manifest och versionsinfo
 scripts/build.sh   Byggskript för alla plattformar
@@ -257,4 +258,4 @@ scripts/build.sh   Byggskript för alla plattformar
 
 ## Licenser
 
-Se `LICENSE-THIRD-PARTY.txt`. PingVakt innehåller Wails, uPlot och xterm.js, som alla har MIT-licens. Funktionerna är inspirerade av vmPing (MIT), men koden är nyskriven.
+Se `LICENSE-THIRD-PARTY.txt`. C4Pulse innehåller Wails, uPlot och xterm.js, som alla har MIT-licens. Funktionerna är inspirerade av vmPing (MIT), men koden är nyskriven.

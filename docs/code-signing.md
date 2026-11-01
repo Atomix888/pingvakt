@@ -33,7 +33,7 @@ If your certificate provider gives you an exportable `.pfx` (or a cloud key that
 | `WIN_CERT_PFX` | the file as base64: `base64 -w0 cert.pfx` |
 | `WIN_CERT_PASSWORD` | the password |
 
-Signed files: `PingVakt.exe`, the installer, the Windows agents and the Windows server. Signing is done with [jsign](https://ebourg.github.io/jsign/) and timestamped, so the signatures stay valid after the certificate expires.
+Signed files: `C4Pulse.exe`, the installer, the Windows agents and the Windows server. Signing is done with [jsign](https://ebourg.github.io/jsign/) and timestamped, so the signatures stay valid after the certificate expires.
 
 Note: the Docker image builds its own agents and does not sign them. Agents installed with the PowerShell command are not affected by SmartScreen.
 
@@ -56,5 +56,5 @@ The app is then signed with hardened runtime, the `.dmg` is signed and notarized
 
 ## Checking
 
-- Windows: right-click the file → Properties → Digital Signatures, or `signtool verify /pa PingVakt.exe`.
-- macOS: `spctl -a -vv /Applications/PingVakt.app` should say `accepted, source=Notarized Developer ID`.
+- Windows: right-click the file → Properties → Digital Signatures, or `signtool verify /pa C4Pulse.exe`.
+- macOS: `spctl -a -vv /Applications/C4Pulse.app` should say `accepted, source=Notarized Developer ID`.

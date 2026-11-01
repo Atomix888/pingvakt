@@ -31,7 +31,7 @@ class AgentService : Service() {
     companion object {
         const val PORT = 47811
         private const val CHANNEL = "agent"
-        private const val TAG = "PingVakt"
+        private const val TAG = "C4Pulse"
 
         /** Nyckeln som skyddar agentens lokala port (samma för appen och webbvyn). */
         fun key(ctx: Context): String {
@@ -106,7 +106,7 @@ class AgentService : Service() {
             startForeground(1, n)
         }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PingVakt:agent").apply { setReferenceCounted(false); acquire() }
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "C4Pulse:agent").apply { setReferenceCounted(false); acquire() }
         registerReceiver(scanReceiver, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION))
         running = true
         Thread { superviseAgent() }.start()

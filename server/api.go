@@ -416,7 +416,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		name = t.Host
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="pingvakt-%s-%s.csv"`, safeFile(name), time.Now().Format("20060102-1504")))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="c4pulse-%s-%s.csv"`, safeFile(name), time.Now().Format("20060102-1504")))
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	lang := s.userLang(r)
 	L := func(x string) string { return i18n.TL(lang, x) }
@@ -1188,7 +1188,7 @@ func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "enter a recipient")
 		return
 	}
-	if err := alert.Send(in.SMTP, to, i18n.T("[PingVakt] Test email from the server"), i18n.T("This is a test email from the PingVakt server.\r\n")); err != nil {
+	if err := alert.Send(in.SMTP, to, i18n.T("[C4Pulse] Test email from the server"), i18n.T("This is a test email from the C4Pulse server.\r\n")); err != nil {
 		httpErr(w, 400, err.Error())
 		return
 	}

@@ -40,7 +40,7 @@ func main() {
 	}
 	rs.SetManifest(winres.AppManifest{
 		Identity:            winres.AssemblyIdentity{Name: "se.pingvakt.desktop"},
-		Description:         "PingVakt",
+		Description:         "C4Pulse",
 		ExecutionLevel:      winres.AsInvoker,
 		DPIAwareness:        winres.DPIPerMonitorV2,
 		UseCommonControlsV6: true,
@@ -50,10 +50,10 @@ func main() {
 	vi.SetFileVersion(v)
 	vi.SetProductVersion(v)
 	for k, val := range map[string]string{
-		version.ProductName:      "PingVakt",
-		version.FileDescription:  "PingVakt – latency and packet loss monitoring",
-		version.CompanyName:      "PingVakt",
-		version.LegalCopyright:   "© PingVakt. Innehåller kod under MIT-licens.",
+		version.ProductName:      "C4Pulse",
+		version.FileDescription:  "C4Pulse – latency and packet loss monitoring",
+		version.CompanyName:      "C4Pulse",
+		version.LegalCopyright:   "© C4Pulse. Innehåller kod under MIT-licens.",
 		version.OriginalFilename: "PingVakt.exe",
 		version.ProductVersion:   v,
 		version.FileVersion:      v,

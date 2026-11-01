@@ -148,7 +148,7 @@ func Test(ctx context.Context, c Config) error {
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
-	_, _ = tmp.WriteString("PingVakt test " + time.Now().Format(time.RFC3339) + "\n")
+	_, _ = tmp.WriteString("C4Pulse test " + time.Now().Format(time.RFC3339) + "\n")
 	_, _ = tmp.Seek(0, 0)
 	fi, _ := tmp.Stat()
 	name := "pingvakt-test.txt"

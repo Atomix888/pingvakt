@@ -1,5 +1,5 @@
 'use strict';
-/* PingVakt – SNMP-enheter, hastighetstester och mallar för mål. */
+/* C4Pulse – SNMP-enheter, hastighetstester och mallar för mål. */
 
 /* ---------------- gemensamt ---------------- */
 function fmtBps(v) {
@@ -205,7 +205,7 @@ async function renderSpeed(agentId) {
   const list = res.results || [], cfg = res.config || {};
   const last = list.filter(r => !r.err).slice(-1)[0];
   const status = h('span', { class: 'muted' });
-  const target = select([['cloudflare', 'Cloudflare'], ['server', T('PingVakt server')]], cfg.target || 'cloudflare');
+  const target = select([['cloudflare', 'Cloudflare'], ['server', T('C4Pulse server')]], cfg.target || 'cloudflare');
   const run = h('button', { class: 'btn sm primary', onclick: async () => {
     run.disabled = true; status.className = 'muted'; status.textContent = T('Measuring… (about 30 seconds)');
     try { const r = await POST(`/api/agents/${agentId}/speed/run`, { target: target.value });
@@ -220,7 +220,7 @@ async function renderSpeed(agentId) {
   const chartBox = h('div', { class: 'hchart' });
   box.replaceChildren(h('h4', null, T('Speed test')),
     last ? h('div', { class: 'facts' }, fact(T('Download'), last.down.toFixed(1) + ' Mbit/s'), fact(T('Upload'), last.up.toFixed(1) + ' Mbit/s'),
-      fact(T('Latency'), last.latency.toFixed(1) + ' ms'), fact('Jitter', last.jitter.toFixed(1) + ' ms'), fact(T('Measured'), dateTime(last.t)), fact(T('Against'), last.target === 'server' ? T('PingVakt server') : 'Cloudflare'))
+      fact(T('Latency'), last.latency.toFixed(1) + ' ms'), fact('Jitter', last.jitter.toFixed(1) + ' ms'), fact(T('Measured'), dateTime(last.t)), fact(T('Against'), last.target === 'server' ? T('C4Pulse server') : 'Cloudflare'))
       : h('p', { class: 'muted' }, T('No speed tests yet.')),
     h('div', { class: 'row speed-tools' }, target, run, isAdmin() ? h('label', { class: 'row' }, h('span', { class: 'muted' }, T('Automatic')), sched) : null, status),
     list.length > 1 ? chartBox : '');
@@ -500,7 +500,7 @@ function integrationDialog(v, customerId) {
     key.placeholder = k === 'unifi' ? T('UniFi Network → Settings → Control Plane → Integrations') : T('Organization → API & Webhooks');
     help.textContent = { unifi: T('Use an API key (UniFi Network 9 or later) or a local admin account. The server must reach the controller – for a controller at the customer, publish it or use UniFi\'s remote access address.'),
       meraki: T('Create the key under Organization → Settings → Dashboard API access. Read-only access is enough.'),
-      aruba: T('Create an API client under Organization → Platform Integration → REST API, and generate a token for it. PingVakt renews the token automatically.') }[k];
+      aruba: T('Create an API client under Organization → Platform Integration → REST API, and generate a token for it. C4Pulse renews the token automatically.') }[k];
   };
   kind.onchange = sync; sync();
   const collect = () => Object.assign(d, { kind: kind.value, name: name.value.trim(), url: url.value.trim(), site: site.value.trim(), apiKey: key.value.trim(), username: user.value.trim(),
@@ -753,7 +753,7 @@ async function renderLogRx(agentId) {
   };
   sl.onchange = tp.onchange = comm.onchange = save;
   box.replaceChildren(h('h4', null, T('Syslog and SNMP traps')),
-    h('p', { class: 'muted', style: 'margin:0 0 8px' }, T('The agent receives messages from switches, firewalls and access points at the site and forwards them to PingVakt. Point the devices at {0}.', (o.addrs || []).join(' / ') || a.hostname || T('the agent\'s IP address'))),
+    h('p', { class: 'muted', style: 'margin:0 0 8px' }, T('The agent receives messages from switches, firewalls and access points at the site and forwards them to C4Pulse. Point the devices at {0}.', (o.addrs || []).join(' / ') || a.hostname || T('the agent\'s IP address'))),
     h('div', { class: 'row speed-tools' }, h('label', { class: 'row' }, sl, T('Syslog (UDP 514)')), h('label', { class: 'row' }, tp, T('SNMP traps (UDP 162)')), comm,
       h('button', { class: 'btn sm', onclick: () => { document.querySelectorAll('.backdrop').forEach(b => b._close()); openLogs(customerOfAgent(a)); } }, T('Show logs')), status),
     o.logRx ? h('div', { class: 'notice bad' }, TE(o.logRx)) : '');
@@ -773,7 +773,7 @@ function offsiteFields(o) {
   const kind = select([['', T('Off')], ['s3', T('S3-compatible (AWS, Backblaze B2, Wasabi, MinIO …)')], ['webdav', 'WebDAV (Nextcloud, ownCloud …)']], o.kind || '');
   const ep = inp(o.endpoint, 's3.eu-central-003.backblazeb2.com'), region = inp(o.region, 'eu-central-003'), bucket = inp(o.bucket), prefix = inp(o.prefix, 'pingvakt/');
   const ak = inp(o.accessKey), sk = inp(o.secretKey, '', 'password');
-  const url = inp(o.url, 'https://cloud.example.se/remote.php/dav/files/jonas/PingVakt'), user = inp(o.username), pass = inp(o.password, T('App password'), 'password');
+  const url = inp(o.url, 'https://cloud.example.se/remote.php/dav/files/jonas/C4Pulse'), user = inp(o.username), pass = inp(o.password, T('App password'), 'password');
   const keep = num(o.keep || 30, 0, 3650);
   const res = h('span', { id: 'offsiteStatus' });
   const F = { s3: [field(T('Endpoint'), ep), field(T('Region'), region), field('Bucket', bucket), field(T('Folder / prefix'), prefix), field(T('Access key'), ak), field(T('Secret key'), sk)],

@@ -193,7 +193,7 @@ func (s *Server) selfLoop(ctx context.Context) {
 func (s *Server) checkHostAlerts(agentID string) {
 	s.mu.RLock()
 	cust := ""
-	name := i18n.T("PingVakt server")
+	name := i18n.T("C4Pulse server")
 	hostname := ""
 	if agentID != ServerHostID {
 		a, ok := s.agents[agentID]

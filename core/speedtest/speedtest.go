@@ -1,5 +1,5 @@
 // Package speedtest mäter bandbredd (ned- och uppladdning) och svarstid,
-// antingen mot Cloudflares hastighetstest eller mot PingVakt-servern.
+// antingen mot Cloudflares hastighetstest eller mot C4Pulse-servern.
 package speedtest
 
 import (

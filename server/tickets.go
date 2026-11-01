@@ -53,7 +53,7 @@ func (s *Server) handleTicket(a alert.Alert, ev alert.Event) {
 		if link := s.eventLink(ev); link != "" {
 			body += "\n" + link
 		}
-		body += "\n\n" + i18n.T("Created by PingVakt. The ticket is updated when the alert clears.")
+		body += "\n\n" + i18n.T("Created by C4Pulse. The ticket is updated when the alert clears.")
 		t, err := tickets.Create(ctx, cfg, title, body)
 		if err != nil {
 			log.Printf("ticket %s: %v", cfg.Name(), err)
@@ -100,7 +100,7 @@ func (s *Server) handleTestTicket(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
-	t, err := tickets.Create(ctx, in, i18n.T("PingVakt test ticket"), i18n.T("This ticket was created to test the connection from PingVakt and is closed right away."))
+	t, err := tickets.Create(ctx, in, i18n.T("C4Pulse test ticket"), i18n.T("This ticket was created to test the connection from C4Pulse and is closed right away."))
 	if err != nil {
 		httpErr(w, 400, err.Error())
 		return

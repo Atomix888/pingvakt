@@ -253,7 +253,7 @@ func sendSMS(n NotifySettings, to, text string) error {
 	}
 	from := n.SMSFrom
 	if from == "" {
-		from = "PingVakt"
+		from = "C4Pulse"
 	}
 	switch n.SMSProvider {
 	case "46elks":
@@ -289,7 +289,7 @@ func sendTeams(hook string, ev alert.Event, link string) error {
 		},
 	}
 	if link != "" {
-		card["actions"] = []any{map[string]any{"type": "Action.OpenUrl", "title": i18n.T("Open PingVakt"), "url": link}}
+		card["actions"] = []any{map[string]any{"type": "Action.OpenUrl", "title": i18n.T("Open C4Pulse"), "url": link}}
 	}
 	body, _ := json.Marshal(map[string]any{"type": "message", "attachments": []any{map[string]any{
 		"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": nil, "content": card}}})
@@ -385,7 +385,7 @@ func (s *Server) notify(a alert.Alert, ev alert.Event, test bool) error {
 		}
 		return false
 	}
-	smsText := strings.TrimSpace(fmt.Sprintf("PingVakt %s: %s – %s", ev.KindText(), ev.TargetName, eventText(ev)))
+	smsText := strings.TrimSpace(fmt.Sprintf("C4Pulse %s: %s – %s", ev.KindText(), ev.TargetName, eventText(ev)))
 	numbers := map[string]bool{}
 	if a.SMS {
 		for _, p := range alert.SplitAddresses(strings.ReplaceAll(a.SMSTo, ";", ",")) {
@@ -758,7 +758,7 @@ func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
 		try("Pushover", sendPushover(n.PushoverToken, c.Pushover, ev, link))
 	}
 	if c.Phone != "" && n.SMSProvider != "" {
-		try("SMS", sendSMS(n, c.Phone, "PingVakt: "+i18n.T("This is a test of the alert")))
+		try("SMS", sendSMS(n, c.Phone, "C4Pulse: "+i18n.T("This is a test of the alert")))
 	}
 	var subs int
 	_ = s.db.QueryRow(`SELECT count(*) FROM webpush WHERE user_id=?`, u.ID).Scan(&subs)

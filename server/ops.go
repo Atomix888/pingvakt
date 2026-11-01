@@ -429,7 +429,7 @@ func (s *Server) handleActiveAlerts(w http.ResponseWriter, r *http.Request) {
 			site := s.sites[a.SiteID]
 			name, cust = s.customers[site.CustomerID].Name+" · "+site.Name+" · "+a.Name, site.CustomerID
 		} else if tid == ServerHostID {
-			name = i18n.T("PingVakt server")
+			name = i18n.T("C4Pulse server")
 		}
 		s.mu.RUnlock()
 		if n, c, ok := s.extraInfo(tid); ok {

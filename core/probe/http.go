@@ -52,7 +52,7 @@ func httpCheck(ctx context.Context, req Request, res *Result) {
 		res.Err = err.Error()
 		return
 	}
-	hr.Header.Set("User-Agent", "PingVakt/1 (+monitoring)")
+	hr.Header.Set("User-Agent", "C4Pulse/1 (+monitoring)")
 	client := &http.Client{Transport: httpTransport, Timeout: req.Timeout}
 	start := time.Now()
 	resp, err := client.Do(hr)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Bygger PingVakt. Användning:
+# Bygger C4Pulse. Användning:
 #   scripts/build.sh windows   – PingVakt.exe + installationsprogram (kräver makensis och ImageMagick för ikonen)
 #   scripts/build.sh linux     – binär, .deb och .tar.gz (kräver libgtk-3-dev och libwebkit2gtk-4.1-dev)
-#   scripts/build.sh macos     – PingVakt.app och .dmg (måste köras på en Mac)
+#   scripts/build.sh macos     – C4Pulse.app och .dmg (måste köras på en Mac)
 #   scripts/build.sh agents    – agenten för alla plattformar (dist/agents/)
 #   scripts/build.sh server    – servern för Linux/Windows + agenter, paketerat som .tar.gz/.zip
 #   scripts/build.sh all       – windows + linux + server (från Linux)
@@ -36,7 +36,7 @@ LDFLAGS="-s -w -X main.Version=${VERSION}"
 sign_win() {
   [ -n "${WIN_SIGN_ARGS:-}" ] && [ -n "${JSIGN:-}" ] || return 0
   # shellcheck disable=SC2086
-  logged java -jar "$JSIGN" $WIN_SIGN_ARGS --name PingVakt --url https://github.com/Atomix888/pingvakt \
+  logged java -jar "$JSIGN" $WIN_SIGN_ARGS --name C4Pulse --url https://github.com/Atomix888/pingvakt \
     --tsaurl "${WIN_SIGN_TSA:-http://timestamp.acs.microsoft.com,http://timestamp.digicert.com}" --tsmode RFC3161 --alg SHA-256 --replace "$@"
   echo "signerade: $*"
 }
@@ -54,12 +54,12 @@ windows() {
   cp LICENSE-THIRD-PARTY.txt "$w/license.txt"
   if command -v makensis >/dev/null; then
     makensis -V2 -DVERSION="$VERSION" -DEXE="$PWD/$DIST/PingVakt.exe" \
-      -DOUT="$PWD/$DIST/PingVakt-${VERSION}-windows-x64-setup.exe" "$w/installer.nsi"
-    sign_win "$DIST/PingVakt-${VERSION}-windows-x64-setup.exe"
+      -DOUT="$PWD/$DIST/C4Pulse-${VERSION}-windows-x64-setup.exe" "$w/installer.nsi"
+    sign_win "$DIST/C4Pulse-${VERSION}-windows-x64-setup.exe"
   else
     echo "makensis saknas – hoppar över installationsprogrammet"
   fi
-  (cd "$DIST" && rm -f "PingVakt-${VERSION}-windows-x64-portable.zip" && zip -q -j "PingVakt-${VERSION}-windows-x64-portable.zip" PingVakt.exe ../LICENSE-THIRD-PARTY.txt)
+  (cd "$DIST" && rm -f "C4Pulse-${VERSION}-windows-x64-portable.zip" && zip -q -j "C4Pulse-${VERSION}-windows-x64-portable.zip" PingVakt.exe ../LICENSE-THIRD-PARTY.txt)
 }
 
 linux() {
@@ -92,11 +92,11 @@ macos() {
     CGO_ENABLED=1 GOOS=darwin GOARCH=$a MACOSX_DEPLOYMENT_TARGET=11.0 CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=11.0" CGO_CFLAGS="-mmacosx-version-min=11.0" \
       logged go build -trimpath -tags desktop,production -ldflags "$LDFLAGS" -o "$DIST/pingvakt-darwin-$a" ./desktop
   done
-  local app="$DIST/PingVakt.app"
+  local app="$DIST/C4Pulse.app"
   rm -rf "$app"; mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   logged lipo -create -output "$app/Contents/MacOS/PingVakt" "$DIST/pingvakt-darwin-arm64" "$DIST/pingvakt-darwin-amd64"
   sed "s/@VERSION@/${VERSION}/g" desktop/build/darwin/Info.plist > "$app/Contents/Info.plist"
-  local iconset; iconset="$(mktemp -d)/PingVakt.iconset"; mkdir -p "$iconset"
+  local iconset; iconset="$(mktemp -d)/C4Pulse.iconset"; mkdir -p "$iconset"
   for s in 16 32 128 256 512; do
     logged sips -z $s $s desktop/build/appicon.png --out "$iconset/icon_${s}x${s}.png" >/dev/null
     logged sips -z $((s*2)) $((s*2)) desktop/build/appicon.png --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
@@ -110,28 +110,28 @@ macos() {
   else
     logged codesign --force --deep -s - "$app" # ad hoc-signering (ingen Apple-utvecklarlicens)
   fi
-  rm -f "$DIST/PingVakt-${VERSION}-macos.dmg"
+  rm -f "$DIST/C4Pulse-${VERSION}-macos.dmg"
   # hdiutil misslyckas ibland tillfälligt ("Resource busy") på byggservrar – försök igen
   local ok=0
   for i in 1 2 3 4 5; do
-    if hdiutil create -volname "PingVakt" -srcfolder "$app" -ov -format UDZO "$DIST/PingVakt-${VERSION}-macos.dmg"; then ok=1; break; fi
+    if hdiutil create -volname "C4Pulse" -srcfolder "$app" -ov -format UDZO "$DIST/C4Pulse-${VERSION}-macos.dmg"; then ok=1; break; fi
     sleep 5
   done
   [ "$ok" = 1 ] || { echo "::error::hdiutil kunde inte skapa .dmg"; exit 1; }
   if [ -n "${MAC_SIGN_ID:-}" ]; then
-    logged codesign --force --timestamp -s "$MAC_SIGN_ID" "$DIST/PingVakt-${VERSION}-macos.dmg"
+    logged codesign --force --timestamp -s "$MAC_SIGN_ID" "$DIST/C4Pulse-${VERSION}-macos.dmg"
     if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ]; then
       echo "==> Notariserar (kan ta några minuter)"
-      logged xcrun notarytool submit "$DIST/PingVakt-${VERSION}-macos.dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+      logged xcrun notarytool submit "$DIST/C4Pulse-${VERSION}-macos.dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
         --password "$APPLE_APP_PASSWORD" --wait --timeout 30m
-      logged xcrun stapler staple "$DIST/PingVakt-${VERSION}-macos.dmg"
+      logged xcrun stapler staple "$DIST/C4Pulse-${VERSION}-macos.dmg"
       logged xcrun stapler staple "$app"
     else
       echo "APPLE_ID/APPLE_TEAM_ID/APPLE_APP_PASSWORD saknas – signerad men inte notariserad"
     fi
   fi
-  (cd "$DIST" && ditto -c -k --keepParent PingVakt.app "PingVakt-${VERSION}-macos-app.zip")
-  echo "klart: $DIST/PingVakt-${VERSION}-macos.dmg"
+  (cd "$DIST" && ditto -c -k --keepParent C4Pulse.app "C4Pulse-${VERSION}-macos-app.zip")
+  echo "klart: $DIST/C4Pulse-${VERSION}-macos.dmg"
 }
 
 agents() {

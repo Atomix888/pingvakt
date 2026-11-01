@@ -44,7 +44,7 @@ func (s *Server) handleInstallPs1(w http.ResponseWriter, r *http.Request) {
 }
 
 const installSh = `#!/bin/sh
-# PingVakt agent – installation for Linux and macOS
+# C4Pulse agent – installation for Linux and macOS
 # Usage: curl -fsSL @SERVER@/install.sh | sudo sh -s -- --token <TOKEN>
 set -eu
 SERVER="@SERVER@"
@@ -79,10 +79,10 @@ if [ "$OS" = darwin ]; then xattr -d com.apple.quarantine "$BIN" 2>/dev/null || 
 "$BIN" uninstall >/dev/null 2>&1 || true
 "$BIN" install
 "$BIN" start
-echo "Done! The agent now runs as a service and appears in PingVakt within a few seconds."
+echo "Done! The agent now runs as a service and appears in C4Pulse within a few seconds."
 `
 
-const installPs1 = `# PingVakt agent – installation for Windows (run in PowerShell as administrator)
+const installPs1 = `# C4Pulse agent – installation for Windows (run in PowerShell as administrator)
 # Usage: & ([scriptblock]::Create((irm @SERVER@/install.ps1))) -Token <TOKEN>
 param([Parameter(Mandatory=$true)][string]$Token, [switch]$Insecure)
 $ErrorActionPreference = 'Stop'
@@ -104,7 +104,7 @@ if ($Insecure) { $enrollArgs += '--insecure' }
 if ($LASTEXITCODE -ne 0) { throw 'Enrollment failed.' }
 & $exe install
 & $exe start
-Write-Host 'Done! The agent now runs as a Windows service and appears in PingVakt within a few seconds.'
+Write-Host 'Done! The agent now runs as a Windows service and appears in C4Pulse within a few seconds.'
 `
 
 type agentFileInfo struct {

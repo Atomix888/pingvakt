@@ -31,7 +31,7 @@ type Defaults struct {
 	AlertIDs   []string `json:"alertIds"`
 }
 
-// ServerLink är kopplingen till en PingVakt-server.
+// ServerLink är kopplingen till en C4Pulse-server.
 type ServerLink struct {
 	Enabled  bool   `json:"enabled"`
 	URL      string `json:"url"`

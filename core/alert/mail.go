@@ -93,12 +93,12 @@ func (m *Mailer) SendNow(to []string, evs []Event) error {
 
 func compose(evs []Event) (string, string) {
 	first := evs[0]
-	subject := fmt.Sprintf("[PingVakt] %s: %s – %s", first.KindText(), first.TargetName, first.AlertName)
+	subject := fmt.Sprintf("[C4Pulse] %s: %s – %s", first.KindText(), first.TargetName, first.AlertName)
 	if len(evs) > 1 {
-		subject = fmt.Sprintf(i18n.T("[PingVakt] %d alert events (latest: %s %s)"), len(evs), evs[len(evs)-1].KindText(), evs[len(evs)-1].TargetName)
+		subject = fmt.Sprintf(i18n.T("[C4Pulse] %d alert events (latest: %s %s)"), len(evs), evs[len(evs)-1].KindText(), evs[len(evs)-1].TargetName)
 	}
 	var b strings.Builder
-	b.WriteString(i18n.T("Alerts from PingVakt\r\n\r\n"))
+	b.WriteString(i18n.T("Alerts from C4Pulse\r\n\r\n"))
 	for _, e := range evs {
 		fmt.Fprintf(&b, "%s  %s\r\n", time.UnixMilli(e.Time).Format("2006-01-02 15:04:05"), e.KindText())
 		fmt.Fprintf(&b, "  Target: %s (%s)\r\n", e.TargetName, e.Host)

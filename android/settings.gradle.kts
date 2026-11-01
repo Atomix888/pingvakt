@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PingVakt"
+rootProject.name = "C4Pulse"
 include(":app")

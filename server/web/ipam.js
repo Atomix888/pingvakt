@@ -47,7 +47,7 @@ function drawIPAMList(body, res, custId) {
   }
   if (!res.subnets.length) {
     out.push(h('div', { class: 'empty', style: 'display:block' }, h('h2', null, T('No subnets yet')),
-      h('p', null, T('Add the customer\'s networks. PingVakt then fills in the addresses from the agents\' network scans, the routers\' ARP tables (SNMP) and the agents themselves, and you can add reservations and notes.')),
+      h('p', null, T('Add the customer\'s networks. C4Pulse then fills in the addresses from the agents\' network scans, the routers\' ARP tables (SNMP) and the agents themselves, and you can add reservations and notes.')),
       isAdmin() && S.customers.length ? h('div', { class: 'quick' }, h('button', { class: 'btn primary', onclick: () => subnetDialog(null, custId || S.customers[0].id) }, T('+ New subnet'))) : null));
     body.replaceChildren(...out);
     return;
@@ -321,7 +321,7 @@ function addrDialog(sn, ip, a, refs) {
     remote.length ? h('div', { class: 'field full' }, h('span', null, T('Open through the agent')), h('div', { class: 'row ip-remote', style: 'gap:6px;flex-wrap:wrap' }, ...remote)) : null,
     conflict ? h('div', { class: 'notice bad full' }, T('Possible IP conflict: {0} and {1} both used this address ({2}).', a.confMac || '?', a.mac || '?', dateTime(a.conflict)),
       canEdit ? h('div', null, check(T('Mark as resolved'), false, e => { resolve = e.target.checked; })) : null) : null,
-    (refs || []).length ? h('div', { class: 'full ip-refs' }, h('small', { class: 'muted' }, T('Used in PingVakt: ')), ...refs.map(x => h('span', { class: 'tag' }, x.name))) : null,
+    (refs || []).length ? h('div', { class: 'full ip-refs' }, h('small', { class: 'muted' }, T('Used in C4Pulse: ')), ...refs.map(x => h('span', { class: 'tag' }, x.name))) : null,
     field(T('Name'), host, a.host && !a.hostSet ? T('Found: {0}. Type a name to replace it.', a.host) : null), field(T('Description'), desc), field(T('Responsible'), owner),
     h('div', { class: 'field' }, h('span', null, T('Reservation')), check(T('Reserved (static address)'), reserved, e => { reserved = e.target.checked; resRow.style.display = reserved ? '' : 'none'; })),
     resRow,
@@ -363,7 +363,7 @@ async function renderSSH(page, parts) {
   const head = h('div', { class: 'term-head' }, h('b', null, `SSH ${ip}${+port !== 22 ? ':' + port : ''}`), status,
     h('div', { class: 'tools' }, h('button', { class: 'btn sm', onclick: () => connect() }, T('Reconnect')), h('button', { class: 'btn sm ghost', onclick: () => window.close() }, T('Close'))));
   page.replaceChildren(head, box);
-  document.title = `SSH ${ip} – PingVakt`;
+  document.title = `SSH ${ip} – C4Pulse`;
   try {
     await Promise.all([loadAsset('vendor/xterm.css'), loadAsset('vendor/xterm.min.js')]);
     await loadAsset('vendor/xterm-addon-fit.js');
@@ -457,7 +457,7 @@ function ipamImport(sn) {
     parsed = data.map(r => ({ ip: g(r, ci.ip), host: g(r, ci.host), mac: g(r, ci.mac), desc: g(r, ci.desc), owner: g(r, ci.owner), reserved: /^(x|1|yes|ja|true|sant)$/i.test(g(r, ci.res)) })).filter(r => /^\d+\.\d+\.\d+\.\d+$/.test(r.ip));
     info.textContent = T('{0} rows with an IP address found.', parsed.length);
   };
-  formDialog({ title: T('Import addresses to {0}', sn.cidr), saveLabel: T('Import'), fields: [field(T('CSV file'), file, T('Columns are recognised by their headings: IP, Name, MAC, Description, Responsible, Reserved. Without headings the order IP, Name, MAC, Description is assumed. Exported files from PingVakt and most IPAM tools work.'), true), info],
+  formDialog({ title: T('Import addresses to {0}', sn.cidr), saveLabel: T('Import'), fields: [field(T('CSV file'), file, T('Columns are recognised by their headings: IP, Name, MAC, Description, Responsible, Reserved. Without headings the order IP, Name, MAC, Description is assumed. Exported files from C4Pulse and most IPAM tools work.'), true), info],
     onSave: async () => {
       if (!parsed.length) throw new Error(T('Choose a file with at least one IP address.'));
       const r = await POST(`/api/ipam/subnets/${sn.id}/import`, parsed);

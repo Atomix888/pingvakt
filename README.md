@@ -1,10 +1,10 @@
-# PingVakt
+# C4Pulse
 
 *English · [Svenska](README.sv.md)*
 
-PingVakt monitors latency and packet loss to many targets at once, like MultiPing and vmPing. It is written in Go and [Wails](https://wails.io) and runs on Windows, macOS and Linux. The user interface is available in English and Swedish.
+C4Pulse monitors latency and packet loss to many targets at once, like MultiPing and vmPing. It is written in Go and [Wails](https://wails.io) and runs on Windows, macOS and Linux. The user interface is available in English and Swedish.
 
-PingVakt has three parts that share the same measurement engine:
+C4Pulse has three parts that share the same measurement engine:
 
 - **The desktop app** works on its own, like MultiPing. It can also be connected to a server.
 - **The server** receives measurements from many agents, organises them per customer and site, stores history, raises alerts centrally and has a web interface.
@@ -93,11 +93,11 @@ The desktop app connects under **Settings → Server** with the server address a
 - *Port traffic high* – over X % of the port speed for N minutes.
 - *Port errors* – more than N errors per minute.
 
-**Speed tests:** in the agent view (CPU, memory and disk) you can run a speed test against Cloudflare or against the PingVakt server, and schedule it every hour, every 4 hours, twice a day or once a day. Results are shown as a graph, and the *Speed test slow* rule fires when the download speed is below N Mbit/s in X tests in a row. A test uses roughly 50–500 MB depending on the line, so do not run it too often on metered connections.
+**Speed tests:** in the agent view (CPU, memory and disk) you can run a speed test against Cloudflare or against the C4Pulse server, and schedule it every hour, every 4 hours, twice a day or once a day. Results are shown as a graph, and the *Speed test slow* rule fires when the download speed is below N Mbit/s in X tests in a row. A test uses roughly 50–500 MB depending on the line, so do not run it too often on metered connections.
 
 **Target templates:** *From template…* on the customer page adds a ready-made set of targets to an agent: *Basic network* (gateway, DNS server, DNS lookup, internet), *Microsoft 365*, *Google Workspace* and *Internet quality*. `{gateway}`, `{dns1}` and `{dns2}` are replaced with the values the agent reports for its network, and the other targets are set to depend on the gateway. Make your own templates under Settings → Target templates, or choose *Save targets as template* in the agent menu.
 
-**Wi-Fi survey:** in the agent view (CPU, memory and disk) under *Wi-Fi networks nearby* the agent scans the air and shows every network it hears: SSID, BSSID, manufacturer, band, channel, channel width, signal, security and standard. A channel graph per band (2.4, 5 and 6 GHz) shows how the networks overlap, and PingVakt points out common problems: co-channel interference on your own channel, 2.4 GHz networks outside channels 1, 6 and 11, 40 MHz in 2.4 GHz and open or WEP networks. Scan on demand or every 5, 15 or 60 minutes; earlier scans from the last week can be opened again. Linux uses `iw` (or `nmcli`), Windows `netsh` (Windows 11 may require location access) and macOS `system_profiler` (no BSSID on newer macOS).
+**Wi-Fi survey:** in the agent view (CPU, memory and disk) under *Wi-Fi networks nearby* the agent scans the air and shows every network it hears: SSID, BSSID, manufacturer, band, channel, channel width, signal, security and standard. A channel graph per band (2.4, 5 and 6 GHz) shows how the networks overlap, and C4Pulse points out common problems: co-channel interference on your own channel, 2.4 GHz networks outside channels 1, 6 and 11, 40 MHz in 2.4 GHz and open or WEP networks. Scan on demand or every 5, 15 or 60 minutes; earlier scans from the last week can be opened again. Linux uses `iw` (or `nmcli`), Windows `netsh` (Windows 11 may require location access) and macOS `system_profiler` (no BSSID on newer macOS).
 
 **Roaming alerts:**
 - *Sticky Wi-Fi client* – the computer stays on an access point below N dBm although another access point with the same SSID is X dB stronger, for Y minutes. Needs automatic Wi-Fi scanning on the agent.
@@ -105,9 +105,9 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **UniFi, Meraki and Aruba Central:** under the customer menu → *Add integration* you connect the customer's Ubiquiti UniFi controller (API key or local account), Cisco Meraki organisation (API key) or HPE Aruba Central account (API client with token, renewed automatically). The server reads the status of every access point, switch and gateway every 1–15 minutes. The devices are shown under the customer with status, model, IP, clients, uptime and firmware, and can be added as ping targets with one click. The rule *UniFi/Meraki/Aruba device offline* fires when a device has been offline for N polls – for all devices, only access points or everything except access points. The server must be able to reach the UniFi controller; Meraki and Aruba Central are cloud services.
 
-**IP addresses (IPAM):** *IP addresses* in the menu (or the button on the customer page) keeps track of every address in the customer's networks. Add a subnet (CIDR, name, VLAN, gateway, DHCP pool, site) – or click *Add* on the networks the agents are already on – and choose an agent to scan it every 1, 6 or 24 hours. Addresses are filled in automatically from the agents' network scans (IP, MAC, manufacturer, name, device type), from the ARP tables of routers and switches added as SNMP devices, and from the agents themselves. Each subnet shows how full it is and how full the DHCP pool is, an address map with one square per address (online, seen in the last 30 days, reserved, documented, free, conflict) and a list you can filter and search. Click an address to name it, describe it, set who is responsible or reserve it (optionally for a specific MAC), or to start monitoring it with ping. *Next free IP* suggests the first free address outside the DHCP pool. PingVakt flags a possible IP conflict when two MAC addresses use the same address within ten minutes, or when a reserved address is used by another MAC. The search box finds an IP, MAC address or name across all customers. Subnets can be exported and imported as CSV. The rule *Subnet full or IP conflict (IPAM)* fires when a subnet or DHCP pool is more than N % used, or on a conflict.
+**IP addresses (IPAM):** *IP addresses* in the menu (or the button on the customer page) keeps track of every address in the customer's networks. Add a subnet (CIDR, name, VLAN, gateway, DHCP pool, site) – or click *Add* on the networks the agents are already on – and choose an agent to scan it every 1, 6 or 24 hours. Addresses are filled in automatically from the agents' network scans (IP, MAC, manufacturer, name, device type), from the ARP tables of routers and switches added as SNMP devices, and from the agents themselves. Each subnet shows how full it is and how full the DHCP pool is, an address map with one square per address (online, seen in the last 30 days, reserved, documented, free, conflict) and a list you can filter and search. Click an address to name it, describe it, set who is responsible or reserve it (optionally for a specific MAC), or to start monitoring it with ping. *Next free IP* suggests the first free address outside the DHCP pool. C4Pulse flags a possible IP conflict when two MAC addresses use the same address within ten minutes, or when a reserved address is used by another MAC. The search box finds an IP, MAC address or name across all customers. Subnets can be exported and imported as CSV. The rule *Subnet full or IP conflict (IPAM)* fires when a subnet or DHCP pool is more than N % used, or on a conflict.
 
-**Remote access through the agent:** on an address under IP addresses, *HTTP*, *HTTPS* and *SSH* open the device through the customer's agent – no VPN needed, and nothing has to be opened at the customer (the agent connects out to the server, only while it is used, and closes after 10 minutes without use). Web pages open in a new tab on the server's own remote port (8443 behind Caddy, 8081 without HTTPS), a separate origin so the device's pages cannot reach PingVakt; self-signed device certificates are accepted. SSH opens a terminal in the browser; the host key is remembered and you are warned if it changes. Each address can store a user name and password for web and SSH. Passwords are encrypted with AES-256-GCM using a key in `secret.key` in the data folder (or `PINGVAKT_SECRET_KEY`) – keep that file together with your backups, saved passwords cannot be read without it. Only administrators can open devices or show passwords, and every opening, SSH login and shown password is written to the audit log. With Docker + Caddy, add the `:8443` site from `deploy/Caddyfile` and publish port 8443 (see `deploy/docker-compose.yml`); another address can be set under Settings → *Address for remote web pages*. Turn remote access off on an agent with `"noRemote": true` in its `agent.json` or `PINGVAKT_NO_REMOTE=1`. The phone app never tunnels.
+**Remote access through the agent:** on an address under IP addresses, *HTTP*, *HTTPS* and *SSH* open the device through the customer's agent – no VPN needed, and nothing has to be opened at the customer (the agent connects out to the server, only while it is used, and closes after 10 minutes without use). Web pages open in a new tab on the server's own remote port (8443 behind Caddy, 8081 without HTTPS), a separate origin so the device's pages cannot reach C4Pulse; self-signed device certificates are accepted. SSH opens a terminal in the browser; the host key is remembered and you are warned if it changes. Each address can store a user name and password for web and SSH. Passwords are encrypted with AES-256-GCM using a key in `secret.key` in the data folder (or `PINGVAKT_SECRET_KEY`) – keep that file together with your backups, saved passwords cannot be read without it. Only administrators can open devices or show passwords, and every opening, SSH login and shown password is written to the audit log. With Docker + Caddy, add the `:8443` site from `deploy/Caddyfile` and publish port 8443 (see `deploy/docker-compose.yml`); another address can be set under Settings → *Address for remote web pages*. Turn remote access off on an agent with `"noRemote": true` in its `agent.json` or `PINGVAKT_NO_REMOTE=1`. The phone app never tunnels.
 
 **Network map:** *Network map* on the customer page draws how the network is connected, from LLDP and CDP neighbours on the SNMP devices (read every 10 minutes) plus the devices from UniFi, Meraki and Aruba. Every device shows its status, links show the ports at both ends and links on ports that are down are drawn red. Neighbours that are not monitored (e.g. access points) are drawn dashed; they get a status when they are also ping targets or come from an integration. Drag to move, scroll to zoom and click a device to open it.
 
@@ -121,7 +121,7 @@ The desktop app connects under **Settings → Server** with the server address a
 
 **Off-site backups:** under Settings → Backups the nightly copy can also be uploaded to S3-compatible storage (AWS S3, Backblaze B2, Wasabi, MinIO …) or WebDAV (Nextcloud, ownCloud), keeping the N latest copies there. *Test* uploads and deletes a small file; *Upload a backup now* runs it at once.
 
-**Android app:** `PingVakt-<version>-android.apk` on the release page turns an Android phone (8.0 or later) into an agent. Install it (allow installing from your browser), open it, enter the server address and an agent token, and the phone measures its targets like any other agent – and reports its Wi-Fi connection, roams and scans. The app also works without a server as a Wi-Fi survey tool: *Survey* shows neighbouring networks with a channel graph and hints, *Repeat* scans every 30 seconds, and every scan is saved with the location you type (e.g. "Room 204") and can be exported as CSV. Allow location access (Android requires it for Wi-Fi details), notifications and no battery optimization so it keeps measuring in the background. Android limits apps to about 4 Wi-Fi scans per 2 minutes. The app is signed with PingVakt's own key and updates by installing a newer APK over it.
+**Android app:** `C4Pulse-<version>-android.apk` on the release page turns an Android phone (8.0 or later) into an agent. Install it (allow installing from your browser), open it, enter the server address and an agent token, and the phone measures its targets like any other agent – and reports its Wi-Fi connection, roams and scans. The app also works without a server as a Wi-Fi survey tool: *Survey* shows neighbouring networks with a channel graph and hints, *Repeat* scans every 30 seconds, and every scan is saved with the location you type (e.g. "Room 204") and can be exported as CSV. Allow location access (Android requires it for Wi-Fi details), notifications and no battery optimization so it keeps measuring in the background. Android limits apps to about 4 Wi-Fi scans per 2 minutes. The app is signed with C4Pulse's own key and updates by installing a newer APK over it.
 
 The phone also reports **battery** (level, charging, temperature), the **mobile network** (2G–5G, operator, RSRP/SINR, band) and whether the **internet works** (captive portal, VPN, private DNS); the agent view shows them with battery and signal history, and the agent chip shows the battery level. When the phone changes access point it measures the **roaming interruption** by pinging the gateway twice a second (shown in the roam table). Alert rules *Phone battery low* and *Slow roaming (phone)* use these. Survey scans include the **GPS position** (link to the map, and latitude/longitude in the CSV).
 
@@ -181,10 +181,10 @@ The configuration is stored in `/etc/pingvakt/agent.json`, `%ProgramData%\PingVa
 
 | Platform | File |
 |---|---|
-| Windows 10/11 (x64) | `PingVakt-<ver>-windows-x64-setup.exe` (installer) or `…-portable.zip` |
+| Windows 10/11 (x64) | `C4Pulse-<ver>-windows-x64-setup.exe` (installer) or `…-portable.zip` |
 | Debian/Ubuntu | `pingvakt_<ver>_amd64.deb` → `sudo apt install ./pingvakt_<ver>_amd64.deb` |
 | Other Linux | `pingvakt-<ver>-linux-amd64.tar.gz` (requires GTK 3 and WebKitGTK 4.1) |
-| macOS 11+ (Intel and Apple Silicon) | `PingVakt-<ver>-macos.dmg`, built in GitHub Actions |
+| macOS 11+ (Intel and Apple Silicon) | `C4Pulse-<ver>-macos.dmg`, built in GitHub Actions |
 
 The app is not code-signed, so Windows SmartScreen ("Run anyway") and macOS Gatekeeper (right-click the app → Open) warn the first time.
 
@@ -209,13 +209,13 @@ go mod tidy                 # first time
 go run ./tools/genoui       # full MAC manufacturer list from IEEE (optional)
 go test ./core/...          # tests for the measurement engine
 scripts/build.sh linux      # binary + .deb + .tar.gz
-scripts/build.sh windows    # PingVakt.exe + installer + portable zip (cross-compiled from Linux)
-scripts/build.sh macos      # PingVakt.app + .dmg (on a Mac)
+scripts/build.sh windows    # C4Pulse.exe + installer + portable zip (cross-compiled from Linux)
+scripts/build.sh macos      # C4Pulse.app + .dmg (on a Mac)
 scripts/build.sh server     # server for Linux/Windows + agents for all platforms
 docker build -t pingvakt-server .
 ```
 
-**GitHub Actions** (`.github/workflows/build.yml`) builds everything on every push and publishes the Docker image to `ghcr.io/atomix888/pingvakt-server`. The `:edge` tag is built from `main`, and `:<version>` and `:latest` from releases. When you create a release with a tag such as `v0.7.0`, all installation files are published on the release page.
+**GitHub Actions** (`.github/workflows/build.yml`) builds everything on every push and publishes the Docker image to `ghcr.io/atomix888/c4pulse-server` (and, for existing installations, under the old name `ghcr.io/atomix888/pingvakt-server`). The `:edge` tag is built from `main`, and `:<version>` and `:latest` from releases. When you create a release with a tag such as `v0.7.0`, all installation files are published on the release page.
 
 The repository is private, so the Docker image is private too. Sign in with `docker login ghcr.io -u Atomix888` and a personal access token with the `read:packages` scope, or build it yourself with `build: ..` in the compose file.
 
@@ -249,6 +249,7 @@ desktop/           The desktop app (Wails)
 server/            The server: SQLite, API, sign-in, central alerting, web interface (server/web)
 agent/             The agent (headless service; "mobile" mode for the Android app)
 android/           The Android app (Kotlin + WebView, runs the agent)
+site/              Product page for c4pulse.com (static, `docker compose up -d` in the folder)
 deploy/            Docker Compose + Caddy, systemd service
 tools/             winres (Windows icon/manifest), genoui (MAC manufacturer list)
 scripts/build.sh   Build script for all platforms
@@ -260,4 +261,4 @@ scripts/build.sh   Build script for all platforms
 
 ## Licences
 
-See `LICENSE-THIRD-PARTY.txt`. PingVakt includes Wails, uPlot and xterm.js, all MIT licensed. The features are inspired by vmPing (MIT), but the code is written from scratch. The MAC manufacturer list comes from the IEEE registration authority.
+See `LICENSE-THIRD-PARTY.txt`. C4Pulse includes Wails, uPlot and xterm.js, all MIT licensed. The features are inspired by vmPing (MIT), but the code is written from scratch. The MAC manufacturer list comes from the IEEE registration authority.

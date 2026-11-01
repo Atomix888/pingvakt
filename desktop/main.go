@@ -25,7 +25,7 @@ var icon []byte
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{
-		Title:            "PingVakt",
+		Title:            "C4Pulse",
 		Width:            1320,
 		Height:           840,
 		MinWidth:         760,
@@ -45,9 +45,9 @@ func main() {
 		Windows: &windows.Options{Theme: windows.SystemDefault},
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarDefault(),
-			About:    &mac.AboutInfo{Title: "PingVakt " + Version, Message: i18n.T("Monitoring of latency and packet loss."), Icon: icon},
+			About:    &mac.AboutInfo{Title: "C4Pulse " + Version, Message: i18n.T("Monitoring of latency and packet loss."), Icon: icon},
 		},
-		Linux: &linux.Options{ProgramName: "PingVakt", Icon: icon},
+		Linux: &linux.Options{ProgramName: "C4Pulse", Icon: icon},
 	})
 	if err != nil {
 		log.Fatal(err)

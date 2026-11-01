@@ -35,7 +35,7 @@ func Notify(title, body string) {
 		if _, err := exec.LookPath("notify-send"); err != nil {
 			return
 		}
-		cmd = exec.Command("notify-send", "-a", "PingVakt", "--", title, body)
+		cmd = exec.Command("notify-send", "-a", "C4Pulse", "--", title, body)
 	}
 	_ = cmd.Run()
 }

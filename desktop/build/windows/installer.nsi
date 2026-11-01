@@ -1,5 +1,5 @@
-; PingVakt – Windows installer (NSIS), English and Swedish
-; Build with: makensis -DVERSION=0.1.0 -DEXE=..\..\..\dist\PingVakt.exe -DOUT=..\..\..\dist\PingVakt-0.1.0-setup.exe installer.nsi
+; C4Pulse – Windows installer (NSIS), English and Swedish
+; Build with: makensis -DVERSION=0.1.0 -DEXE=..\..\..\dist\PingVakt.exe -DOUT=..\..\..\dist\C4Pulse-0.1.0-setup.exe installer.nsi
 
 Unicode true
 !include "MUI2.nsh"
@@ -12,16 +12,16 @@ Unicode true
   !define EXE "..\..\..\dist\PingVakt.exe"
 !endif
 !ifndef OUT
-  !define OUT "..\..\..\dist\PingVakt-${VERSION}-setup.exe"
+  !define OUT "..\..\..\dist\C4Pulse-${VERSION}-setup.exe"
 !endif
 
-!define APPNAME "PingVakt"
+!define APPNAME "C4Pulse"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\PingVakt"
 !define WEBVIEW2KEY "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
 Name "${APPNAME} ${VERSION}"
 OutFile "${OUT}"
-InstallDir "$PROGRAMFILES64\${APPNAME}"
+InstallDir "$PROGRAMFILES64\PingVakt" ; samma mapp som före namnbytet, så att uppdateringar hamnar rätt
 InstallDirRegKey HKLM "${UNINSTKEY}" "InstallLocation"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
@@ -32,7 +32,7 @@ VIAddVersionKey "ProductName" "${APPNAME}"
 VIAddVersionKey "FileDescription" "${APPNAME} installer"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
-VIAddVersionKey "LegalCopyright" "PingVakt"
+VIAddVersionKey "LegalCopyright" "C4Pulse"
 
 !define MUI_ICON "icon.ico"
 !define MUI_UNICON "icon.ico"
@@ -53,12 +53,12 @@ VIAddVersionKey "LegalCopyright" "PingVakt"
 !insertmacro MUI_LANGUAGE "Swedish"
 !insertmacro MUI_RESERVEFILE_LANGDLL
 
-LangString RunText ${LANG_ENGLISH} "Start PingVakt"
-LangString RunText ${LANG_SWEDISH} "Starta PingVakt"
-LangString Need64 ${LANG_ENGLISH} "PingVakt requires 64-bit Windows."
-LangString Need64 ${LANG_SWEDISH} "PingVakt kräver 64-bitars Windows."
-LangString SecMainName ${LANG_ENGLISH} "PingVakt (required)"
-LangString SecMainName ${LANG_SWEDISH} "PingVakt (krävs)"
+LangString RunText ${LANG_ENGLISH} "Start C4Pulse"
+LangString RunText ${LANG_SWEDISH} "Starta C4Pulse"
+LangString Need64 ${LANG_ENGLISH} "C4Pulse requires 64-bit Windows."
+LangString Need64 ${LANG_SWEDISH} "C4Pulse kräver 64-bitars Windows."
+LangString SecMainName ${LANG_ENGLISH} "C4Pulse (required)"
+LangString SecMainName ${LANG_SWEDISH} "C4Pulse (krävs)"
 LangString SecDesktopName ${LANG_ENGLISH} "Desktop shortcut"
 LangString SecDesktopName ${LANG_SWEDISH} "Genväg på skrivbordet"
 LangString SecAutoName ${LANG_ENGLISH} "Start with Windows"
@@ -67,12 +67,12 @@ LangString DescMain ${LANG_ENGLISH} "The application itself."
 LangString DescMain ${LANG_SWEDISH} "Själva programmet."
 LangString DescDesktop ${LANG_ENGLISH} "Put a shortcut on the desktop."
 LangString DescDesktop ${LANG_SWEDISH} "Lägg en genväg på skrivbordet."
-LangString DescAuto ${LANG_ENGLISH} "Start PingVakt automatically when you sign in."
-LangString DescAuto ${LANG_SWEDISH} "Starta PingVakt automatiskt när du loggar in."
+LangString DescAuto ${LANG_ENGLISH} "Start C4Pulse automatically when you sign in."
+LangString DescAuto ${LANG_SWEDISH} "Starta C4Pulse automatiskt när du loggar in."
 LangString UninstName ${LANG_ENGLISH} "Uninstall"
 LangString UninstName ${LANG_SWEDISH} "Avinstallera"
-LangString NeedWebView ${LANG_ENGLISH} "PingVakt needs the Microsoft Edge WebView2 Runtime, which does not seem to be installed.$\r$\n$\r$\nOpen the download page now?"
-LangString NeedWebView ${LANG_SWEDISH} "PingVakt behöver Microsoft Edge WebView2 Runtime, som inte verkar vara installerad.$\r$\n$\r$\nVill du öppna nedladdningssidan nu?"
+LangString NeedWebView ${LANG_ENGLISH} "C4Pulse needs the Microsoft Edge WebView2 Runtime, which does not seem to be installed.$\r$\n$\r$\nOpen the download page now?"
+LangString NeedWebView ${LANG_SWEDISH} "C4Pulse behöver Microsoft Edge WebView2 Runtime, som inte verkar vara installerad.$\r$\n$\r$\nVill du öppna nedladdningssidan nu?"
 
 Function .onInit
   !insertmacro MUI_LANGDLL_DISPLAY
@@ -90,13 +90,16 @@ Section "$(SecMainName)" SecMain
   File "license.txt"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
+  ; genvägar från tiden då programmet hette PingVakt
+  Delete "$DESKTOP\PingVakt.lnk"
+  RMDir /r "$SMPROGRAMS\PingVakt"
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\PingVakt.exe"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\$(UninstName) ${APPNAME}.lnk" "$INSTDIR\Uninstall.exe"
 
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "${APPNAME}"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "PingVakt"
+  WriteRegStr HKLM "${UNINSTKEY}" "Publisher" "C4Pulse"
   WriteRegStr HKLM "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\PingVakt.exe"
   WriteRegStr HKLM "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${UNINSTKEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
@@ -146,5 +149,5 @@ Section "Uninstall"
   Delete "$DESKTOP\${APPNAME}.lnk"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPNAME}"
   DeleteRegKey HKLM "${UNINSTKEY}"
-  ; Settings in %APPDATA%\PingVakt are intentionally kept.
+  ; Settings in %APPDATA%\C4Pulse are intentionally kept.
 SectionEnd

@@ -224,7 +224,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	var userID string
 	if err := s.db.QueryRow(`SELECT id FROM users WHERE lower(email)=?`, email).Scan(&userID); err != nil || email == "" {
 		s.auditAs(email, clientIP(r), "sign-in", "", i18n.T("failed sign-in")+" ("+name+")")
-		fail("no PingVakt user with the email address " + email)
+		fail("no C4Pulse user with the email address " + email)
 		return
 	}
 	if err := s.createSession(w, r, userID, true); err != nil {

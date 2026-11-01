@@ -122,7 +122,7 @@ func runMobile(args []string) {
 	})
 	mux.HandleFunc("POST /api/survey/send", ms.handleSendSurvey)
 	srv := &http.Server{Addr: *listen, Handler: keyCheck(key, mux), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("PingVakt mobile agent %s listening on %s", Version, *listen)
+	log.Printf("C4Pulse mobile agent %s listening on %s", Version, *listen)
 	log.Fatal(srv.ListenAndServe())
 }
 
@@ -186,7 +186,7 @@ func (ms *mobileState) surveyHook(ctx context.Context) ([]wifi.BSS, string, erro
 			if sc != nil && time.Since(time.UnixMilli(sc.T)) < 10*time.Minute {
 				return append([]wifi.BSS(nil), sc.BSS...), "android", nil
 			}
-			return nil, "android", errors.New("no Wi-Fi scan from the phone – open the PingVakt app and allow location access")
+			return nil, "android", errors.New("no Wi-Fi scan from the phone – open the C4Pulse app and allow location access")
 		}
 		select {
 		case <-ctx.Done():

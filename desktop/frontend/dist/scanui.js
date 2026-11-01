@@ -1,4 +1,4 @@
-/* PingVakt – nätverksskanning (samma fil i server/web och desktop/frontend/dist).
+/* C4Pulse – nätverksskanning (samma fil i server/web och desktop/frontend/dist).
  * Använder h, modal, select, toast, fmtMs och T från värdappen. */
 'use strict';
 
